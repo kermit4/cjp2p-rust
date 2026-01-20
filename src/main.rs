@@ -43,9 +43,10 @@ fn main() -> Result<(), std::io::Error> {
             println!("type {}", message);
             println!("type {}", message["message_type"]);
             match message["message_type"].as_str().unwrap() {
-                "Please suggest peers." => suggest_peers(&socket, src, &peers),
-                "suggested peers" => receive_peers(peers, message),
+                "Please send peers." => send_peers(&socket, src, &peers),
+                "Receive peers." => receive_peers(peers, message),
                 "Please send content." => send_content(&socket, src, &peers, message),
+                "Receive content." => receive_content(&socket, src, &peers, message),
                 _ => (),
             };
             let mut result = vec![];
@@ -56,13 +57,13 @@ fn main() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-fn suggest_peers(socket: &UdpSocket, src: SocketAddr, peers: &HashSet<SocketAddr>) -> () {
+fn send_peers(socket: &UdpSocket, src: SocketAddr, peers: &HashSet<SocketAddr>) -> () {
     println!("sending peers {:?}", peers);
     let p: Vec<SocketAddr> = peers.into_iter().cloned().collect();
 
     let mut message = json!([
         {"message_type":
-        "suggested peers",
+        "Receive peers.",
         "peers":  serde_json::to_value(p).unwrap()}]);
     let message_bytes: Vec<u8> = serde_json::to_vec(&message).unwrap();
     println!("sending peers {:?}", str::from_utf8(&message_bytes));
@@ -100,13 +101,21 @@ fn send_content(
         .unwrap();
     let encoded: String = general_purpose::STANDARD_NO_PAD.encode(content);
     let mut message_out = json!([
-        {"message_type": "content",
+        {"message_type": "Receive content.",
         "content_offset":  message_in["content_offset"],
         "content":  encoded,
-        "content_length":  content_length
         }
     ]);
     let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
     println!("sending content {:?}", str::from_utf8(&message_bytes));
     socket.send_to(&message_bytes, src);
 }
+
+fn receive_content(
+    socket: &UdpSocket,
+    src: SocketAddr,
+    peers: &HashSet<SocketAddr>,
+    message_in: &Value,
+) -> () {
+
+    }
