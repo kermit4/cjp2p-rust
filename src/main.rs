@@ -99,11 +99,12 @@ fn send_content(
     let content_length = file
         .read_at(&mut content, message_in["content_offset"].as_u64().unwrap())
         .unwrap();
-    let encoded: String = general_purpose::STANDARD_NO_PAD.encode(content);
+    let content_b64: String = general_purpose::STANDARD_NO_PAD.encode(content);
     let mut message_out = json!([
         {"message_type": "Receive content.",
+        "content_sha256":  message_in["content_sha256"],
         "content_offset":  message_in["content_offset"],
-        "content":  encoded,
+        "content_b64":  content_b64,
         }
     ]);
     let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -117,5 +118,12 @@ fn receive_content(
     peers: &HashSet<SocketAddr>,
     message_in: &Value,
 ) -> () {
+    fs::create_dir("./incoming");
+    let path = "./incoming/".to_owned() + message_in["content_sha256"].as_str().unwrap();
+    println!("receiving {:?} at {:?} offset",path,message_in["content_offset"]);
+    let mut file = OpenOptions::new().create(true).read(true).write(true)
+                    .open(path).unwrap();
+    let content_bytes = general_purpose::STANDARD_NO_PAD.decode(message_in["content_b64"].as_str().unwrap()).unwrap();
+    file.write_at(&content_bytes, message_in["content_offset"].as_u64().unwrap() );
 
-    }
+}
