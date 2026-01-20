@@ -1,5 +1,5 @@
 use bit_vec::BitVec;
-use serde_json::{json,Map, Value};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -42,7 +42,7 @@ fn main() -> Result<(), std::io::Error> {
             println!("type {}", message["message_type"]);
             match message["message_type"].as_str().unwrap() {
                 "Please suggest peers." => suggest_peers(&socket, src, &peers),
-                "suggested peers" => receive_peers(peers,message),
+                "suggested peers" => receive_peers(peers, message),
                 _ => (),
             };
             let mut result = vec![];
@@ -58,7 +58,7 @@ fn suggest_peers(socket: &UdpSocket, src: SocketAddr, peers: &HashSet<SocketAddr
     let p: Vec<SocketAddr> = peers.into_iter().cloned().collect();
 
     let mut message = json!([null]);
-    message[0]=json!(
+    message[0] = json!(
         {"message_type":
         "suggested peers",
         "peers":  serde_json::to_value(p).unwrap()});
@@ -67,10 +67,10 @@ fn suggest_peers(socket: &UdpSocket, src: SocketAddr, peers: &HashSet<SocketAddr
     socket.send_to(&message_bytes, src);
 }
 
-fn receive_peers(peers: &mut HashSet<SocketAddr>,message: &Value) -> () {
+fn receive_peers(peers: &mut HashSet<SocketAddr>, message: &Value) -> () {
     for p in message["peers"].as_array().unwrap() {
-        println!(" a peer {:?}",p);
+        println!(" a peer {:?}", p);
         let sa: SocketAddr = p.as_str().unwrap().parse().unwrap();
         peers.insert(sa);
-        }
+    }
 }
