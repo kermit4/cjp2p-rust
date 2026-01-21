@@ -31,42 +31,39 @@ fn walk_object(name: &str, x: &Value, result: &mut Vec<String>) {
 }
 
 fn main() -> Result<(), std::io::Error> {
-
     let mut peers: HashSet<SocketAddr> = HashSet::new();
     peers.insert("159.69.54.127:24254".parse().unwrap());
     peers.insert("148.71.89.128:24254".parse().unwrap());
     let socket = UdpSocket::bind("0.0.0.0:24254")?;
     std::env::set_current_dir("./pejovu");
     let mut peer_i = peers.iter();
-    socket.send_to(b"[]",peer_i.next().unwrap()); // just so anyone knows i exist
+    socket.send_to(b"[]", peer_i.next().unwrap()); // just so anyone knows i exist
     let mut args = env::args();
     args.next();
     use std::collections::HashMap;
-//    let mut inbound_states = HashMap::new();
-//    for v in args {
-  //      request_content(&socket,peers,&inbound_states,v);
+    //    let mut inbound_states = HashMap::new();
+    //    for v in args {
+    //      request_content(&socket,peers,&inbound_states,v);
     //}
     loop {
         let mut buf = [0; 0x10000];
         let (_amt, src) = socket.recv_from(&mut buf).expect("socket err");
         let object: Vec<Value> = serde_json::from_slice(&buf[0.._amt]).unwrap();
         peers.insert(src);
-        let mut message_out = json!(
-        for message_in in &object {
+        let mut message_out = json!(for message_in in &object {
             println!("type {}", message_in);
             println!("type {}", message_in["message_type"]);
             match message_in["message_type"].as_str().unwrap() {
                 "Please send peers." => send_peers(&peers),
                 "These are peers." => receive_peers(&mut peers, message_in),
-//                "Please send content." => send_content(&peers, message_in),
-//                "Here is content." => receive_content(&socket, src, &peers, message_in),
+                //                "Please send content." => send_content(&peers, message_in),
+                //                "Here is content." => receive_content(&socket, src, &peers, message_in),
                 _ => json!(serde_json::Value::Null),
             };
             let mut result = vec![];
             walk_object("rot", message_in, &mut result);
             println!("{:?}", result);
-        }
-        );
+        });
         let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
         println!("sending peers {:?}", str::from_utf8(&message_bytes));
         socket.send_to(&message_bytes, src);
@@ -186,7 +183,7 @@ fn receive_peers(peers: &mut HashSet<SocketAddr>, message: &Value) -> Value {
 //)  -> () {
 //    fs::create_dir("./incoming");
 //    let path = "./incoming/".to_owned() + message_in["content_sha256"].as_str().unwrap();
-//        inbound_states.insert(v, 
+//        inbound_states.insert(v,
 //            InboundState {
 //                file:  // File::create(
 //    OpenOptions::new()
