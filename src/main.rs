@@ -31,7 +31,7 @@ fn walk_object(name: &str, x: &Value, result: &mut Vec<String>) {
 }
 
 fn main() -> Result<(), std::io::Error> {
-    let mut peers: HashSet<SocketAddr>= HashSet::new();
+    let mut peers: HashSet<SocketAddr> = HashSet::new();
     peers.insert("159.69.54.127:34254".parse().unwrap());
     peers.insert("148.71.89.128:34254".parse().unwrap());
     let socket = UdpSocket::bind("0.0.0.0:34254")?;
