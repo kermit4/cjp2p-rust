@@ -27,3 +27,7 @@ File sharing is a primitive example common use case, not the only intended purpo
 
 
 cookie as its own message.  be sure to call part timestamp too  so people dont cache it
+
+timer to say hey and ask whatsup
+
+

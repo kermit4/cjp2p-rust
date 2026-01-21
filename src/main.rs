@@ -85,7 +85,7 @@ fn send_peers(peers: &HashSet<SocketAddr>) -> Value {
     let p: Vec<SocketAddr> = peers.into_iter().cloned().collect();
     return json!(
         {"message_type": "These are peers.",
-        "peers":  serde_json::to_value(p).unwrap()});
+        "peers":  p});
 }
 
 fn receive_peers(peers: &mut HashSet<SocketAddr>, message: &Value) -> Value {
