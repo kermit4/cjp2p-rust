@@ -37,7 +37,8 @@ fn main() -> Result<(), std::io::Error> {
     let socket = UdpSocket::bind("0.0.0.0:24254")?;
     std::env::set_current_dir("./pejovu");
     let mut peer_i = peers.iter();
-    socket.send_to(b"[]", peer_i.next().unwrap()); // just so anyone knows i exist
+    socket.send_to(b"[]", peer_i.next().unwrap()); // let people know im here
+    socket.send_to(b"[]", peer_i.next().unwrap()); // let people know im here
     let mut args = env::args();
     args.next();
     use std::collections::HashMap;
@@ -48,18 +49,19 @@ fn main() -> Result<(), std::io::Error> {
     loop {
         let mut buf = [0; 0x10000];
         let (_amt, src) = socket.recv_from(&mut buf).expect("socket err");
-        let object: Vec<Value> = serde_json::from_slice(&buf[0.._amt]).unwrap();
+        let messages: Vec<Value> = serde_json::from_slice(&buf[0.._amt]).unwrap();
+        println!("{:?} said something", src);
         peers.insert(src);
         let mut message_out: Vec<Value> = Vec::new();
-        for message_in in &object {
+        for message_in in &messages {
             println!("type {}", message_in);
             println!("type {}", message_in["message_type"]);
             let reply = match message_in["message_type"].as_str().unwrap() {
                 "Please send peers." => send_peers(&peers),
                 "These are peers." => receive_peers(&mut peers, message_in),
-                //                "Please send content." => send_content(&peers, message_in),
+                "Please send content." => send_content(message_in),
                 //                "Here is content." => receive_content(&socket, src, &peers, message_in),
-                _ => json!(serde_json::Value::Null),
+                _ => Null,
             };
             if reply != Null {
                 message_out.push(json!(reply))
@@ -67,6 +69,9 @@ fn main() -> Result<(), std::io::Error> {
             let mut result = vec![];
             walk_object("rot", message_in, &mut result);
             println!("{:?}", result);
+        }
+        if message_out.len() == 0 {
+            continue;
         }
         let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
         println!("sending message {:?}", str::from_utf8(&message_bytes));
@@ -92,38 +97,30 @@ fn receive_peers(peers: &mut HashSet<SocketAddr>, message: &Value) -> Value {
     return json!(serde_json::Value::Null);
 }
 
-//fn send_content(
-//    socket: &UdpSocket,
-//    src: SocketAddr,
-//    peers: &HashSet<SocketAddr>,
-//    message_in: &Value,
-//) -> () {
-//    if message_in["content_sha256"].as_str().unwrap().find("/") != None
-//        || message_in["content_sha256"].as_str().unwrap().find("\\") != None
-//    {
-//        return;
-//    };
-//    let mut file = File::open(message_in["content_sha256"].as_str().unwrap()).unwrap();
-//    let mut to_read = message_in["content_length"].as_u64().unwrap() as usize;
-//    if to_read > 4096 {
-//        to_read = 4096
-//    }
-//    let mut content = vec![0; to_read];
-//    let content_length = file
-//        .read_at(&mut content, message_in["content_offset"].as_u64().unwrap())
-//        .unwrap();
-//    let content_b64: String = general_purpose::STANDARD_NO_PAD.encode(content);
-//    let mut message_out = json!([
-//        {"message_type": "Here is content.",
-//        "content_sha256":  message_in["content_sha256"],
-//        "content_offset":  message_in["content_offset"],
-//        "content_b64":  content_b64,
-//        }
-//    ]);
-//    let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-//    println!("sending content {:?}", str::from_utf8(&message_bytes));
-//    socket.send_to(&message_bytes, src);
-//}
+fn send_content(message_in: &Value) -> Value {
+    if message_in["content_sha256"].as_str().unwrap().find("/") != None
+        || message_in["content_sha256"].as_str().unwrap().find("\\") != None
+    {
+        return Null;
+    };
+    let mut file = File::open(message_in["content_sha256"].as_str().unwrap()).unwrap();
+    let mut to_read = message_in["content_length"].as_u64().unwrap() as usize;
+    if to_read > 4096 {
+        to_read = 4096
+    }
+    let mut content = vec![0; to_read];
+    let content_length = file
+        .read_at(&mut content, message_in["content_offset"].as_u64().unwrap())
+        .unwrap();
+    let content_b64: String = general_purpose::STANDARD_NO_PAD.encode(content);
+    return json!(
+        {"message_type": "Here is content.",
+        "content_sha256":  message_in["content_sha256"],
+        "content_offset":  message_in["content_offset"],
+        "content_b64":  content_b64,
+        }
+    );
+}
 //
 //fn receive_content(
 //    socket: &UdpSocket,
