@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
 use bit_vec::BitVec;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Map, Value, Value::Null};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -50,22 +50,27 @@ fn main() -> Result<(), std::io::Error> {
         let (_amt, src) = socket.recv_from(&mut buf).expect("socket err");
         let object: Vec<Value> = serde_json::from_slice(&buf[0.._amt]).unwrap();
         peers.insert(src);
-        let mut message_out = json!(for message_in in &object {
+        let mut message_out :  Vec<Value> = Vec::new();
+        for message_in in &object {
             println!("type {}", message_in);
             println!("type {}", message_in["message_type"]);
+                let reply= 
+                json!( 
             match message_in["message_type"].as_str().unwrap() {
                 "Please send peers." => send_peers(&peers),
                 "These are peers." => receive_peers(&mut peers, message_in),
                 //                "Please send content." => send_content(&peers, message_in),
                 //                "Here is content." => receive_content(&socket, src, &peers, message_in),
                 _ => json!(serde_json::Value::Null),
-            };
+            }
+            );
+            if reply != Null { message_out.push(json!(reply)) }; 
             let mut result = vec![];
             walk_object("rot", message_in, &mut result);
             println!("{:?}", result);
-        });
+        }
         let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        println!("sending peers {:?}", str::from_utf8(&message_bytes));
+        println!("sending message {:?}", str::from_utf8(&message_bytes));
         socket.send_to(&message_bytes, src);
     }
     Ok(())
