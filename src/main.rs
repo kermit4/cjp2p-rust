@@ -215,12 +215,12 @@ fn request_content_block(inbound_state: &mut InboundState) -> Value {
     if (inbound_state.blocks_complete * 4096 > inbound_state.eof) {
         return Null;
     }
-    while inbound_state.bitmap[inbound_state.next_block] {
+    while {
         inbound_state.next_block += 1;
         if inbound_state.next_block * 4096 > inbound_state.eof {
-            inbound_state.next_block = 0;
+            inbound_state.next_block = 0; }
+        inbound_state.bitmap[inbound_state.next_block] } {
         }
-    }
     return json!(
         {"message_type": PLEASE_SEND_CONTENT,
         "content_id":  inbound_state.sha256,
