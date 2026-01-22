@@ -50,13 +50,13 @@ fn main() -> Result<(), std::io::Error> {
     loop {
         let mut buf = [0; 0x10000];
         socket.set_read_timeout(Some(Duration::new(1, 0)))?;
-                        println!("main loop");
+        println!("main loop");
         let (_amt, src) = match socket.recv_from(&mut buf) {
             Ok(_r) => _r,
             Err(_e) => {
                 println!("inactivity, bumping transfer and asking for more peers");
                 for p in peers.iter() {
-                        println!("p loop");
+                    println!("p loop");
                     let mut message_out: Vec<Value> = Vec::new();
                     message_out.push(json!({"message_type":"Please send peers."})); // let people know im here
                     let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -68,26 +68,26 @@ fn main() -> Result<(), std::io::Error> {
                     socket.send_to(&message_bytes, p);
                 }
                 let mut to_remove = "".to_owned();
-                    for i in inbound_states.values_mut() {
-                        println!("is loop");
-                        if (i.blocks_complete * 4096 > i.eof) {
-                            to_remove = i.sha256.as_str().to_owned();
-                            continue;
-                        }
-                        for p in peers.iter() {
-                        println!("p loop");
-                            let mut message_out: Vec<Value> = Vec::new();
-                            message_out.push(json!(request_content_block(i)));
-                            let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                            println!(
-                                "sending message {:?} to {:?}",
-                                str::from_utf8(&message_bytes),
-                                p
-                            );
-                            socket.send_to(&message_bytes, p);
-                        }
+                for i in inbound_states.values_mut() {
+                    println!("is loop");
+                    if (i.blocks_complete * 4096 > i.eof) {
+                        to_remove = i.sha256.as_str().to_owned();
+                        continue;
                     }
-                    println!("maybe removing {:?}",to_remove);
+                    for p in peers.iter() {
+                        println!("p loop");
+                        let mut message_out: Vec<Value> = Vec::new();
+                        message_out.push(json!(request_content_block(i)));
+                        let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                        println!(
+                            "sending message {:?} to {:?}",
+                            str::from_utf8(&message_bytes),
+                            p
+                        );
+                        socket.send_to(&message_bytes, p);
+                    }
+                }
+                println!("maybe removing {:?}", to_remove);
                 if to_remove != "" {
                     let path = "./incoming/".to_owned() + &to_remove;
                     let new_path = "./".to_owned() + &to_remove;
@@ -164,7 +164,7 @@ fn send_content(message_in: &Value) -> Value {
     let content_length = file
         .read_at(&mut buf, message_in["content_offset"].as_u64().unwrap())
         .unwrap();
-    let (content,_) = buf.split_at(content_length);
+    let (content, _) = buf.split_at(content_length);
     let content_b64: String = general_purpose::STANDARD_NO_PAD.encode(content);
     return json!(
         {"message_type": "Here is content.",
@@ -212,8 +212,17 @@ fn receive_content(
 }
 //
 fn request_content_block(inbound_state: &mut InboundState) -> Value {
-                    println!("{}",inbound_state.bitmap.iter().position(|x| x == false ).unwrap());
-                        if (inbound_state.blocks_complete * 4096 > inbound_state.eof) { return Null;}
+    println!(
+        "{}",
+        inbound_state
+            .bitmap
+            .iter()
+            .position(|x| x == false)
+            .unwrap()
+    );
+    if (inbound_state.blocks_complete * 4096 > inbound_state.eof) {
+        return Null;
+    }
     while inbound_state.bitmap[inbound_state.next_block] {
         inbound_state.next_block += 1;
         if inbound_state.next_block * 4096 > inbound_state.eof {
