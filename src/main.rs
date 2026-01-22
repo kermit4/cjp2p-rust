@@ -1,7 +1,10 @@
+// don't use too many Rustisms, it should be readable to any engineer not just Rusticans
+
 use base64::{engine::general_purpose, Engine as _};
-use bit_vec::BitVec;
+use bitvec::prelude::*;
 use serde_json::{json, Map, Value, Value::Null};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::env;
@@ -41,11 +44,10 @@ fn main() -> Result<(), std::io::Error> {
     socket.send_to(b"[]", peer_i.next().unwrap()); // let people know im here
     let mut args = env::args();
     args.next();
-    use std::collections::HashMap;
-    //    let mut inbound_states = HashMap::new();
-    //    for v in args {
-    //      request_content(&socket,peers,&inbound_states,v);
-    //}
+    let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
+    for v in args {
+        new_inbound_state(&mut inbound_states, v.as_str());
+    }
     loop {
         let mut buf = [0; 0x10000];
         let (_amt, src) = socket.recv_from(&mut buf).expect("socket err");
@@ -60,7 +62,7 @@ fn main() -> Result<(), std::io::Error> {
                 "Please send peers." => send_peers(&peers),
                 "These are peers." => receive_peers(&mut peers, message_in),
                 "Please send content." => send_content(message_in),
-                //                "Here is content." => receive_content(&socket, src, &peers, message_in),
+                "Here is content." => receive_content(message_in, &mut inbound_states),
                 _ => Null,
             };
             if reply != Null {
@@ -121,94 +123,81 @@ fn send_content(message_in: &Value) -> Value {
         }
     );
 }
+
+fn receive_content(
+    message_in: &Value,
+    inbound_states: &mut HashMap<String, InboundState>,
+) -> Value {
+    let sha256 = message_in["content_sha256"].as_str().unwrap();
+    if !inbound_states.contains_key(sha256) {
+        return Null;
+    }
+    let mut inbound_state = inbound_states.get_mut(sha256).unwrap();
+    if sha256.find("/") != None || sha256.find("\\") != None {
+        return Null;
+    };
+    let content_bytes = general_purpose::STANDARD_NO_PAD
+        .decode(message_in["content_b64"].as_str().unwrap())
+        .unwrap();
+    inbound_state.file.write_at(
+        &content_bytes,
+        message_in["content_offset"].as_u64().unwrap(),
+    );
+    //inbound_state.blocks_remaining -= 1;
+    let offset = message_in["content_offset"].as_i64().unwrap() as usize;
+    if inbound_state.length < offset + content_bytes.len() {
+        inbound_state.length = offset + content_bytes.len();
+    }
+    inbound_state
+        .bitmap
+        .resize((inbound_state.length + 4095) / 4096, false);
+    inbound_state.bitmap.set((offset / 4096) as usize, true);
+    return request_content_block(inbound_state);
+}
 //
-//fn receive_content(
-//    socket: &UdpSocket,
-//    src: SocketAddr,
-//    peers: &HashSet<SocketAddr>,
-//    message_in: &Value,
-//) -> () {
-//    if message_in["content_sha256"].as_str().unwrap().find("/") != None
-//        || message_in["content_sha256"].as_str().unwrap().find("\\") != None
-//    {
-//        return;
-//    };
-//        inbound_state=inboundd_states[message_in["content_sha256"].as_str()]
-//        if inbound_state == None { return;}
-//    let content_bytes = general_purpose::STANDARD_NO_PAD
-//        .decode(message_in["content_b64"].as_str().unwrap())
-//        .unwrap();
-//    inbound_state.file.write_at(
-//        &content_bytes,
-//        message_in["content_offset"].as_u64().unwrap(),
-//    );
-//        inbound_state.blocks_remaining -= 1;
-//        inbound_state.bitmap.set(message_in["content_offset"] as usize, true);
-//        request_content_block(&socket,&peers,&inbound_state,&sha256);
-//        if !(inbound_state.blocks_remaining %100)
-//        request_content_block(&socket,&peers,&inbound_state,&sha256);
-//}
-////
-////fn request_content_block(
-////    socket: &UdpSocket,
-////    peers: &HashSet<SocketAddr>,
-//    inbound_state: &InboundState,
-//    sha256: String
-//) -> () {
-//        if inbound_state.blocks_remaining == 0 {
-//            offset = inbound_state.next_block;
-//            //                println!("{}",inbound_state.bitmap.iter().position(|x| x == false ).unwrap());
-//            while {
-//                inbound_state.next_block += 1;
-//                inbound_state.next_block %= blocks(inbound_state.len);
-//                inbound_state.bitmap.get(inbound_state.next_block as usize).unwrap()
-//            } {}
-//        }
-//    let mut message_out = json!([
-//        {"message_type": "Pleae send content.",
-//        "content_sha256":  inbound_state.sha256,
-//        "content_offset":  inbound_state.next_block*4096,
-//        "content_length": 4096,
-//        }
-//    ]);
-//    let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-//    println!("sending content {:?}", str::from_utf8(&message_bytes));
-//    socket.send_to(&message_bytes, src);
-//}
-//
-//fn request_content(
-//    socket: &UdpSocket,
-//    peers: &HashSet<SocketAddr>,
-//    inbound_states: HashMap;
-//    sha256: String
-//)  -> () {
-//    fs::create_dir("./incoming");
-//    let path = "./incoming/".to_owned() + message_in["content_sha256"].as_str().unwrap();
-//        inbound_states.insert(v,
-//            InboundState {
-//                file:  // File::create(
-//    OpenOptions::new()
-//        .create(true)
-//        .read(true)
-//        .write(true)
-//        .open(path)
-//        .unwrap();
-//                len: self.len,
-//                blocks_remaining: blocks(self.len),
-//                next_block: 1,
-//                bitmap: BitVec::from_elem(blocks(self.len) as usize, false),
-//            }
-//        );
-//        request_content_block(&socket,&peers,&inbound_state,&sha256);
-//        request_content_block(&socket,&peers,&inbound_state,&sha256);
-//}
-//
-//struct InboundState {
-//    file: File,
-//    len: u64,
-//    blocks_remaining: u64,
-//    next_block: u64,
-//    bitmap: BitVec,
-//}
-//
-//
+fn request_content_block(inbound_state: &mut InboundState) -> Value {
+    //                println!("{}",inbound_state.bitmap.iter().position(|x| x == false ).unwrap());
+    //       while {
+    inbound_state.next_block += 1;
+    //                inbound_state.next_block %= inbound_state.len/4096;
+    //               inbound_state.bitmap.get(inbound_state.next_block as usize).unwrap()
+    //         } {}
+    return json!([
+        {"message_type": "Pleae send content.",
+        "content_sha256":  inbound_state.sha256,
+        "content_offset":  inbound_state.next_block*4096,
+        "content_length": 4096,
+        }
+    ]);
+}
+
+fn new_inbound_state(inbound_states: &mut HashMap<String, InboundState>, sha256: &str) -> () {
+    fs::create_dir("./incoming");
+    let path = "./incoming/".to_owned() + &&sha256;
+    inbound_states.insert(
+        sha256.to_string(),
+        InboundState {
+            file: OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .open(path)
+                .unwrap(),
+            next_block: 0,
+            bitmap: BitVec::new(),
+            sha256: sha256.to_string(),
+            length: 1,
+        },
+    );
+    //    let mut peer_i = peers.iter();
+    //  socket.send_to ( json!([ request_content_block(&inbound_state)]), peer_i.next().unwrap()); // should be part of a timer
+}
+
+struct InboundState {
+    file: File,
+    next_block: u64,
+    bitmap: BitVec,
+    sha256: String,
+    length: usize,
+    // last host
+}
