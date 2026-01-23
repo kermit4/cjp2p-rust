@@ -11,10 +11,11 @@ To request a file, run with the sha256 as an arguement.  It will be placed in ./
 File sharing is a primitive example common use case, not the only intended purpose.
 
 # TODO
-- save peer list 
-- chose random port on first run, but then stick with it on restarts
-- cookies so its not used for a DDOS, as people can spoof their source IPs
+- save peer list  between restarts to not depend on the hard coded list
+- send_peers and bump_inbounds should chose more intelligently, randomly is better than first 50, ideally a vector sorted by responsiveness and chosen somewhat ranomly with a lean to the closer hosts
+- chose random port on first run, but then stick with it between restarts, save in a config file json
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere
+- some way to not be used as a DDOS as people can spoof their IPs in a request for peers or contont
 
 maybe replies just include request and that it is a reply, so cookies and all data are there even if not used by replier
  
