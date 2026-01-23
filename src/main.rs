@@ -264,7 +264,8 @@ fn bump_inbounds(
             continue;
         }
         for p in peers.iter() {
-            let message_out = request_content_block(inbound_state);
+            let mut message_out: Vec<Value> = Vec::new();
+            message_out.push(request_content_block(inbound_state));
             let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             socket.send_to(&message_bytes, p).ok();
         }
