@@ -18,6 +18,8 @@ File sharing is a primitive example common use case, not the only intended purpo
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete anywhere
 
 
+maybe replies just include request and that it is a reply, so cookies and all data are there even if not used by replier
+ 
 cookie as its own message.  be sure to call part timestamp too  so people dont cache it
 
 timer to say hey and ask whatsup

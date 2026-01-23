@@ -1,5 +1,3 @@
-// don't use too many Rustisms, it should be readable to any engineer not just Rusticans
-
 use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
 use log::{debug, info, warn};
@@ -21,6 +19,7 @@ use std::str;
 use std::time::{Duration, SystemTime};
 use std::vec;
 
+const MESSAGE_TYPE: &str = "message_type";
 const PLEASE_SEND_CONTENT: &str = "Please send content.";
 const THESE_ARE_PEERS: &str = "These are peers.";
 const PLEASE_SEND_PEERS: &str = "Please send peers.";
@@ -65,7 +64,7 @@ fn main() -> Result<(), std::io::Error> {
                 for p in peers.iter() {
                     debug!("p loop");
                     let mut message_out: Vec<Value> = Vec::new();
-                    message_out.push(json!({"message_type":PLEASE_SEND_PEERS})); // let people know im here
+                    message_out.push(json!({MESSAGE_TYPE:PLEASE_SEND_PEERS})); // let people know im here
                     let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                     socket.send_to(&message_bytes, p).ok();
                 }
@@ -84,8 +83,8 @@ fn main() -> Result<(), std::io::Error> {
         let mut message_out: Vec<Value> = Vec::new();
         for message_in in &messages {
             debug!("message {}", message_in);
-            debug!("type {}", message_in["message_type"]);
-            let reply = match message_in["message_type"].as_str().unwrap() {
+            debug!("type {}", message_in[MESSAGE_TYPE]);
+            let reply = match message_in[MESSAGE_TYPE].as_str().unwrap() {
                 PLEASE_SEND_PEERS => send_peers(&peers),
                 THESE_ARE_PEERS => receive_peers(&mut peers, message_in),
                 PLEASE_SEND_CONTENT => send_content(message_in),
@@ -112,7 +111,7 @@ fn send_peers(peers: &HashSet<SocketAddr>) -> Value {
     debug!("sending peers {:?}", peers);
     let p: Vec<SocketAddr> = peers.into_iter().cloned().collect();
     return json!(
-        {"message_type": THESE_ARE_PEERS,
+        {MESSAGE_TYPE: THESE_ARE_PEERS,
         "peers":  p});
 }
 
@@ -147,7 +146,7 @@ fn send_content(message_in: &Value) -> Value {
     let (content, _) = buf.split_at(content_length);
     let content_b64: String = general_purpose::STANDARD_NO_PAD.encode(content);
     return json!(
-        {"message_type": HERE_IS_CONTENT,
+        {MESSAGE_TYPE: HERE_IS_CONTENT,
         "content_id":  message_in["content_id"],
         "content_offset":  message_in["content_offset"],
         "content_b64":  content_b64,
@@ -173,6 +172,7 @@ fn receive_content(
     let offset = message_in["content_offset"].as_i64().unwrap() as usize;
     let block = (offset / 4096) as usize;
     if inbound_state.bitmap[block] {
+        inbound_state.dups += 1;
         return Null;
     }
     let content_bytes = general_purpose::STANDARD_NO_PAD
@@ -215,7 +215,7 @@ fn request_content_block(inbound_state: &mut InboundState) -> Value {
         inbound_state.bitmap[inbound_state.next_block]
     } {}
     return json!(
-        {"message_type": PLEASE_SEND_CONTENT,
+        {MESSAGE_TYPE: PLEASE_SEND_CONTENT,
         "content_id":  inbound_state.content_id,
         "content_offset":  inbound_state.next_block*4096,
         "content_length": 4096,
@@ -239,6 +239,7 @@ fn new_inbound_state(inbound_states: &mut HashMap<String, InboundState>, content
         eof: 1,
         blocks_complete: 0,
         last_bumped: SystemTime::now() - Duration::from_secs(5),
+        dups: 0,
     };
     inbound_state.bitmap.resize(1, false);
     inbound_states.insert(content_id.to_string(), inbound_state);
@@ -252,6 +253,7 @@ struct InboundState {
     eof: usize,
     blocks_complete: usize,
     last_bumped: SystemTime,
+    dups: usize,
     // last host
 }
 
@@ -279,7 +281,10 @@ fn bump_inbounds(
         }
     }
     if to_remove != "" {
-        println!("{:?} complete", to_remove);
+        println!(
+            "{to_remove} complete {0} dups of {1} blocks",
+            inbound_states[&to_remove].dups, inbound_states[&to_remove].blocks_complete
+        );
         let path = "./incoming/".to_owned() + &to_remove;
         let new_path = "./".to_owned() + &to_remove;
         fs::rename(path, new_path).unwrap();
