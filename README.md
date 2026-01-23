@@ -13,10 +13,8 @@ File sharing is a primitive example common use case, not the only intended purpo
 # TODO
 - save peer list 
 - chose random port on first run, but then stick with it on restarts
-- save transfer state to resume transfers if the application is restarted
 - cookies so its not used for a DDOS, as people can spoof their source IPs
-- need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete anywhere
-
+- need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere
 
 maybe replies just include request and that it is a reply, so cookies and all data are there even if not used by replier
  
@@ -25,3 +23,6 @@ cookie as its own message.  be sure to call part timestamp too  so people dont c
 timer to say hey and ask whatsup
 
 
+
+try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/pejovu
+or info/warn log levels

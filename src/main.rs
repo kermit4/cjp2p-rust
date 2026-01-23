@@ -24,7 +24,11 @@ const PLEASE_SEND_CONTENT: &str = "Please send content.";
 const THESE_ARE_PEERS: &str = "These are peers.";
 const PLEASE_SEND_PEERS: &str = "Please send peers.";
 const HERE_IS_CONTENT: &str = "Here is content.";
-macro_rules!  BLOCK_SIZE {() => {0x1000};} // 4k
+macro_rules! BLOCK_SIZE {
+    () => {
+        0x1000
+    };
+} // 4k
 fn walk_object(name: &str, x: &Value, result: &mut Vec<String>) {
     let Value::Object(x) = x else { return };
     debug!("name {:?}", name);
@@ -110,7 +114,7 @@ fn main() -> Result<(), std::io::Error> {
 
 fn send_peers(peers: &HashSet<SocketAddr>) -> Value {
     debug!("sending peers {:?}", peers);
-    let p: Vec<SocketAddr> = peers.into_iter().cloned().collect();
+    let p: Vec<SocketAddr> = peers.into_iter().take(50).cloned().collect();
     return json!(
         {MESSAGE_TYPE: THESE_ARE_PEERS,
         "peers":  p});
@@ -138,10 +142,10 @@ fn send_content(message_in: &Value, inbound_states: &mut HashMap<String, Inbound
 
     let file: &File;
     let file_: File;
-    if inbound_states.contains_key(content_id)  && 
-    content_offset as usize +content_length < inbound_states[content_id].eof &&
-            inbound_states[content_id].bitmap[ (content_offset / BLOCK_SIZE!()) as usize ] &&
-                ((content_offset % BLOCK_SIZE!()) ==0)
+    if inbound_states.contains_key(content_id)
+        && content_offset as usize + content_length < inbound_states[content_id].eof
+        && inbound_states[content_id].bitmap[(content_offset / BLOCK_SIZE!()) as usize]
+        && ((content_offset % BLOCK_SIZE!()) == 0)
     {
         file = &inbound_states[content_id].file;
     } else {
@@ -203,7 +207,7 @@ fn receive_content(
     if eof > inbound_state.eof {
         inbound_state.eof = eof;
     }
-    let blocks = (inbound_state.eof + BLOCK_SIZE!() -1 ) / BLOCK_SIZE!();
+    let blocks = (inbound_state.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
     inbound_state.bitmap.resize(blocks, false);
     inbound_state.bitmap.set(block, true);
     if offset + content_bytes.len() >= inbound_state.eof {
