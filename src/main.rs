@@ -2,8 +2,8 @@
 
 use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
+use log::{debug, info, warn};
 use serde_json::{json, Value, Value::Null};
-use log::{info, debug, warn};
 //use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -39,7 +39,7 @@ fn main() -> Result<(), std::io::Error> {
     let mut peers: HashSet<SocketAddr> = HashSet::new();
     peers.insert("148.71.89.128:24254".parse().unwrap());
     peers.insert("159.69.54.127:24254".parse().unwrap());
-    let socket = UdpSocket::bind("0.0.0.0:0")?;
+    let socket = UdpSocket::bind("0.0.0.0:24254")?;
     fs::create_dir("./pejovu").ok();
     std::env::set_current_dir("./pejovu").unwrap();
     let mut args = env::args();
@@ -80,7 +80,9 @@ fn main() -> Result<(), std::io::Error> {
                 "Please send peers." => send_peers(&peers),
                 "These are peers." => receive_peers(&mut peers, message_in),
                 PLEASE_SEND_CONTENT => send_content(message_in),
-                "Here is content." => receive_content(message_in, &mut inbound_states,&socket,&src),
+                "Here is content." => {
+                    receive_content(message_in, &mut inbound_states, &socket, &src)
+                }
                 _ => Null,
             };
             if reply != Null {
@@ -184,11 +186,12 @@ fn receive_content(
     if offset + content_bytes.len() >= inbound_state.eof {
         inbound_state.next_block = 0;
     }
-        if(inbound_state.next_block % 100)==0 { // increase the amount of data in flight
+    if (inbound_state.next_block % 100) == 0 {
+        // increase the amount of data in flight
         let message_out = request_content_block(inbound_state);
-            let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            socket.send_to(&message_bytes, src).ok();
-            }
+        let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+        socket.send_to(&message_bytes, src).ok();
+    }
     return request_content_block(inbound_state);
 }
 //
