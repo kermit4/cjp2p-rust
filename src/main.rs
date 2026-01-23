@@ -22,6 +22,9 @@ use std::time::{Duration, SystemTime};
 use std::vec;
 
 const PLEASE_SEND_CONTENT: &str = "Please send content.";
+const THESE_ARE_PEERS: &str = "These are peers.";
+const PLEASE_SEND_PEERS: &str = "Please send peers.";
+const HERE_IS_CONTENT: &str = "Here is content.";
 fn walk_object(name: &str, x: &Value, result: &mut Vec<String>) {
     let Value::Object(x) = x else { return };
     debug!("name {:?}", name);
@@ -62,7 +65,7 @@ fn main() -> Result<(), std::io::Error> {
                 for p in peers.iter() {
                     debug!("p loop");
                     let mut message_out: Vec<Value> = Vec::new();
-                    message_out.push(json!({"message_type":"Please send peers."})); // let people know im here
+                    message_out.push(json!({"message_type":PLEASE_SEND_PEERS})); // let people know im here
                     let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                     socket.send_to(&message_bytes, p).ok();
                 }
@@ -77,10 +80,10 @@ fn main() -> Result<(), std::io::Error> {
             debug!("message {}", message_in);
             debug!("type {}", message_in["message_type"]);
             let reply = match message_in["message_type"].as_str().unwrap() {
-                "Please send peers." => send_peers(&peers),
-                "These are peers." => receive_peers(&mut peers, message_in),
+                PLEASE_SEND_PEERS => send_peers(&peers),
+                THESE_ARE_PEERS => receive_peers(&mut peers, message_in),
                 PLEASE_SEND_CONTENT => send_content(message_in),
-                "Here is content." => {
+                HERE_IS_CONTENT => {
                     receive_content(message_in, &mut inbound_states, &socket, &src)
                 }
                 _ => Null,
@@ -105,7 +108,7 @@ fn send_peers(peers: &HashSet<SocketAddr>) -> Value {
     debug!("sending peers {:?}", peers);
     let p: Vec<SocketAddr> = peers.into_iter().cloned().collect();
     return json!(
-        {"message_type": "These are peers.",
+        {"message_type": THESE_ARE_PEERS,
         "peers":  p});
 }
 
@@ -140,7 +143,7 @@ fn send_content(message_in: &Value) -> Value {
     let (content, _) = buf.split_at(content_length);
     let content_b64: String = general_purpose::STANDARD_NO_PAD.encode(content);
     return json!(
-        {"message_type": "Here is content.",
+        {"message_type": HERE_IS_CONTENT,
         "content_id":  message_in["content_id"],
         "content_offset":  message_in["content_offset"],
         "content_b64":  content_b64,
