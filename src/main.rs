@@ -66,7 +66,7 @@ fn main() -> Result<(), std::io::Error> {
             Ok(_r) => _r,
             Err(_e) => {
                 warn!("too quiet, asking for more peers");
-                for p in peers.iter() {
+                for p in &peers {
                     debug!("p loop");
                     let mut message_out: Vec<Value> = Vec::new();
                     message_out.push(json!({MESSAGE_TYPE:PLEASE_SEND_PEERS})); // let people know im here
@@ -294,7 +294,7 @@ fn bump_inbounds(
             to_remove = inbound_state.content_id.as_str().to_owned();
             continue;
         }
-        for p in peers.iter() {
+        for p in peers {
             let mut message_out: Vec<Value> = Vec::new();
             message_out.push(request_content_block(&mut inbound_state));
             let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();

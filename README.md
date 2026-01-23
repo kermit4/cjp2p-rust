@@ -1,14 +1,19 @@
 This implements the https://github.com/kermit4/pejovu protocol.
 
-This will make available any files in the directory ./pejovu  It will ignore any requests for anything that's not a sha256, so as long as Rust's JSON parser (Serde) doesn't have an exploit, it seems safe to leave running.
+This will make available any files in the directory ./pejovu  It will ignore any requests for anything that has a / or \ in it, so as long as Rust's JSON parser (Serde) doesn't have an exploit, it seems safe to leave running.
 
-It currently assumes the filenames are their sha256 (maybe link them to their ordinary names for now)
+To request a file, run with the content_i as an arguement.  It will be placed in ./pejovu/incomplete/ until it is complete, then moved to ./pejovu
 
-This is very early in development, so people can send you files you didn't request, or sabotage transfers by sending invalid data.  Contributors are welcome. 
+File sharing is more of a primitave than a main purpose.  Things can build upon the ability to reliably and efficienty send more than what fits in one message.
 
-To request a file, run with the sha256 as an arguement.  It will be placed in ./pejovu/incomplete/<sha256> until it is complete.
+# building
+ cargo build
 
-File sharing is a primitive example common use case, not the only intended purpose.
+# hints
+
+try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/pejovu
+
+or info/warn log levels
 
 # TODO
 - save peer list  between restarts to not depend on the hard coded list
@@ -24,6 +29,3 @@ cookie as its own message.  be sure to call part timestamp too  so people dont c
 timer to say hey and ask whatsup
 
 
-
-try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/pejovu
-or info/warn log levels
