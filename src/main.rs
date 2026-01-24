@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
-use log::{debug, info, trace, warn};
+use log::{debug, info, trace, warn, error};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 //use sha2::{Digest, Sha256};
@@ -77,7 +77,7 @@ fn main() -> Result<(), std::io::Error> {
         let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
             Ok(_r) => _r,
             _ => {
-                warn!(
+                error!(
                     "could not deserialize an incoming message {:?}",
                     str::from_utf8(message_in_bytes).unwrap()
                 );
@@ -101,7 +101,7 @@ fn main() -> Result<(), std::io::Error> {
             let message_in_enum: Message = match serde_json::from_value(message_in.clone()) {
                 Ok(_r) => _r,
                 _ => {
-                    warn!("could not deserialize an incoming message {:?}", message_in);
+                    error!("could not deserialize an incoming message {:?}", message_in);
                     continue;
                 }
             };
