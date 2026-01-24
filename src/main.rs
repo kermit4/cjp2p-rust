@@ -1,8 +1,8 @@
 use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, Value::Null};
+use serde_json::Value;
 //use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -20,10 +20,6 @@ use std::str;
 use std::time::{Duration, SystemTime};
 use std::vec;
 
-const PLEASE_SEND_CONTENT: &str = "Please send content.";
-const THESE_ARE_PEERS: &str = "These are peers.";
-const PLEASE_SEND_PEERS: &str = "Please send peers.";
-const HERE_IS_CONTENT: &str = "Here is content.";
 macro_rules! BLOCK_SIZE {
     () => {
         0x1000
@@ -41,19 +37,14 @@ fn walk_object(name: &str, x: &Value, result: &mut Vec<String>) {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct EmptyMessage {
-    message_type: String,
-}
-
 fn main() -> Result<(), std::io::Error> {
     env_logger::init();
     let mut peers: HashSet<SocketAddr> = HashSet::new();
     peers.insert("148.71.89.128:24254".parse().unwrap());
     peers.insert("159.69.54.127:24254".parse().unwrap());
     let socket = UdpSocket::bind("0.0.0.0:24254")?;
-    fs::create_dir("./pejovu").ok();
-    std::env::set_current_dir("./pejovu").unwrap();
+    fs::create_dir("./cjpp").ok();
+    std::env::set_current_dir("./cjpp").unwrap();
     let mut args = env::args();
     args.next();
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
@@ -73,45 +64,48 @@ fn main() -> Result<(), std::io::Error> {
                 info!("too quiet, asking for more peers");
                 for p in &peers {
                     debug!("p loop");
-                    let mut message_out: Vec<Value> = Vec::new();
-                    message_out.push(serde_json::to_value(EmptyMessage{message_type:PLEASE_SEND_PEERS.to_string()}).unwrap()); // let people know im here
-                    let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                    socket.send_to(&message_bytes, p).ok();
+                    let mut message_out: Vec<Message> = Vec::new();
+                    message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
+                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                    debug!("sending message {:?}", str::from_utf8(&message_out_bytes));
+                    socket.send_to(&message_out_bytes, p).ok();
                 }
                 continue;
             }
         };
         let message_in_bytes = &buf[0..message_len];
-        let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes){
+        let messages: Vec<Message> = match serde_json::from_slice(message_in_bytes) {
             Ok(_r) => _r,
             _ => {
-                warn!("could not deserialize an incoming message {:?}",message_in_bytes);
+                warn!(
+                    "could not deserialize an incoming message {:?}",
+                    str::from_utf8(message_in_bytes).unwrap()
+                );
                 continue;
             }
         };
-        debug!("{:?} said something", src);
+        trace!("incoming message {:?}", str::from_utf8(message_in_bytes));
+        let mut result = vec![];
+        walk_object(
+            "rot",
+            &serde_json::to_value(&messages).unwrap(),
+            &mut result,
+        );
+        debug!("{:?}", result);
+        trace!("{:?} said something", src);
         if peers.insert(src) {
             warn!("new peer spotted {src}");
         }
-        let mut message_out: Vec<Value> = Vec::new();
+        let mut message_out: Vec<Message> = Vec::new();
         for message_in in &messages {
-            debug!("message {}", message_in);
-            let m: EmptyMessage = serde_json::from_value(message_in.clone()).unwrap();
-            let reply = match m.message_type.as_str(){
-                PLEASE_SEND_PEERS => send_peers(&peers),
-                THESE_ARE_PEERS => 
-serde_json::from_value::<TheseArePeers>(message_in.clone()).unwrap().
-                    receive_peers(&mut peers),
-                PLEASE_SEND_CONTENT => send_content(message_in, &mut inbound_states),
-                HERE_IS_CONTENT => receive_content(message_in, &mut inbound_states, &socket, &src),
-                _ => Null,
+            let mut reply = match message_in {
+                Message::PleaseSendPeers(t) => t.send_peers(&peers),
+                Message::TheseArePeers(t) => t.receive_peers(&mut peers),
+                Message::PleaseSendContent(t) => t.send_content(&mut inbound_states),
+                Message::HereIsContent(t) => t.receive_content(&mut inbound_states),
+                //_=>{ warn!("unknown message type {:?}",serde_json::to_value(message_in)); vec![] }
             };
-            if reply != Null {
-                message_out.push(reply)
-            };
-            let mut result = vec![];
-            walk_object("rot", message_in, &mut result);
-            debug!("{:?}", result);
+            message_out.append(&mut reply)
         }
         if message_out.len() == 0 {
             continue;
@@ -124,35 +118,37 @@ serde_json::from_value::<TheseArePeers>(message_in.clone()).unwrap().
 
 #[derive(Serialize, Deserialize)]
 struct TheseArePeers {
-    message_type: String,
     peers: Vec<SocketAddr>,
- //   how_to_add_new_fields_without_error: Option<String>,
+    //   how_to_add_new_fields_without_error: Option<String>,
 }
-
-fn send_peers(peers: &HashSet<SocketAddr>) -> Value {
-    debug!("sending peers {:?}", peers);
-    let p: Vec<SocketAddr> = peers.into_iter().take(50).cloned().collect();
-    return serde_json::to_value(TheseArePeers{
-        message_type: THESE_ARE_PEERS.to_string(),
-//    how_to_add_new_fields_without_error:Some("".to_string()),
-    peers: p}).unwrap();
+#[derive(Serialize, Deserialize)]
+struct PleaseSendPeers {}
+impl PleaseSendPeers {
+    fn send_peers(&self, peers: &HashSet<SocketAddr>) -> Vec<Message> {
+        debug!("sending peers {:?}", peers);
+        let p: Vec<SocketAddr> = peers.into_iter().take(50).cloned().collect();
+        return vec![Message::TheseArePeers(TheseArePeers {
+            //    how_to_add_new_fields_without_error:Some("".to_string()),
+            peers: p,
+        })];
+    }
 }
 
 impl TheseArePeers {
-fn receive_peers(&mut self,peers: &mut HashSet<SocketAddr>) -> Value {
-    for p in &self.peers {
-        debug!(" a peer {:?}", p);
-        let sa: SocketAddr = *p;
-        if peers.insert(sa) {
-            warn!("new peer suggested {sa}");
+    fn receive_peers(&self, peers: &mut HashSet<SocketAddr>) -> Vec<Message> {
+        for p in &self.peers {
+            debug!(" a peer {:?}", p);
+            let sa: SocketAddr = *p;
+            if peers.insert(sa) {
+                warn!("new peer suggested {sa}");
+            }
         }
+        return vec![];
     }
-    return Null;
-}}
+}
 
 #[derive(Serialize, Deserialize)]
 struct PleaseSendContent {
-    message_type: String,
     content_id: String,
     content_length: u64,
     content_offset: u64,
@@ -160,108 +156,96 @@ struct PleaseSendContent {
 
 #[derive(Serialize, Deserialize)]
 struct HereIsContent {
-    message_type: String,
     content_id: String,
     content_offset: u64,
     content_b64: String,
     content_eof: u64,
 }
 
-fn send_content(message_in: &Value, inbound_states: &mut HashMap<String, InboundState>) -> Value {
-    let m: PleaseSendContent = serde_json::from_value(message_in.clone()).unwrap();
-    if m.content_id.find("/") != None || m.content_id.find("\\") != None {
-        return Null;
-    };
-    let mut content_length = m.content_length;
-    if content_length > (BLOCK_SIZE!()) {
-        content_length = BLOCK_SIZE!()
-    }
+impl PleaseSendContent {
+    fn send_content(&self, inbound_states: &mut HashMap<String, InboundState>) -> Vec<Message> {
+        if self.content_id.find("/") != None || self.content_id.find("\\") != None {
+            return vec![];
+        };
+        let mut content_length = self.content_length;
+        if content_length > (BLOCK_SIZE!()) {
+            content_length = BLOCK_SIZE!()
+        }
 
-    let file: &File;
-    let file_: File;
-    if inbound_states.contains_key(&m.content_id)
-        && m.content_offset + content_length < inbound_states[&m.content_id].eof
-        && inbound_states[&m.content_id].bitmap[(m.content_offset / BLOCK_SIZE!())as usize ]
-        && ((m.content_offset % BLOCK_SIZE!()) == 0)
-    {
-        file = &inbound_states[&m.content_id].file;
-    } else {
-        match File::open(&m.content_id) {
-            Ok(_r) => {
-                file_ = _r;
-                file = &file_;
+        let file: &File;
+        let file_: File;
+        if inbound_states.contains_key(&self.content_id)
+            && self.content_offset + content_length < inbound_states[&self.content_id].eof
+            && inbound_states[&self.content_id].bitmap
+                [(self.content_offset / BLOCK_SIZE!()) as usize]
+            && ((self.content_offset % BLOCK_SIZE!()) == 0)
+        {
+            file = &inbound_states[&self.content_id].file;
+        } else {
+            match File::open(&self.content_id) {
+                Ok(_r) => {
+                    file_ = _r;
+                    file = &file_;
+                }
+                _ => return vec![],
             }
-            _ => return Null,
-        }
-    };
+        };
 
-    debug!("going to send {:?}", m.content_id);
+        debug!("going to send {:?}", self.content_id);
 
-    let mut buf = vec![0; content_length as usize];
-    content_length = file.read_at(&mut buf, m.content_offset as u64).unwrap() as u64;
-    let (content, _) = buf.split_at(content_length as usize);
-    let content_b64: String = general_purpose::STANDARD_NO_PAD.encode(content);
-    return serde_json::to_value(HereIsContent{
-        message_type: HERE_IS_CONTENT.to_string(),
-        content_id:  m.content_id,
-        content_offset:  m.content_offset,
-        content_b64:  content_b64,
-        content_eof: file.metadata().unwrap().len() , 
-        }
-    ).unwrap();
+        let mut buf = vec![0; content_length as usize];
+        content_length = file.read_at(&mut buf, self.content_offset as u64).unwrap() as u64;
+        let (content, _) = buf.split_at(content_length as usize);
+        return vec![Message::HereIsContent(HereIsContent {
+            content_id: self.content_id.clone(),
+            content_offset: self.content_offset,
+            content_b64: general_purpose::STANDARD_NO_PAD.encode(content),
+            content_eof: file.metadata().unwrap().len(),
+        })];
+    }
 }
 
-fn receive_content(
-    message_in: &Value,
-    inbound_states: &mut HashMap<String, InboundState>,
-    socket: &UdpSocket,
-    src: &SocketAddr,
-) -> Value {
-    let m: HereIsContent = serde_json::from_value(message_in.clone()).unwrap();
-    if !inbound_states.contains_key(&m.content_id) {
-        return Null;
+impl HereIsContent {
+    fn receive_content(&self, inbound_states: &mut HashMap<String, InboundState>) -> Vec<Message> {
+        if !inbound_states.contains_key(&self.content_id) {
+            return vec![];
+        }
+        let inbound_state = inbound_states.get_mut(&self.content_id).unwrap();
+        let block = (self.content_offset / BLOCK_SIZE!()) as usize;
+        if inbound_state.bitmap[block] {
+            inbound_state.dups += 1;
+            info!("dup {block}");
+            return vec![];
+        }
+        let content_bytes = general_purpose::STANDARD_NO_PAD
+            .decode(&self.content_b64)
+            .unwrap();
+        inbound_state
+            .file
+            .write_at(&content_bytes, self.content_offset)
+            .unwrap();
+        inbound_state.blocks_complete += 1;
+        let eof = self.content_eof;
+        if eof > inbound_state.eof {
+            inbound_state.eof = eof;
+        }
+        let blocks = (inbound_state.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
+        inbound_state.bitmap.resize(blocks as usize, false);
+        inbound_state.bitmap.set(block, true);
+        if self.content_offset + content_bytes.len() as u64 >= inbound_state.eof {
+            inbound_state.next_block = 0;
+        }
+        let mut reply = request_content_block(inbound_state);
+        if (inbound_state.next_block % 100) == 0 {
+            reply.append(&mut request_content_block(inbound_state));
+        }
+        return reply;
     }
-    let inbound_state = inbound_states.get_mut(&m.content_id).unwrap();
-    let block = (m.content_offset / BLOCK_SIZE!()) as usize;
-    if inbound_state.bitmap[block] {
-        inbound_state.dups += 1;
-        info!("dup {block}");
-        return Null;
-    }
-    let content_bytes = general_purpose::STANDARD_NO_PAD
-        .decode(m.content_b64)
-        .unwrap();
-    inbound_state
-        .file
-        .write_at(
-            &content_bytes,
-            m.content_offset,
-        )
-        .unwrap();
-    inbound_state.blocks_complete += 1;
-    let eof =m.content_eof;
-    if eof > inbound_state.eof {
-        inbound_state.eof = eof;
-    }
-    let blocks = (inbound_state.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
-    inbound_state.bitmap.resize(blocks as usize, false);
-    inbound_state.bitmap.set(block, true);
-    if m.content_offset + content_bytes.len() as u64 >= inbound_state.eof {
-        inbound_state.next_block = 0;
-    }
-    if (inbound_state.next_block % 100) == 0 {
-        // increase the amount of data in flight
-        let mut message_out: Vec<Value> = Vec::new();
-        message_out.push(request_content_block(inbound_state));
-        let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        socket.send_to(&message_bytes, src).ok();
-    }
-    return request_content_block(inbound_state);
 }
 //
-fn request_content_block(inbound_state: &mut InboundState) -> Value {
+fn request_content_block(inbound_state: &mut InboundState) -> Vec<Message> {
     if inbound_state.blocks_complete * BLOCK_SIZE!() >= inbound_state.eof {
-        return Null;
+        return vec![];
     }
     while {
         inbound_state.next_block += 1;
@@ -271,12 +255,11 @@ fn request_content_block(inbound_state: &mut InboundState) -> Value {
         inbound_state.bitmap[inbound_state.next_block as usize]
     } {}
     debug!("requesting {0}", inbound_state.next_block);
-    return serde_json::to_value(PleaseSendContent{
-        message_type: PLEASE_SEND_CONTENT.to_string(),
-        content_id:  inbound_state.content_id.to_owned(),
-        content_offset:  inbound_state.next_block*BLOCK_SIZE!(),
+    return vec![Message::PleaseSendContent(PleaseSendContent {
+        content_id: inbound_state.content_id.to_owned(),
+        content_offset: inbound_state.next_block * BLOCK_SIZE!(),
         content_length: BLOCK_SIZE!(),
-        }).unwrap();
+    })];
 }
 
 fn new_inbound_state(inbound_states: &mut HashMap<String, InboundState>, content_id: &str) -> () {
@@ -330,10 +313,11 @@ fn bump_inbounds(
             continue;
         }
         for p in peers {
-            let mut message_out: Vec<Value> = Vec::new();
-            message_out.push(request_content_block(&mut inbound_state));
-            let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            socket.send_to(&message_bytes, p).ok();
+            let mut message_out: Vec<Message> = Vec::new();
+            message_out.append(&mut request_content_block(&mut inbound_state));
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            debug!("sending message {:?}", str::from_utf8(&message_out_bytes));
+            socket.send_to(&message_out_bytes, p).ok();
         }
     }
     if to_remove != "" {
@@ -346,4 +330,12 @@ fn bump_inbounds(
         fs::rename(path, new_path).unwrap();
         inbound_states.remove(&to_remove);
     };
+}
+
+#[derive(Serialize, Deserialize)]
+enum Message {
+    PleaseSendPeers(PleaseSendPeers),
+    TheseArePeers(TheseArePeers),
+    PleaseSendContent(PleaseSendContent),
+    HereIsContent(HereIsContent),
 }

@@ -111,6 +111,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "cjpp-rust"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bincode",
+ "bitvec",
+ "env_logger",
+ "hex",
+ "log",
+ "serde",
+ "serde-big-array",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -235,22 +251,6 @@ name = "opaque-debug"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
-
-[[package]]
-name = "pejovu"
-version = "0.1.0"
-dependencies = [
- "base64",
- "bincode",
- "bitvec",
- "env_logger",
- "hex",
- "log",
- "serde",
- "serde-big-array",
- "serde_json",
- "sha2",
-]
 
 [[package]]
 name = "portable-atomic"
