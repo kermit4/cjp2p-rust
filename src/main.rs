@@ -225,6 +225,11 @@ impl HereIsContent {
         }
         let inbound_state = inbound_states.get_mut(&self.content_id).unwrap();
         let block = (self.content_offset / BLOCK_SIZE!()) as usize;
+        if self.content_eof > inbound_state.eof {
+            inbound_state.eof = self.content_eof;
+        }
+        let blocks = (inbound_state.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
+        inbound_state.bitmap.resize(blocks as usize, false);
         if inbound_state.bitmap[block] {
             inbound_state.dups += 1;
             info!("dup {block}");
@@ -238,18 +243,12 @@ impl HereIsContent {
             .write_at(&content_bytes, self.content_offset)
             .unwrap();
         inbound_state.blocks_complete += 1;
-        let eof = self.content_eof;
-        if eof > inbound_state.eof {
-            inbound_state.eof = eof;
-        }
-        let blocks = (inbound_state.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
-        inbound_state.bitmap.resize(blocks as usize, false);
         inbound_state.bitmap.set(block, true);
         if self.content_offset + content_bytes.len() as u64 >= inbound_state.eof {
             inbound_state.next_block = 0;
         }
         let mut reply = request_content_block(inbound_state);
-        if (inbound_state.blocks_complete % 100) == 0 {
+        if (inbound_state.blocks_complete % 500) == 0 {
             info!("increasing window");
             reply.append(&mut request_content_block(inbound_state));
         }
