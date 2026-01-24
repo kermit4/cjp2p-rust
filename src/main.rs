@@ -189,7 +189,7 @@ fn send_content(message_in: &Value, inbound_states: &mut HashMap<String, Inbound
     let content_b64: String = general_purpose::STANDARD_NO_PAD.encode(content);
     return json!(
         {MESSAGE_TYPE: HERE_IS_CONTENT,
-        "content_id":  message_in["m.content_id"],
+        "content_id":  m.content_id,
         "content_offset":  m.content_offset,
         "content_b64":  content_b64,
         "content_eof":file.metadata().unwrap().len(),
