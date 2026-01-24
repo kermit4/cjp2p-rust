@@ -74,7 +74,7 @@ fn main() -> Result<(), std::io::Error> {
             }
         };
         let message_in_bytes = &buf[0..message_len];
-        let messages: Vec<Message> = match serde_json::from_slice(message_in_bytes) {
+        let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
             Ok(_r) => _r,
             _ => {
                 warn!(
@@ -97,13 +97,26 @@ fn main() -> Result<(), std::io::Error> {
             warn!("new peer spotted {src}");
         }
         let mut message_out: Vec<Message> = Vec::new();
-        for message_in in &messages {
-            let mut reply = match message_in {
+        for message_in in messages {
+            let message_in_enum: Message = match serde_json::from_value(message_in.clone()) {
+                Ok(_r) => _r,
+                _ => {
+                    warn!("could not deserialize an incoming message {:?}", message_in);
+                    continue;
+                }
+            };
+            let mut reply = match message_in_enum {
                 Message::PleaseSendPeers(t) => t.send_peers(&peers),
                 Message::TheseArePeers(t) => t.receive_peers(&mut peers),
                 Message::PleaseSendContent(t) => t.send_content(&mut inbound_states),
                 Message::HereIsContent(t) => t.receive_content(&mut inbound_states),
-                //_=>{ warn!("unknown message type {:?}",serde_json::to_value(message_in)); vec![] }
+                _ => {
+                    warn!(
+                        "unknown message type {:?}",
+                        serde_json::to_value(message_in_enum)
+                    );
+                    vec![]
+                }
             };
             message_out.append(&mut reply)
         }
@@ -236,7 +249,8 @@ impl HereIsContent {
             inbound_state.next_block = 0;
         }
         let mut reply = request_content_block(inbound_state);
-        if (inbound_state.next_block % 100) == 0 {
+        if (inbound_state.blocks_complete % 100) == 0 {
+            info!("increasing window");
             reply.append(&mut request_content_block(inbound_state));
         }
         return reply;
@@ -338,4 +352,6 @@ enum Message {
     TheseArePeers(TheseArePeers),
     PleaseSendContent(PleaseSendContent),
     HereIsContent(HereIsContent),
+    #[serde(other)]
+    Unknown,
 }
