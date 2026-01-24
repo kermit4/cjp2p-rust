@@ -67,7 +67,7 @@ fn main() -> Result<(), std::io::Error> {
         debug!("main loop");
 
         bump_inbounds(&mut inbound_states, &peers, &socket);
-        let (_amt, src) = match socket.recv_from(&mut buf) {
+        let (message_len, src) = match socket.recv_from(&mut buf) {
             Ok(_r) => _r,
             Err(_e) => {
                 info!("too quiet, asking for more peers");
@@ -81,10 +81,11 @@ fn main() -> Result<(), std::io::Error> {
                 continue;
             }
         };
-        let messages: Vec<Value> = match serde_json::from_slice(&buf[0.._amt]) {
+        let message_in_bytes = &buf[0..message_len];
+        let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes){
             Ok(_r) => _r,
             _ => {
-                warn!("could not deserialize an incoming message");
+                warn!("could not deserialize an incoming message {:?}",message_in_bytes);
                 continue;
             }
         };
@@ -98,7 +99,9 @@ fn main() -> Result<(), std::io::Error> {
             let m: EmptyMessage = serde_json::from_value(message_in.clone()).unwrap();
             let reply = match m.message_type.as_str(){
                 PLEASE_SEND_PEERS => send_peers(&peers),
-                THESE_ARE_PEERS => receive_peers(&mut peers, message_in),
+                THESE_ARE_PEERS => 
+serde_json::from_value::<TheseArePeers>(message_in.clone()).unwrap().
+                    receive_peers(&mut peers),
                 PLEASE_SEND_CONTENT => send_content(message_in, &mut inbound_states),
                 HERE_IS_CONTENT => receive_content(message_in, &mut inbound_states, &socket, &src),
                 _ => Null,
@@ -113,9 +116,9 @@ fn main() -> Result<(), std::io::Error> {
         if message_out.len() == 0 {
             continue;
         }
-        let message_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        debug!("sending message {:?}", str::from_utf8(&message_bytes));
-        socket.send_to(&message_bytes, src).ok();
+        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+        debug!("sending message {:?}", str::from_utf8(&message_out_bytes));
+        socket.send_to(&message_out_bytes, src).ok();
     }
 }
 
@@ -135,18 +138,17 @@ fn send_peers(peers: &HashSet<SocketAddr>) -> Value {
     peers: p}).unwrap();
 }
 
-fn receive_peers(peers: &mut HashSet<SocketAddr>, message_in: &Value) -> Value {
-    let m: TheseArePeers = serde_json::from_value(message_in.clone()).unwrap();
-    println!("deserrialzed {0}", m.message_type);
-    for p in m.peers {
+impl TheseArePeers {
+fn receive_peers(&mut self,peers: &mut HashSet<SocketAddr>) -> Value {
+    for p in &self.peers {
         debug!(" a peer {:?}", p);
-        let sa: SocketAddr = p;
+        let sa: SocketAddr = *p;
         if peers.insert(sa) {
             warn!("new peer suggested {sa}");
         }
     }
     return Null;
-}
+}}
 
 #[derive(Serialize, Deserialize)]
 struct PleaseSendContent {
