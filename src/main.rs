@@ -149,8 +149,17 @@ fn receive_peers(peers: &mut HashSet<SocketAddr>, message_in: &Value) -> Value {
 struct PleaseSendContent {
     message_type: String,
     content_id: String,
-    content_length: usize,
-    content_offset: usize,
+    content_length: u64,
+    content_offset: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct HereIsContent {
+    message_type: String,
+    content_id: String,
+    content_offset: u64,
+    content_b64: String,
+    content_eof: u64,
 }
 
 fn send_content(message_in: &Value, inbound_states: &mut HashMap<String, InboundState>) -> Value {
@@ -166,8 +175,8 @@ fn send_content(message_in: &Value, inbound_states: &mut HashMap<String, Inbound
     let file: &File;
     let file_: File;
     if inbound_states.contains_key(&m.content_id)
-        && m.content_offset as usize + content_length < inbound_states[&m.content_id].eof
-        && inbound_states[&m.content_id].bitmap[(m.content_offset / BLOCK_SIZE!()) as usize]
+        && m.content_offset + content_length < inbound_states[&m.content_id].eof
+        && inbound_states[&m.content_id].bitmap[(m.content_offset / BLOCK_SIZE!())as usize ]
         && ((m.content_offset % BLOCK_SIZE!()) == 0)
     {
         file = &inbound_states[&m.content_id].file;
@@ -183,18 +192,18 @@ fn send_content(message_in: &Value, inbound_states: &mut HashMap<String, Inbound
 
     debug!("going to send {:?}", m.content_id);
 
-    let mut buf = vec![0; content_length];
-    content_length = file.read_at(&mut buf, m.content_offset as u64).unwrap();
-    let (content, _) = buf.split_at(content_length);
+    let mut buf = vec![0; content_length as usize];
+    content_length = file.read_at(&mut buf, m.content_offset as u64).unwrap() as u64;
+    let (content, _) = buf.split_at(content_length as usize);
     let content_b64: String = general_purpose::STANDARD_NO_PAD.encode(content);
-    return json!(
-        {MESSAGE_TYPE: HERE_IS_CONTENT,
-        "content_id":  m.content_id,
-        "content_offset":  m.content_offset,
-        "content_b64":  content_b64,
-        "content_eof":file.metadata().unwrap().len(),
+    return serde_json::to_value(HereIsContent{
+        message_type: HERE_IS_CONTENT.to_string(),
+        content_id:  m.content_id,
+        content_offset:  m.content_offset,
+        content_b64:  content_b64,
+        content_eof: file.metadata().unwrap().len() , 
         }
-    );
+    ).unwrap();
 }
 
 fn receive_content(
@@ -203,37 +212,36 @@ fn receive_content(
     socket: &UdpSocket,
     src: &SocketAddr,
 ) -> Value {
-    let content_id = message_in["content_id"].as_str().unwrap();
-    if !inbound_states.contains_key(content_id) {
+    let m: HereIsContent = serde_json::from_value(message_in.clone()).unwrap();
+    if !inbound_states.contains_key(&m.content_id) {
         return Null;
     }
-    let inbound_state = inbound_states.get_mut(content_id).unwrap();
-    let offset = message_in["content_offset"].as_i64().unwrap() as usize;
-    let block = (offset / BLOCK_SIZE!()) as usize;
+    let inbound_state = inbound_states.get_mut(&m.content_id).unwrap();
+    let block = (m.content_offset / BLOCK_SIZE!()) as usize;
     if inbound_state.bitmap[block] {
         inbound_state.dups += 1;
         info!("dup {block}");
         return Null;
     }
     let content_bytes = general_purpose::STANDARD_NO_PAD
-        .decode(message_in["content_b64"].as_str().unwrap())
+        .decode(m.content_b64)
         .unwrap();
     inbound_state
         .file
         .write_at(
             &content_bytes,
-            message_in["content_offset"].as_u64().unwrap(),
+            m.content_offset,
         )
         .unwrap();
     inbound_state.blocks_complete += 1;
-    let eof = message_in["content_eof"].as_i64().unwrap() as usize;
+    let eof =m.content_eof;
     if eof > inbound_state.eof {
         inbound_state.eof = eof;
     }
     let blocks = (inbound_state.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
-    inbound_state.bitmap.resize(blocks, false);
+    inbound_state.bitmap.resize(blocks as usize, false);
     inbound_state.bitmap.set(block, true);
-    if offset + content_bytes.len() >= inbound_state.eof {
+    if m.content_offset + content_bytes.len() as u64 >= inbound_state.eof {
         inbound_state.next_block = 0;
     }
     if (inbound_state.next_block % 100) == 0 {
@@ -255,7 +263,7 @@ fn request_content_block(inbound_state: &mut InboundState) -> Value {
         if inbound_state.next_block * BLOCK_SIZE!() >= inbound_state.eof {
             inbound_state.next_block = 0;
         }
-        inbound_state.bitmap[inbound_state.next_block]
+        inbound_state.bitmap[inbound_state.next_block as usize]
     } {}
     debug!("requesting {0}", inbound_state.next_block);
     return serde_json::to_value(PleaseSendContent{
@@ -290,13 +298,13 @@ fn new_inbound_state(inbound_states: &mut HashMap<String, InboundState>, content
 
 struct InboundState {
     file: File,
-    next_block: usize,
+    next_block: u64,
     bitmap: BitVec,
     content_id: String,
-    eof: usize,
-    blocks_complete: usize,
+    eof: u64,
+    blocks_complete: u64,
     last_bumped: SystemTime,
-    dups: usize,
+    dups: u64,
     // last host
 }
 
