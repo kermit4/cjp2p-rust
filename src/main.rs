@@ -258,9 +258,6 @@ fn request_content_block(inbound_state: &mut InboundState) -> Vec<Message> {
         return vec![];
     }
     while {
-        inbound_state.bitmap[inbound_state.next_block as usize]
-    } {
-        inbound_state.next_block += 1;
         if inbound_state.next_block * BLOCK_SIZE!() >= inbound_state.eof {
             info!("almost done with {0}", inbound_state.content_id);
             info!("pending blocks: ");
@@ -271,6 +268,9 @@ fn request_content_block(inbound_state: &mut InboundState) -> Vec<Message> {
 
             inbound_state.next_block = 0;
         }
+        inbound_state.bitmap[inbound_state.next_block as usize]
+    } {
+        inbound_state.next_block += 1;
     }
     inbound_state.blocks_requested += 1;
     return vec![Message::PleaseSendContent(PleaseSendContent {
