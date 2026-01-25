@@ -245,7 +245,7 @@ impl HereIsContent {
         }
         let mut reply = request_content_block(inbound_state);
         if (inbound_state.blocks_complete % 300) == 0 {
-            info!("increasing window");
+            debug!("increasing window for {0} ",inbound_state.content_id);
             reply.append(&mut request_content_block(inbound_state));
         }
         return reply;
@@ -259,6 +259,13 @@ fn request_content_block(inbound_state: &mut InboundState) -> Vec<Message> {
     while {
         inbound_state.next_block += 1;
         if inbound_state.next_block * BLOCK_SIZE!() >= inbound_state.eof {
+            info!("almost done with {0}",inbound_state.content_id);
+                                    info!("pending blocks: ");
+
+                        for i in inbound_state.bitmap.iter_zeros() {
+                                   info!("{i}");
+                                        }
+
             inbound_state.next_block = 0;
         }
         inbound_state.bitmap[inbound_state.next_block as usize]

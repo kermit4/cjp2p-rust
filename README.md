@@ -8,7 +8,6 @@ i.e.
 
      ./target/debug/cjp2p 3d5486b9e4dcd259689ebfd0563679990a4cf45cf83b7b7b5e99de5a46b5d46f  # abe_lincoln_of_the_4th_ave.mp4
 
-File sharing is more of a primitave than a main purpose.  Things can build upon the ability to reliably and efficienty send more than what fits in one message.
 
 # building
  cargo build
@@ -25,6 +24,8 @@ or info/warn log levels
 - chose random port on first run, but then stick with it between restarts, save in a config file json
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere
 - some way to not be used as a DDOS as people can spoof their IPs in a request for peers or contont
+- streaming
+-- prioritize earlier packets to improve streaming 
 
 maybe replies just include request and that it is a reply, so cookies and all data are there even if not used by replier
  
