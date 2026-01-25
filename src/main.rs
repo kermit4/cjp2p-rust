@@ -52,9 +52,9 @@ fn main() -> Result<(), std::io::Error> {
         info!("queing new {:?}", v);
         new_inbound_state(&mut inbound_states, v.as_str());
     }
+        socket.set_read_timeout(Some(Duration::new(1, 0)))?;
     loop {
         let mut buf = [0; 0x10000];
-        socket.set_read_timeout(Some(Duration::new(1, 0)))?;
         debug!("main loop");
 
         bump_inbounds(&mut inbound_states, &peers, &socket);
@@ -136,6 +136,8 @@ struct TheseArePeers {
     peers: Vec<SocketAddr>,
     //   how_to_add_new_fields_without_error: Option<String>,
 }
+
+
 #[derive(Serialize, Deserialize)]
 struct PleaseSendPeers {}
 impl PleaseSendPeers {

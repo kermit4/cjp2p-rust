@@ -20,11 +20,12 @@ or info/warn log levels
 
 # TODO
 - save peer list between restarts to not depend on the hard coded list .. but not before a way to expiring them.
-- send_peers and bump_inbounds should chose more intelligently, randomly is better than first 50, ideally a vector sorted by responsiveness and chosen somewhat ranomly with a lean to the closer hosts
 - chose random port on first run, but then stick with it between restarts, save in a config file json
+- send_peers and bump_inbounds should chose more intelligently, randomly is better than first 50, ideally a vector sorted by responsiveness and chosen somewhat ranomly with a lean to the closer hosts
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere
 - some way to not be used as a DDOS as people can spoof their IPs in a request for peers or contont
-- streaming (files that grow)
+- some networks just dont fragment, black holes..may have to reduce block size here, and grow window a different way, if it happens a lot, even 1k blocks were too much in one case.
+- streaming (files that grow after they're started.. with a goal that someone streaming video to millions only needs enough bandwidth to send out one copy, live, with little delay.  Multicast, as real multicast never caught on on the internet sadly.)
 -- prioritize earlier packets to improve streaming 
 
 maybe replies just include request and that it is a reply, so cookies and all data are there even if not used by replier
