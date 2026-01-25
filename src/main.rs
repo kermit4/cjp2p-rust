@@ -41,7 +41,7 @@ fn main() -> Result<(), std::io::Error> {
         info!("queing inbound file {:?}", v);
         new_inbound_state(&mut inbound_states, v.as_str());
     }
-        socket.set_read_timeout(Some(Duration::new(1, 0)))?;
+    socket.set_read_timeout(Some(Duration::new(1, 0)))?;
     loop {
         let mut buf = [0; 0x10000];
         socket.set_read_timeout(Some(Duration::new(1, 0)))?;
@@ -94,12 +94,12 @@ fn main() -> Result<(), std::io::Error> {
                 Message::PleaseSendContent(t) => t.send_content(&mut inbound_states),
                 Message::HereIsContent(t) => t.receive_content(&mut inbound_states),
             };
-            message_out.append(&mut reply)
+            message_out.append(&mut reply);
         }
         if message_out.len() == 0 {
             continue;
         }
-        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+        let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
         debug!("sending {:?} messages to {src}", message_out.len());
         trace!(
             "sending message {:?} to {src}",
@@ -117,7 +117,6 @@ struct TheseArePeers {
     peers: Vec<SocketAddr>,
     //   how_to_add_new_fields_without_error: Option<String>,
 }
-
 
 #[derive(Serialize, Deserialize)]
 struct PleaseSendPeers {}
@@ -240,8 +239,8 @@ impl HereIsContent {
             "request  {:?} offset {:?}",
             inbound_state.content_id, inbound_state.next_block
         );
-            inbound_state.next_block += 1;
-        if (inbound_state.blocks_complete % 200) == 0 {
+        inbound_state.next_block += 1;
+        if (inbound_state.blocks_complete % 100) == 0 {
             reply.append(&mut request_content_block(inbound_state));
             debug!(
                 "request  {:?} offset {:?} EXTRA",
@@ -339,7 +338,7 @@ fn bump_inbounds(
             debug!("sending {:?} eump to {p}", message_out.len());
             socket.send_to(&message_out_bytes, p).ok();
         }
-            inbound_state.next_block += 1;
+        inbound_state.next_block += 1;
     }
     if to_remove != "" {
         let i = &inbound_states[&to_remove];
