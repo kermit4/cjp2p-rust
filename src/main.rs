@@ -84,7 +84,10 @@ fn main() -> Result<(), std::io::Error> {
                 continue;
             }
         };
-        trace!("incoming message {:?}", str::from_utf8(message_in_bytes));
+        trace!(
+            "incoming message {:?} from {src}",
+            str::from_utf8(message_in_bytes)
+        );
         let mut result = vec![];
         walk_object(
             "rot",
@@ -117,7 +120,10 @@ fn main() -> Result<(), std::io::Error> {
             continue;
         }
         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
+        trace!(
+            "sending message {:?} to {src}",
+            str::from_utf8(&message_out_bytes)
+        );
         match socket.send_to(&message_out_bytes, src) {
             Ok(s) => debug!("sent {s}"),
             Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
@@ -216,11 +222,12 @@ impl PleaseSendContent {
 
 impl HereIsContent {
     fn receive_content(&self, inbound_states: &mut HashMap<String, InboundState>) -> Vec<Message> {
+        let block_number = self.content_offset / BLOCK_SIZE!();
         if !inbound_states.contains_key(&self.content_id) {
             return vec![];
         }
         let inbound_state = inbound_states.get_mut(&self.content_id).unwrap();
-        let block = (self.content_offset / BLOCK_SIZE!()) as usize;
+        let block = (block_number) as usize;
         if self.content_eof > inbound_state.eof {
             inbound_state.eof = self.content_eof;
         }
@@ -228,7 +235,7 @@ impl HereIsContent {
         inbound_state.bitmap.resize(blocks as usize, false);
         if inbound_state.bitmap[block] {
             inbound_state.dups += 1;
-            info!("dup {block}");
+            debug!("dup {block}");
             return vec![];
         }
         let content_bytes = general_purpose::STANDARD_NO_PAD
@@ -240,12 +247,9 @@ impl HereIsContent {
             .unwrap();
         inbound_state.blocks_complete += 1;
         inbound_state.bitmap.set(block, true);
-        if self.content_offset + content_bytes.len() as u64 >= inbound_state.eof {
-            inbound_state.next_block = 0;
-        }
         let mut reply = request_content_block(inbound_state);
         if (inbound_state.blocks_complete % 300) == 0 {
-            debug!("increasing window for {0} ",inbound_state.content_id);
+            debug!("increasing window for {0} ", inbound_state.content_id);
             reply.append(&mut request_content_block(inbound_state));
         }
         return reply;
@@ -259,18 +263,17 @@ fn request_content_block(inbound_state: &mut InboundState) -> Vec<Message> {
     while {
         inbound_state.next_block += 1;
         if inbound_state.next_block * BLOCK_SIZE!() >= inbound_state.eof {
-            info!("almost done with {0}",inbound_state.content_id);
-                                    info!("pending blocks: ");
+            info!("almost done with {0}", inbound_state.content_id);
+            info!("pending blocks: ");
 
-                        for i in inbound_state.bitmap.iter_zeros() {
-                                   info!("{i}");
-                                        }
+            for i in inbound_state.bitmap.iter_zeros() {
+                info!("{i}");
+            }
 
             inbound_state.next_block = 0;
         }
         inbound_state.bitmap[inbound_state.next_block as usize]
     } {}
-    debug!("requesting {0}", inbound_state.next_block);
     inbound_state.blocks_requested += 1;
     return vec![Message::PleaseSendContent(PleaseSendContent {
         content_id: inbound_state.content_id.to_owned(),
@@ -333,7 +336,10 @@ fn bump_inbounds(
         }
         for p in peers {
             let mut message_out: Vec<Message> = Vec::new();
+            let rewind = inbound_state.next_block;
             message_out.append(&mut request_content_block(&mut inbound_state));
+            inbound_state.next_block = rewind; // until its smarter about who its asking next, dont assume we'll get a reply, otherwise it just leaves holes
+
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
             socket.send_to(&message_out_bytes, p).ok();
