@@ -22,19 +22,8 @@ use std::vec;
 
 macro_rules! BLOCK_SIZE {
     () => {
-        0x1000
+        0x1000 // 4k
     };
-} // 4k
-fn walk_object(name: &str, x: &Value, result: &mut Vec<String>) {
-    let Value::Object(x) = x else { return };
-    debug!("name {:?}", name);
-    debug!("value {:?}", x);
-    result.push(name.to_string());
-    for (name, field) in x {
-        debug!("name {:?}", name);
-        debug!("field {:?}", field);
-        walk_object(&name, field, result);
-    }
 }
 
 fn main() -> Result<(), std::io::Error> {
@@ -49,21 +38,19 @@ fn main() -> Result<(), std::io::Error> {
     args.next();
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     for v in args {
-        info!("queing new {:?}", v);
+        info!("queing inbound file {:?}", v);
         new_inbound_state(&mut inbound_states, v.as_str());
     }
         socket.set_read_timeout(Some(Duration::new(1, 0)))?;
     loop {
         let mut buf = [0; 0x10000];
-        debug!("main loop");
-
+        socket.set_read_timeout(Some(Duration::new(1, 0)))?;
         bump_inbounds(&mut inbound_states, &peers, &socket);
         let (message_len, src) = match socket.recv_from(&mut buf) {
             Ok(_r) => _r,
             Err(_e) => {
-                info!("too quiet, asking for more peers");
+                debug!("so quiet, looking for more peers");
                 for p in &peers {
-                    debug!("p loop");
                     let mut message_out: Vec<Message> = Vec::new();
                     message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
                     let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -88,18 +75,11 @@ fn main() -> Result<(), std::io::Error> {
             "incoming message {:?} from {src}",
             str::from_utf8(message_in_bytes)
         );
-        let mut result = vec![];
-        walk_object(
-            "rot",
-            &serde_json::to_value(&messages).unwrap(),
-            &mut result,
-        );
-        debug!("{:?}", result);
-        trace!("{:?} said something", src);
         if peers.insert(src) {
             warn!("new peer spotted {src}");
         }
         let mut message_out: Vec<Message> = Vec::new();
+        debug!("received {:?} messages from {src}", messages.len());
         for message_in in messages {
             let message_in_enum: Message = match serde_json::from_value(message_in.clone()) {
                 Ok(_r) => _r,
@@ -120,12 +100,13 @@ fn main() -> Result<(), std::io::Error> {
             continue;
         }
         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+        debug!("sending {:?} messages to {src}", message_out.len());
         trace!(
             "sending message {:?} to {src}",
             str::from_utf8(&message_out_bytes)
         );
         match socket.send_to(&message_out_bytes, src) {
-            Ok(s) => debug!("sent {s}"),
+            Ok(s) => trace!("sent {s}"),
             Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
         }
     }
@@ -142,8 +123,9 @@ struct TheseArePeers {
 struct PleaseSendPeers {}
 impl PleaseSendPeers {
     fn send_peers(&self, peers: &HashSet<SocketAddr>) -> Vec<Message> {
-        debug!("sending peers {:?}", peers);
         let p: Vec<SocketAddr> = peers.into_iter().take(50).cloned().collect();
+        trace!("sending {:?}/{:?} peers {:?}", p.len(), peers.len(), p);
+        debug!("sending {:?}/{:?} peers", p.len(), peers.len());
         return vec![Message::TheseArePeers(TheseArePeers {
             //    how_to_add_new_fields_without_error:Some("".to_string()),
             peers: p,
@@ -153,8 +135,8 @@ impl PleaseSendPeers {
 
 impl TheseArePeers {
     fn receive_peers(&self, peers: &mut HashSet<SocketAddr>) -> Vec<Message> {
+        debug!("received  {:?} peers", self.peers.len());
         for p in &self.peers {
-            debug!(" a peer {:?}", p);
             let sa: SocketAddr = *p;
             if peers.insert(sa) {
                 warn!("new peer suggested {sa}");
@@ -208,7 +190,10 @@ impl PleaseSendContent {
             }
         };
 
-        debug!("going to send {:?}", self.content_id);
+        info!(
+            "going to send {:?} at {:?}",
+            self.content_id, self.content_offset
+        );
 
         let mut buf = vec![0; content_length as usize];
         content_length = file.read_at(&mut buf, self.content_offset as u64).unwrap() as u64;
@@ -229,6 +214,7 @@ impl HereIsContent {
             return vec![];
         }
         let inbound_state = inbound_states.get_mut(&self.content_id).unwrap();
+        debug!("received  {:?} block {:?}", self.content_id, block_number);
         let block = (block_number) as usize;
         if self.content_eof > inbound_state.eof {
             inbound_state.eof = self.content_eof;
@@ -250,10 +236,17 @@ impl HereIsContent {
         inbound_state.blocks_complete += 1;
         inbound_state.bitmap.set(block, true);
         let mut reply = request_content_block(inbound_state);
-        inbound_state.next_block += 1;
-        if (inbound_state.blocks_complete % 300) == 0 {
-            debug!("increasing window for {0} ", inbound_state.content_id);
+        debug!(
+            "request  {:?} offset {:?}",
+            inbound_state.content_id, inbound_state.next_block
+        );
+            inbound_state.next_block += 1;
+        if (inbound_state.blocks_complete % 200) == 0 {
             reply.append(&mut request_content_block(inbound_state));
+            debug!(
+                "request  {:?} offset {:?} EXTRA",
+                inbound_state.content_id, inbound_state.next_block
+            );
             inbound_state.next_block += 1;
         }
         return reply;
@@ -265,6 +258,9 @@ fn request_content_block(inbound_state: &mut InboundState) -> Vec<Message> {
         return vec![];
     }
     while {
+        inbound_state.bitmap[inbound_state.next_block as usize]
+    } {
+        inbound_state.next_block += 1;
         if inbound_state.next_block * BLOCK_SIZE!() >= inbound_state.eof {
             info!("almost done with {0}", inbound_state.content_id);
             info!("pending blocks: ");
@@ -275,9 +271,6 @@ fn request_content_block(inbound_state: &mut InboundState) -> Vec<Message> {
 
             inbound_state.next_block = 0;
         }
-        inbound_state.bitmap[inbound_state.next_block as usize]
-    } {
-        inbound_state.next_block += 1;
     }
     inbound_state.blocks_requested += 1;
     return vec![Message::PleaseSendContent(PleaseSendContent {
@@ -303,7 +296,7 @@ fn new_inbound_state(inbound_states: &mut HashMap<String, InboundState>, content
         eof: 1,
         blocks_complete: 0,
         blocks_requested: 0,
-        last_bumped: SystemTime::now() - Duration::from_secs(5),
+        last_bumped: SystemTime::now() - Duration::from_secs(1),
         dups: 0,
     };
     inbound_state.bitmap.resize(1, false);
@@ -334,7 +327,6 @@ fn bump_inbounds(
             continue;
         }
         inbound_state.last_bumped = SystemTime::now();
-        debug!("is loop");
         if inbound_state.blocks_complete * BLOCK_SIZE!() >= inbound_state.eof {
             to_remove = inbound_state.content_id.as_str().to_owned();
             continue;
@@ -342,11 +334,12 @@ fn bump_inbounds(
         for p in peers {
             let mut message_out: Vec<Message> = Vec::new();
             message_out.append(&mut request_content_block(&mut inbound_state));
-
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
+            debug!("sending {:?} eump to {p}", message_out.len());
             socket.send_to(&message_out_bytes, p).ok();
         }
+            inbound_state.next_block += 1;
     }
     if to_remove != "" {
         let i = &inbound_states[&to_remove];
