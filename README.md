@@ -19,6 +19,8 @@ try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
 or info/warn log levels
 
 # TODO
+- send hints based on same peer sorting algoritthm as requesting
+- add peer info RTT and use that or mix of that and last seen
 - save peer list between restarts to not depend on the hard coded list .. but not before a way to expiring them.
 - literally the most recently spoke to peers is probbaly the ones sending us data, so just suggest those with inbound state bumps, and ask for some in those too, to whoveer i expect will have the data so thta same loop..also occationally during xfer just ask them for peers, no sep list needed for now, its self solving, also this will include people asking for this data too
 - chose random port on first run, but then stick with it between restarts, save in a config file json

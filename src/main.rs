@@ -27,20 +27,46 @@ macro_rules! BLOCK_SIZE {
     };
 }
 
+#[derive(Clone)]
 struct PeerInfo {
     last_seen: SystemTime,
 }
-
+struct PeerState {
+    peer_map: HashMap<SocketAddr, PeerInfo>,
+    peer_vec: Vec<(SocketAddr, PeerInfo)>,
+}
+impl PeerState {
+    fn best_peers(&self) -> Vec<SocketAddr> {
+        let mut rng = rand::thread_rng();
+        let result: &mut Vec<SocketAddr> = &mut vec![];
+        for _ in 0..10 {
+            let i: usize =
+                ((rng.gen_range(0.0..1.0) as f64).powi(3) * (self.peer_vec.len() as f64)) as usize;
+            let p = &self.peer_vec[i];
+            result.push(p.0);
+            info!(
+                "best peer {0} {1} {2}",
+                i,
+                p.0,
+                p.1.last_seen.elapsed().unwrap().as_secs_f64()
+            );
+        }
+        result.clone()
+    }
+}
 fn main() -> Result<(), std::io::Error> {
     env_logger::init();
-    let mut peer_map: HashMap<SocketAddr, PeerInfo> = HashMap::new();
-    peer_map.insert(
+    let mut ps: PeerState = PeerState {
+        peer_map: HashMap::new(),
+        peer_vec: Vec::new(),
+    };
+    ps.peer_map.insert(
         "148.71.89.128:24254".parse().unwrap(),
         PeerInfo {
             last_seen: UNIX_EPOCH,
         },
     );
-    peer_map.insert(
+    ps.peer_map.insert(
         "159.69.54.127:24254".parse().unwrap(),
         PeerInfo {
             last_seen: UNIX_EPOCH,
@@ -59,12 +85,12 @@ fn main() -> Result<(), std::io::Error> {
     socket.set_read_timeout(Some(Duration::new(1, 0)))?;
     let mut last_maintenance = UNIX_EPOCH;
     loop {
+        if last_maintenance.elapsed().unwrap() > Duration::from_secs(1) {
+            last_maintenance = SystemTime::now();
+            maintenance(&mut inbound_states, &mut ps, &socket);
+        }
         let mut buf = [0; 0x10000];
         socket.set_read_timeout(Some(Duration::new(1, 0)))?;
-        if last_maintenance + Duration::from_secs(1) < SystemTime::now() {
-            last_maintenance = SystemTime::now();
-            maintenance(&mut inbound_states, &mut peer_map, &socket);
-        }
         let (message_len, src) = match socket.recv_from(&mut buf) {
             Ok(_r) => _r,
             Err(_e) => {
@@ -87,7 +113,8 @@ fn main() -> Result<(), std::io::Error> {
             "incoming message {:?} from {src}",
             str::from_utf8(message_in_bytes)
         );
-        if peer_map
+        if ps
+            .peer_map
             .insert(
                 src,
                 PeerInfo {
@@ -109,8 +136,8 @@ fn main() -> Result<(), std::io::Error> {
                 }
             };
             let mut reply = match message_in_enum {
-                Message::PleaseSendPeers(t) => t.send_peers(&peer_map),
-                Message::TheseArePeers(t) => t.receive_peers(&mut peer_map),
+                Message::PleaseSendPeers(t) => t.send_peers(&ps),
+                Message::TheseArePeers(t) => t.receive_peers(&mut ps),
                 Message::PleaseSendContent(t) => t.send_content(&mut inbound_states),
                 Message::HereIsContent(t) => t.receive_content(&mut inbound_states),
             };
@@ -141,16 +168,15 @@ struct TheseArePeers {
 #[derive(Serialize, Deserialize)]
 struct PleaseSendPeers {}
 impl PleaseSendPeers {
-    fn send_peers(&self, peer_map: &HashMap<SocketAddr, PeerInfo>) -> Vec<Message> {
-        let p: Vec<SocketAddr> = peer_map
-            .into_iter()
-            .filter(|(_, pi)| pi.last_seen > UNIX_EPOCH)
-            .map(|(k, _)| k)
-            .take(50)
-            .cloned()
-            .collect();
-        trace!("sending {:?}/{:?} peers {:?}", p.len(), peer_map.len(), p);
-        debug!("sending {:?}/{:?} peers", p.len(), peer_map.len());
+    fn send_peers(&self, ps: &PeerState) -> Vec<Message> {
+        let p = ps.best_peers();
+        trace!(
+            "sending {:?}/{:?} peers {:?}",
+            p.len(),
+            ps.peer_map.len(),
+            p
+        );
+        debug!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
         return vec![Message::TheseArePeers(TheseArePeers {
             //    how_to_add_new_fields_without_error:Some("".to_string()),
             peers: p,
@@ -159,11 +185,12 @@ impl PleaseSendPeers {
 }
 
 impl TheseArePeers {
-    fn receive_peers(&self, peer_map: &mut HashMap<SocketAddr, PeerInfo>) -> Vec<Message> {
+    fn receive_peers(&self, ps: &mut PeerState) -> Vec<Message> {
         debug!("received  {:?} peers", self.peers.len());
         for p in &self.peers {
             let sa: SocketAddr = *p;
-            if peer_map
+            if ps
+                .peer_map
                 .insert(
                     sa,
                     PeerInfo {
@@ -360,34 +387,27 @@ struct InboundState {
 
 fn maintenance(
     inbound_states: &mut HashMap<String, InboundState>,
-    peer_map: &mut HashMap<SocketAddr, PeerInfo>,
+    ps: &mut PeerState,
     socket: &UdpSocket,
 ) -> () {
-    let mut peers_vec: Vec<_> = peer_map.into_iter().collect();
-
     let now = SystemTime::now();
-    peers_vec.sort_by_key(|(_, p)| now.duration_since(p.last_seen).unwrap());
+    ps.peer_vec = ps.peer_map.clone().into_iter().collect();
+    ps.peer_vec
+        .sort_by_key(|(_, p)| now.duration_since(p.last_seen).unwrap());
+    let best_peers = &ps.best_peers();
 
-    let mut rng = rand::thread_rng();
-    for _ in 0..10 {
-        let i: usize =
-            ((rng.gen_range(0.0..1.0) as f64).powi(3) * (peers_vec.len() as f64)) as usize;
-
-        let (sa, pi) = &peers_vec[i];
+    for sa in best_peers {
         let mut message_out: Vec<Message> = Vec::new();
         message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        info!(
-            "sending PleaseSendPeers to {0} {1}, last seen {2} ago",
-            i,
-            sa,
-            pi.last_seen.elapsed().unwrap().as_secs_f64()
-        );
+
         socket.send_to(&message_out_bytes, sa).ok();
     }
 
     for (_, i) in inbound_states.iter_mut() {
-        for (sa, _) in peer_map.iter_mut() {
+        for sa in best_peers {
+            // TODO do not spam *everyone*.  use same peer selecion
+            // algorithm until we do know better
             let mut message_out: Vec<Message> = Vec::new();
             message_out.append(&mut request_content_block(i));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
