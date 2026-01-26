@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 //use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::collections::HashSet;
 //use std::convert::TryInto;
 use std::env;
 //use std::fmt;
@@ -17,7 +16,7 @@ use std::net::{SocketAddr, UdpSocket};
 use std::os::unix::fs::FileExt;
 //use std::path::Path;
 use std::str;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::vec;
 
 macro_rules! BLOCK_SIZE {
@@ -26,11 +25,25 @@ macro_rules! BLOCK_SIZE {
     };
 }
 
+struct PeerInfo {
+    last_seen: SystemTime,
+}
+
 fn main() -> Result<(), std::io::Error> {
     env_logger::init();
-    let mut peers: HashSet<SocketAddr> = HashSet::new();
-    peers.insert("148.71.89.128:24254".parse().unwrap());
-    peers.insert("159.69.54.127:24254".parse().unwrap());
+    let mut peer_map: HashMap<SocketAddr, PeerInfo> = HashMap::new();
+    peer_map.insert(
+        "148.71.89.128:24254".parse().unwrap(),
+        PeerInfo {
+            last_seen: UNIX_EPOCH,
+        },
+    );
+    peer_map.insert(
+        "159.69.54.127:24254".parse().unwrap(),
+        PeerInfo {
+            last_seen: UNIX_EPOCH,
+        },
+    );
     let socket = UdpSocket::bind("0.0.0.0:24254")?;
     fs::create_dir("./cjp2p").ok();
     std::env::set_current_dir("./cjp2p").unwrap();
@@ -45,17 +58,20 @@ fn main() -> Result<(), std::io::Error> {
     loop {
         let mut buf = [0; 0x10000];
         socket.set_read_timeout(Some(Duration::new(1, 0)))?;
-        bump_inbounds(&mut inbound_states, &peers, &socket);
+        bump_inbounds(&mut inbound_states, &mut peer_map, &socket);
         let (message_len, src) = match socket.recv_from(&mut buf) {
             Ok(_r) => _r,
             Err(_e) => {
                 debug!("so quiet, looking for more peers");
-                for p in &peers {
+                for (sa, pi) in peer_map.iter_mut() {
                     let mut message_out: Vec<Message> = Vec::new();
                     message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
                     let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                     trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
-                    socket.send_to(&message_out_bytes, p).ok();
+                    socket.send_to(&message_out_bytes, sa).ok();
+                    *pi = PeerInfo {
+                        last_seen: UNIX_EPOCH,
+                    };
                 }
                 continue;
             }
@@ -75,7 +91,15 @@ fn main() -> Result<(), std::io::Error> {
             "incoming message {:?} from {src}",
             str::from_utf8(message_in_bytes)
         );
-        if peers.insert(src) {
+        if peer_map
+            .insert(
+                src,
+                PeerInfo {
+                    last_seen: SystemTime::now(),
+                },
+            )
+            .is_none()
+        {
             warn!("new peer spotted {src}");
         }
         let mut message_out: Vec<Message> = Vec::new();
@@ -89,8 +113,8 @@ fn main() -> Result<(), std::io::Error> {
                 }
             };
             let mut reply = match message_in_enum {
-                Message::PleaseSendPeers(t) => t.send_peers(&peers),
-                Message::TheseArePeers(t) => t.receive_peers(&mut peers),
+                Message::PleaseSendPeers(t) => t.send_peers(&peer_map),
+                Message::TheseArePeers(t) => t.receive_peers(&mut peer_map),
                 Message::PleaseSendContent(t) => t.send_content(&mut inbound_states),
                 Message::HereIsContent(t) => t.receive_content(&mut inbound_states),
             };
@@ -121,10 +145,16 @@ struct TheseArePeers {
 #[derive(Serialize, Deserialize)]
 struct PleaseSendPeers {}
 impl PleaseSendPeers {
-    fn send_peers(&self, peers: &HashSet<SocketAddr>) -> Vec<Message> {
-        let p: Vec<SocketAddr> = peers.into_iter().take(50).cloned().collect();
-        trace!("sending {:?}/{:?} peers {:?}", p.len(), peers.len(), p);
-        debug!("sending {:?}/{:?} peers", p.len(), peers.len());
+    fn send_peers(&self, peer_map: &HashMap<SocketAddr, PeerInfo>) -> Vec<Message> {
+        let p: Vec<SocketAddr> = peer_map
+            .into_iter()
+            .filter(|(_, pi)| pi.last_seen > UNIX_EPOCH)
+            .map(|(k, _)| k)
+            .take(50)
+            .cloned()
+            .collect();
+        trace!("sending {:?}/{:?} peers {:?}", p.len(), peer_map.len(), p);
+        debug!("sending {:?}/{:?} peers", p.len(), peer_map.len());
         return vec![Message::TheseArePeers(TheseArePeers {
             //    how_to_add_new_fields_without_error:Some("".to_string()),
             peers: p,
@@ -133,11 +163,19 @@ impl PleaseSendPeers {
 }
 
 impl TheseArePeers {
-    fn receive_peers(&self, peers: &mut HashSet<SocketAddr>) -> Vec<Message> {
+    fn receive_peers(&self, peer_map: &mut HashMap<SocketAddr, PeerInfo>) -> Vec<Message> {
         debug!("received  {:?} peers", self.peers.len());
         for p in &self.peers {
             let sa: SocketAddr = *p;
-            if peers.insert(sa) {
+            if peer_map
+                .insert(
+                    sa,
+                    PeerInfo {
+                        last_seen: UNIX_EPOCH,
+                    },
+                )
+                .is_none()
+            {
                 warn!("new peer suggested {sa}");
             }
         }
@@ -317,7 +355,7 @@ struct InboundState {
 
 fn bump_inbounds(
     inbound_states: &mut HashMap<String, InboundState>,
-    peers: &HashSet<SocketAddr>,
+    peer_map: &mut HashMap<SocketAddr, PeerInfo>,
     socket: &UdpSocket,
 ) -> () {
     let mut to_remove = "".to_owned();
@@ -330,13 +368,13 @@ fn bump_inbounds(
             to_remove = inbound_state.content_id.as_str().to_owned();
             continue;
         }
-        for p in peers {
+        for (sa, _) in peer_map.iter_mut() {
             let mut message_out: Vec<Message> = Vec::new();
             message_out.append(&mut request_content_block(&mut inbound_state));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
-            debug!("sending {:?} eump to {p}", message_out.len());
-            socket.send_to(&message_out_bytes, p).ok();
+            debug!("sending {:?} bump to {sa}", message_out.len());
+            socket.send_to(&message_out_bytes, sa).ok();
         }
         inbound_state.next_block += 1;
     }
