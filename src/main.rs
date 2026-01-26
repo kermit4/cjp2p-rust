@@ -76,7 +76,7 @@ fn main() -> Result<(), std::io::Error> {
             _ => {
                 error!(
                     "could not deserialize an incoming message {:?}",
-                    str::from_utf8(message_in_bytes).unwrap()
+                    message_in_bytes
                 );
                 continue;
             }
