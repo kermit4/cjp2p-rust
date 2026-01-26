@@ -3,11 +3,13 @@ use bitvec::prelude::*;
 use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use weighted_rand::builder::*;
 //use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 //use std::convert::TryInto;
 use std::env;
 //use std::fmt;
+use std::f64;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -76,7 +78,8 @@ fn main() -> Result<(), std::io::Error> {
             _ => {
                 error!(
                     "could not deserialize an incoming message {:?}",
-                    String::from_utf8_lossy(message_in_bytes));
+                    String::from_utf8_lossy(message_in_bytes)
+                );
                 continue;
             }
         };
@@ -360,16 +363,32 @@ fn maintenance(
     peer_map: &mut HashMap<SocketAddr, PeerInfo>,
     socket: &UdpSocket,
 ) -> () {
-    for (sa, pi) in peer_map.iter_mut() {
+    let peers: Vec<_> = peer_map.keys().collect();
+    let weights: Vec<_> = peer_map
+        .values()
+        .map(|peer| {
+            (1.0 / ((peer.last_seen.elapsed().ok().unwrap())
+                .as_secs_f64()
+                .sqrt())) as f32
+        })
+        .collect();
+
+    let builder = WalkerTableBuilder::new(&weights);
+    let wa_table = builder.build();
+
+    for i in (0..10).map(|_| wa_table.next()) {
+        let pi = &peer_map[peers[i]];
+        let sa = peers[i];
+
+        //    for (sa, pi) in peer_map.iter_mut() {
         // TODO maybe not ask everyone every second huh?
         let mut message_out: Vec<Message> = Vec::new();
         message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
+        debug!("sending PleaseSendPeers to {0}, last seen {1} ago", sa,pi.last_seen.elapsed().unwrap()
+                .as_secs_f64()
+        );
         socket.send_to(&message_out_bytes, sa).ok();
-        *pi = PeerInfo {
-            last_seen: UNIX_EPOCH,
-        };
     }
 
     for (_, i) in inbound_states.iter_mut() {
@@ -378,7 +397,10 @@ fn maintenance(
             message_out.append(&mut request_content_block(i));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
-            debug!("sending {:?} bump to {sa}", message_out.len());
+            debug!(
+                "sending {:?} unpmompted PleaseSendContent to {sa}",
+                message_out.len()
+            );
             socket.send_to(&message_out_bytes, sa).ok();
         }
         i.next_block += 1;
