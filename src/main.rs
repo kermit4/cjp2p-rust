@@ -3,7 +3,6 @@ use bitvec::prelude::*;
 use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use weighted_rand::builder::*;
 //use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 //use std::convert::TryInto;
@@ -17,6 +16,7 @@ use std::fs::OpenOptions;
 use std::net::{SocketAddr, UdpSocket};
 use std::os::unix::fs::FileExt;
 //use std::path::Path;
+use rand::Rng;
 use std::str;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::vec;
@@ -363,30 +363,25 @@ fn maintenance(
     peer_map: &mut HashMap<SocketAddr, PeerInfo>,
     socket: &UdpSocket,
 ) -> () {
-    let peers: Vec<_> = peer_map.keys().collect();
-    let weights: Vec<_> = peer_map
-        .values()
-        .map(|peer| {
-            (1.0 / ((peer.last_seen.elapsed().ok().unwrap())
-                .as_secs_f64()
-                .sqrt())) as f32
-        })
-        .collect();
+    let mut peers_vec: Vec<_> = peer_map.into_iter().collect();
 
-    let builder = WalkerTableBuilder::new(&weights);
-    let wa_table = builder.build();
+    let now = SystemTime::now();
+    peers_vec.sort_by_key(|(_, p)| now.duration_since(p.last_seen).unwrap());
 
-    for i in (0..10).map(|_| wa_table.next()) {
-        let pi = &peer_map[peers[i]];
-        let sa = peers[i];
+    let mut rng = rand::thread_rng();
+    for _ in 0..10 {
+        let i: usize =
+            ((rng.gen_range(0.0..1.0) as f64).powi(3) * (peers_vec.len() as f64)) as usize;
 
-        //    for (sa, pi) in peer_map.iter_mut() {
-        // TODO maybe not ask everyone every second huh?
+        let (sa, pi) = &peers_vec[i];
         let mut message_out: Vec<Message> = Vec::new();
         message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        debug!("sending PleaseSendPeers to {0}, last seen {1} ago", sa,pi.last_seen.elapsed().unwrap()
-                .as_secs_f64()
+        info!(
+            "sending PleaseSendPeers to {0} {1}, last seen {2} ago",
+            i,
+            sa,
+            pi.last_seen.elapsed().unwrap().as_secs_f64()
         );
         socket.send_to(&message_out_bytes, sa).ok();
     }

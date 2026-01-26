@@ -22,6 +22,7 @@ or info/warn log levels
 - save peer list between restarts to not depend on the hard coded list .. but not before a way to expiring them.
 - literally the most recently spoke to peers is probbaly the ones sending us data, so just suggest those with inbound state bumps, and ask for some in those too, to whoveer i expect will have the data so thta same loop..also occationally during xfer just ask them for peers, no sep list needed for now, its self solving, also this will include people asking for this data too
 - chose random port on first run, but then stick with it between restarts, save in a config file json
+- inboundstate - save peers known to have some of a file for stalls to resume without a search and window growth
 - send_peers and bump_inbounds should chose more intelligently, randomly is better than first 50, ideally a vector sorted by responsiveness and chosen somewhat ranomly with a lean to the closer hosts
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere
 - some way to not be used as a DDOS as people can spoof their IPs in a request for peers or contont
