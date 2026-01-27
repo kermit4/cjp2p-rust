@@ -458,7 +458,7 @@ impl ReturnedMessage {
                 peer.latency = (UNIX_EPOCH + Duration::from_secs_f64(self.sent_at))
                     .elapsed()
                     .unwrap();
-                warn!("measured {0} at {1}", src, peer.latency as f64)
+                warn!("measured {0} at {1}", src, peer.latency.as_secs_f64())
             }
             _ => {
                 ps.peer_map.insert(
