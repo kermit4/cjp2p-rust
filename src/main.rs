@@ -31,7 +31,7 @@ macro_rules! BLOCK_SIZE {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct PeerInfo {
-    last_seen: SystemTime,
+    when_last_seen: SystemTime,
     delay: Duration,
 }
 struct PeerState {
@@ -52,7 +52,7 @@ impl PeerState {
                 "best peer {0} {1} {2} {3}",
                 i,
                 p.0,
-                p.1.last_seen.elapsed().unwrap().as_secs_f64(),
+                p.1.when_last_seen.elapsed().unwrap().as_secs_f64(),
                 p.1.delay.as_secs_f64()
             );
         }
@@ -69,14 +69,14 @@ fn main() -> Result<(), std::io::Error> {
     ps.peer_map.insert(
         "148.71.89.128:24254".parse().unwrap(),
         PeerInfo {
-            last_seen: UNIX_EPOCH,
+            when_last_seen: UNIX_EPOCH,
             delay: Duration::new(1, 0),
         },
     );
     ps.peer_map.insert(
         "159.69.54.127:24254".parse().unwrap(),
         PeerInfo {
-            last_seen: UNIX_EPOCH,
+            when_last_seen: UNIX_EPOCH,
             delay: Duration::new(1, 0),
         },
     );
@@ -120,12 +120,12 @@ fn main() -> Result<(), std::io::Error> {
             String::from_utf8_lossy(message_in_bytes)
         );
         match ps.peer_map.get_mut(&src) {
-            Some(peer) => peer.last_seen = SystemTime::now(),
+            Some(peer) => peer.when_last_seen = SystemTime::now(),
             _ => {
                 ps.peer_map.insert(
                     src,
                     PeerInfo {
-                        last_seen: SystemTime::now(),
+                        when_last_seen: SystemTime::now(),
                         delay: Duration::new(1, 0),
                     },
                 );
@@ -214,7 +214,7 @@ impl TheseArePeers {
                 ps.peer_map.insert(
                     sa,
                     PeerInfo {
-                        last_seen: UNIX_EPOCH,
+                        when_last_seen: UNIX_EPOCH,
                         delay: Duration::new(1, 0),
                     },
                 );
@@ -427,9 +427,9 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     }
     ps.peer_vec = ps.peer_map.clone().into_iter().collect();
     ps.peer_vec.sort_unstable_by(|a, b| {
-        (now.duration_since(a.1.last_seen).unwrap().as_secs_f64() * a.1.delay.as_secs_f64())
+        (now.duration_since(a.1.when_last_seen).unwrap().as_secs_f64() * a.1.delay.as_secs_f64())
             .total_cmp(
-                &(now.duration_since(b.1.last_seen).unwrap().as_secs_f64()
+                &(now.duration_since(b.1.when_last_seen).unwrap().as_secs_f64()
                     * b.1.delay.as_secs_f64()),
             )
     });
