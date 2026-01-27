@@ -32,7 +32,7 @@ macro_rules! BLOCK_SIZE {
 #[derive(Clone, Serialize, Deserialize)]
 struct PeerInfo {
     last_seen: SystemTime,
-    latency: Duration,
+    delay: Duration,
 }
 struct PeerState {
     peer_map: HashMap<SocketAddr, PeerInfo>,
@@ -53,7 +53,7 @@ impl PeerState {
                 i,
                 p.0,
                 p.1.last_seen.elapsed().unwrap().as_secs_f64(),
-                p.1.latency.as_secs_f64()
+                p.1.delay.as_secs_f64()
             );
         }
         result.clone()
@@ -70,14 +70,14 @@ fn main() -> Result<(), std::io::Error> {
         "148.71.89.128:24254".parse().unwrap(),
         PeerInfo {
             last_seen: UNIX_EPOCH,
-            latency: Duration::new(1, 0),
+            delay: Duration::new(1, 0),
         },
     );
     ps.peer_map.insert(
         "159.69.54.127:24254".parse().unwrap(),
         PeerInfo {
             last_seen: UNIX_EPOCH,
-            latency: Duration::new(1, 0),
+            delay: Duration::new(1, 0),
         },
     );
     fs::create_dir("./cjp2p").ok();
@@ -126,7 +126,7 @@ fn main() -> Result<(), std::io::Error> {
                     src,
                     PeerInfo {
                         last_seen: SystemTime::now(),
-                        latency: Duration::new(1, 0),
+                        delay: Duration::new(1, 0),
                     },
                 );
                 warn!("new peer spotted {src}");
@@ -215,7 +215,7 @@ impl TheseArePeers {
                     sa,
                     PeerInfo {
                         last_seen: UNIX_EPOCH,
-                        latency: Duration::new(1, 0),
+                        delay: Duration::new(1, 0),
                     },
                 );
             }
@@ -427,10 +427,10 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     }
     ps.peer_vec = ps.peer_map.clone().into_iter().collect();
     ps.peer_vec.sort_unstable_by(|a, b| {
-        (now.duration_since(a.1.last_seen).unwrap().as_secs_f64() * a.1.latency.as_secs_f64())
+        (now.duration_since(a.1.last_seen).unwrap().as_secs_f64() * a.1.delay.as_secs_f64())
             .total_cmp(
                 &(now.duration_since(b.1.last_seen).unwrap().as_secs_f64()
-                    * b.1.latency.as_secs_f64()),
+                    * b.1.delay.as_secs_f64()),
             )
     });
     let best_peers = &ps.best_peers(10);
@@ -478,10 +478,10 @@ impl ReturnedMessage {
     fn update_time(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
         match ps.peer_map.get_mut(&src) {
             Some(peer) => {
-                peer.latency = (UNIX_EPOCH + Duration::from_secs_f64(self.sent_at))
+                peer.delay = (UNIX_EPOCH + Duration::from_secs_f64(self.sent_at))
                     .elapsed()
                     .unwrap();
-                info!("measured {0} at {1}", src, peer.latency.as_secs_f64())
+                info!("measured {0} at {1}", src, peer.delay.as_secs_f64())
             }
             _ => (),
         };
