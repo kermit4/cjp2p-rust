@@ -1,8 +1,10 @@
 use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
+use chrono::{Timelike, Utc};
 use log::{debug, error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::io::Write;
 //use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 //use std::convert::TryInto;
@@ -27,7 +29,7 @@ macro_rules! BLOCK_SIZE {
     };
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct PeerInfo {
     last_seen: SystemTime,
     latency: Duration,
@@ -411,6 +413,18 @@ struct InboundState {
 
 fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
     let now = SystemTime::now();
+    if Utc::now().second() + (Utc::now().minute() % 5) == 0 {
+        OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(true)
+            .open("config.json")
+            .unwrap()
+            .write_all(&serde_json::to_vec(&ps.peer_map).unwrap())
+            .ok();
+        //serde_json
+    }
     ps.peer_vec = ps.peer_map.clone().into_iter().collect();
     ps.peer_vec.sort_unstable_by(|a, b| {
         (now.duration_since(a.1.last_seen).unwrap().as_secs_f64() * a.1.latency.as_secs_f64())
