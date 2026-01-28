@@ -201,7 +201,7 @@ fn main() -> Result<(), std::io::Error> {
                 let reply = match message_in_enum {
                     Message::PleaseSendPeers(t) => t.send_peers(&ps),
                     Message::Peers(t) => t.receive_peers(&mut ps),
-                    Message::PleaseSendContent(t) => t.send_content(&mut inbound_states),
+                    Message::PleaseSendContent(t) => t.send_content(&mut inbound_states,src),
                     Message::Content(t) => t.receive_content(&mut inbound_states, src, &mut ps),
                     Message::ReturnedMessage(t) => t.update_time(&mut ps, src),
                     _ => vec![],
@@ -287,7 +287,9 @@ struct Content {
 }
 
 impl PleaseSendContent {
-    fn send_content(&self, inbound_states: &mut HashMap<String, InboundState>) -> Vec<Message> {
+    fn send_content(&self, inbound_states: &mut HashMap<String, InboundState>,
+        src: SocketAddr,
+        ) -> Vec<Message> {
         if self.id.find("/") != None || self.id.find("\\") != None {
             return vec![];
         };
@@ -320,7 +322,7 @@ impl PleaseSendContent {
             }
         };
 
-        debug!("going to send {:?} at {:?}", self.id, self.offset/BLOCK_SIZE!());
+        debug!("going to send {:?} at {:?} to {:?}", self.id, self.offset/BLOCK_SIZE!(),src);
 
         let mut buf = vec![0; length as usize];
         length = file.read_at(&mut buf, self.offset as u64).unwrap() as u64;
@@ -377,10 +379,11 @@ impl Content {
         i.next_block += 1;
         let mut message_out = i.request_block();
         debug!(
-            "requesting {:?} offset {:?} window {:?}",
+            "requesting {:?} offset {:?} window {:?} from {:?}",
             i.id,
             i.next_block,
-            i.next_block as i64 - i.bitmap.iter_ones().last().unwrap_or_default() as i64
+            i.next_block as i64 - i.bitmap.iter_ones().last().unwrap_or_default() as i64,
+            src
         );
         if (i.blocks_complete % 100) == 0 {
             i.next_block += 1;
