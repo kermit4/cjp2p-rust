@@ -343,27 +343,19 @@ impl Content {
         src: SocketAddr,
         ps: &mut PeerState,
     ) -> Vec<Message> {
-        let block_number = (self.offset / BLOCK_SIZE!()) as usize;
         if !inbound_states.contains_key(&self.id) {
             return vec![];
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
         i.last_time_received = SystemTime::now();
+        let block_number = (self.offset / BLOCK_SIZE!()) as usize;
         debug!("received  {:?} block {:?}", self.id, block_number);
         if self.eof > i.eof {
             i.eof = self.eof;
         }
         let blocks = (i.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
         i.bitmap.resize(blocks as usize, false);
-        if i.blocks_complete * BLOCK_SIZE!() >= i.eof {
-            println!("{0} complete ", i.id);
-            let path = "./incoming/".to_owned() + &i.id;
-            let new_path = "./".to_owned() + &i.id;
-            fs::rename(path, new_path).unwrap();
-            inbound_states.remove(&self.id);
-            return vec![];
-        };
 
         if i.bitmap[block_number] {
             i.dups += 1;
@@ -373,8 +365,19 @@ impl Content {
                 .decode(&self.base64)
                 .unwrap();
             i.file.write_at(&bytes, self.offset).unwrap();
-            i.blocks_complete += 1;
-            i.bitmap.set(block_number, true);
+            if (i.blocks_complete +1) * BLOCK_SIZE!() >= i.eof {
+                println!("{0} complete ", i.id);
+                let path = "./incoming/".to_owned() + &i.id;
+                let new_path = "./".to_owned() + &i.id;
+                fs::rename(path, new_path).unwrap();
+                inbound_states.remove(&self.id);
+                return vec![];
+            };
+            if bytes.len()==BLOCK_SIZE!() {
+                // no reason someone would send a short block, but, just in case
+                i.blocks_complete += 1;
+                i.bitmap.set(block_number, true);
+            }
         }
         i.next_block += 1;
         let mut message_out = i.request_block();
@@ -511,7 +514,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
 
     for (_, i) in inbound_states.iter_mut() {
         i.grow_window(ps);
-        if i.last_time_received.elapsed().unwrap() > Duration::from_secs(1) {
+        if i.last_time_received.elapsed().unwrap() > Duration::from_secs(3) {
             i.search(ps);
             i.search(ps);
             i.search(ps);
