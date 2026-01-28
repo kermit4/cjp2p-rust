@@ -19,15 +19,10 @@ try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
 or info/warn log levels
 
 # TODO
-- all the "loss" is those oversized packets
 - send/receie content needs to be in inbound state, but called from the packet type 
--   more flow widening as some connectionos dont support any bigger.
-- save peer list between restarts to not depend on the hard coded list .. but not before a way to expiring them...or jsut save the best however many. yes that.
 - literally the most recently spoke to peers is probbaly the ones sending us data, so just suggest those with inbound state bumps, and ask for some in those too, to whoveer i expect will have the data so thta same loop..also occationally during xfer just ask them for peers, no sep list needed for now, its self solving, also this will include people asking for this data too
 - chose random port on first run, but then stick with it between restarts, save in a config file json
 - inboundstate - save peers known to have some of a file for stalls to resume without a search and window growth
-- connections that cant take bigger than the 4k blocks are limited to 100 packets per bump time
-- send_peers and bump_inbounds should chose more intelligently, randomly is better than first 50, ideally a vector sorted by responsiveness and chosen somewhat ranomly with a lean to the closer hosts
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere
 - some way to not be used as a DDOS as people can spoof their IPs in a request for peers or contont
 - some networks just dont fragment, black holes..may have to reduce block size here, and grow window a different way, if it happens a lot, even 1k blocks were too much in one case.

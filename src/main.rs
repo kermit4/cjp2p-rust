@@ -140,7 +140,7 @@ fn main() -> Result<(), std::io::Error> {
     ps.socket.set_read_timeout(Some(Duration::new(1, 0)))?;
     let mut last_maintenance = UNIX_EPOCH;
     loop {
-        if last_maintenance.elapsed().unwrap() > Duration::from_secs(2) {
+        if last_maintenance.elapsed().unwrap() > Duration::from_secs(20000) {
             last_maintenance = SystemTime::now();
             maintenance(&mut inbound_states, &mut ps);
         }
@@ -202,7 +202,7 @@ fn main() -> Result<(), std::io::Error> {
                     Message::PleaseSendPeers(t) => t.send_peers(&ps),
                     Message::Peers(t) => t.receive_peers(&mut ps),
                     Message::PleaseSendContent(t) => t.send_content(&mut inbound_states),
-                    Message::Content(t) => t.receive_content(&mut inbound_states, src),
+                    Message::Content(t) => t.receive_content(&mut inbound_states, src, &mut ps),
                     Message::ReturnedMessage(t) => t.update_time(&mut ps, src),
                     _ => vec![],
                 };
@@ -340,6 +340,7 @@ impl Content {
         &self,
         inbound_states: &mut HashMap<String, InboundState>,
         src: SocketAddr,
+        ps: &mut PeerState,
     ) -> Vec<Message> {
         let block_number = (self.offset / BLOCK_SIZE!()) as usize;
         if !inbound_states.contains_key(&self.id) {
@@ -347,6 +348,7 @@ impl Content {
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
+        i.last_time_received = SystemTime::now();
         debug!("received  {:?} block {:?}", self.id, block_number);
         if self.eof > i.eof {
             i.eof = self.eof;
@@ -378,7 +380,7 @@ impl Content {
         debug!("requesting  {:?} offset {:?} ", i.id, i.next_block);
         if (i.blocks_complete % 100) == 0 {
             i.next_block += 1;
-            message_out.append(&mut i.request_block());
+            i.grow_window(ps);
             debug!(
                 "requesting  {:?} offset {:?} ACCELERATOR",
                 i.id, i.next_block
@@ -399,7 +401,8 @@ struct InboundState {
     eof: u64,
     blocks_complete: u64,
     dups: u64,
-    peers: HashSet<SocketAddr>, // last host
+    peers: HashSet<SocketAddr>,
+    last_time_received: SystemTime,
 }
 
 impl InboundState {
@@ -420,6 +423,7 @@ impl InboundState {
             blocks_complete: 0,
             peers: HashSet::new(),
             dups: 0,
+            last_time_received: UNIX_EPOCH,
         };
         inbound_state.bitmap.resize(1, false);
         inbound_states.insert(id.to_string(), inbound_state);
@@ -459,9 +463,13 @@ impl InboundState {
             length: BLOCK_SIZE!(),
         })];
     }
-    fn bump(&mut self, ps: &mut PeerState) {
-        let mut some_peers: HashSet<SocketAddr> = self.peers.clone();
-        some_peers.extend(ps.best_peers(50, 6));
+    fn grow_window(&mut self, ps: &mut PeerState) {
+        self.message_request_extra_block(ps, self.peers.clone());
+    }
+    fn search(&mut self, ps: &mut PeerState) {
+        self.message_request_extra_block(ps, ps.best_peers(50, 6));
+    }
+    fn message_request_extra_block(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
         for sa in some_peers {
             let mut message_out: Vec<Message> = Vec::new();
             message_out.append(&mut self.request_block());
@@ -497,7 +505,19 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     }
 
     for (_, i) in inbound_states.iter_mut() {
-        i.bump(ps);
+        i.grow_window(ps);
+        if i.last_time_received.elapsed().unwrap() > Duration::from_secs(1) {
+            i.search(ps);
+            i.search(ps);
+            i.search(ps);
+            i.search(ps);
+            i.search(ps);
+            i.grow_window(ps);
+            i.grow_window(ps);
+            i.grow_window(ps);
+            i.grow_window(ps);
+        }
+        i.search(ps);
     }
 }
 
