@@ -95,7 +95,7 @@ impl PeerState {
             }
             let p = &self.peer_vec[i];
             result.insert(p.0);
-            info!(
+            debug!(
                 "best peer(q:{quality}) {0} {1} {2} {3}",
                 i,
                 p.0,
@@ -140,7 +140,7 @@ fn main() -> Result<(), std::io::Error> {
     ps.socket.set_read_timeout(Some(Duration::new(1, 0)))?;
     let mut last_maintenance = UNIX_EPOCH;
     loop {
-        if last_maintenance.elapsed().unwrap() > Duration::from_secs(20000) {
+        if last_maintenance.elapsed().unwrap() > Duration::from_secs(3) {
             last_maintenance = SystemTime::now();
             maintenance(&mut inbound_states, &mut ps);
         }
@@ -215,7 +215,6 @@ fn main() -> Result<(), std::io::Error> {
             continue;
         }
         let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-        debug!("sending {:?} messages to {src}", message_out.len());
         trace!(
             "sending message {:?} to {src}",
             String::from_utf8_lossy(&message_out_bytes)
@@ -377,14 +376,15 @@ impl Content {
         }
         i.next_block += 1;
         let mut message_out = i.request_block();
-        debug!("requesting  {:?} offset {:?} ", i.id, i.next_block);
+        debug!(
+            "requesting {:?} offset {:?} window {:?}",
+            i.id,
+            i.next_block,
+            i.next_block as i64 - i.bitmap.iter_ones().last().unwrap_or_default() as i64
+        );
         if (i.blocks_complete % 100) == 0 {
             i.next_block += 1;
             i.grow_window(ps);
-            debug!(
-                "requesting  {:?} offset {:?} ACCELERATOR",
-                i.id, i.next_block
-            );
             message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                 sent_at: UNIX_EPOCH.elapsed().unwrap().as_secs_f64(),
             }));
@@ -464,9 +464,11 @@ impl InboundState {
         })];
     }
     fn grow_window(&mut self, ps: &mut PeerState) {
+        debug!("growing window for {0}", self.id);
         self.message_request_extra_block(ps, self.peers.clone());
     }
     fn search(&mut self, ps: &mut PeerState) {
+        debug!("searching for {0}", self.id);
         self.message_request_extra_block(ps, ps.best_peers(50, 6));
     }
     fn message_request_extra_block(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
@@ -537,7 +539,7 @@ impl ReturnedMessage {
                 peer.delay = (UNIX_EPOCH + Duration::from_secs_f64(self.sent_at))
                     .elapsed()
                     .unwrap();
-                info!("measured {0} at {1}", src, peer.delay.as_secs_f64())
+                debug!("measured {0} at {1}", src, peer.delay.as_secs_f64())
             }
             _ => (),
         };
