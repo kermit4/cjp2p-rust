@@ -83,7 +83,6 @@ impl PeerState {
             .ok();
     }
 
-
     fn best_peers(&self, how_many: i32, quality: i32) -> HashSet<SocketAddr> {
         let mut rng = rand::thread_rng();
         let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
@@ -301,8 +300,7 @@ impl PleaseSendContent {
         let file_: File;
         if inbound_states.contains_key(&self.id)
             && self.offset + length < inbound_states[&self.id].eof
-            && inbound_states[&self.id].bitmap
-                [(self.offset / BLOCK_SIZE!()) as usize]
+            && inbound_states[&self.id].bitmap[(self.offset / BLOCK_SIZE!()) as usize]
             && ((self.offset % BLOCK_SIZE!()) == 0)
         {
             file = &inbound_states[&self.id].file;
@@ -321,10 +319,7 @@ impl PleaseSendContent {
             }
         };
 
-        debug!(
-            "going to send {:?} at {:?}",
-            self.id, self.offset
-        );
+        debug!("going to send {:?} at {:?}", self.id, self.offset);
 
         let mut buf = vec![0; length as usize];
         length = file.read_at(&mut buf, self.offset as u64).unwrap() as u64;
@@ -375,17 +370,14 @@ impl HereIsContent {
         if i.bitmap[block_number] {
             i.dups += 1;
             debug!("dup {block_number}");
+        } else {
+            let bytes = general_purpose::STANDARD_NO_PAD
+                .decode(&self.base64)
+                .unwrap();
+            i.file.write_at(&bytes, self.offset).unwrap();
+            i.blocks_complete += 1;
+            i.bitmap.set(block_number, true);
         }
-        else {
-        let bytes = general_purpose::STANDARD_NO_PAD
-            .decode(&self.base64)
-            .unwrap();
-        i.file
-            .write_at(&bytes, self.offset)
-            .unwrap();
-        i.blocks_complete += 1;
-        i.bitmap.set(block_number, true);
-}
         let mut message_out = i.request_block();
         debug!("requesting  {:?} offset {:?} ", i.id, i.next_block);
         i.next_block += 1;
@@ -417,10 +409,7 @@ struct InboundState {
 }
 
 impl InboundState {
-    fn new_inbound_state(
-        inbound_states: &mut HashMap<String, InboundState>,
-        id: &str,
-    ) -> () {
+    fn new_inbound_state(inbound_states: &mut HashMap<String, InboundState>, id: &str) -> () {
         fs::create_dir("./incoming").ok();
         let path = "./incoming/".to_owned() + &id;
         let mut inbound_state = InboundState {
@@ -471,9 +460,8 @@ impl InboundState {
     }
     fn bump(&mut self, ps: &mut PeerState) {
         let mut some_peers: HashSet<SocketAddr> = self.peers.clone();
-            some_peers.extend(ps.best_peers(50, 6));
-            for sa in some_peers
-        {
+        some_peers.extend(ps.best_peers(50, 6));
+        for sa in some_peers {
             let mut message_out: Vec<Message> = Vec::new();
             message_out.append(&mut self.request_block());
             message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
