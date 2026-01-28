@@ -201,7 +201,7 @@ fn main() -> Result<(), std::io::Error> {
                 let reply = match message_in_enum {
                     Message::PleaseSendPeers(t) => t.send_peers(&ps),
                     Message::Peers(t) => t.receive_peers(&mut ps),
-                    Message::PleaseSendContent(t) => t.send_content(&mut inbound_states,src),
+                    Message::PleaseSendContent(t) => t.send_content(&mut inbound_states, src),
                     Message::Content(t) => t.receive_content(&mut inbound_states, src, &mut ps),
                     Message::ReturnedMessage(t) => t.update_time(&mut ps, src),
                     _ => vec![],
@@ -287,9 +287,11 @@ struct Content {
 }
 
 impl PleaseSendContent {
-    fn send_content(&self, inbound_states: &mut HashMap<String, InboundState>,
+    fn send_content(
+        &self,
+        inbound_states: &mut HashMap<String, InboundState>,
         src: SocketAddr,
-        ) -> Vec<Message> {
+    ) -> Vec<Message> {
         if self.id.find("/") != None || self.id.find("\\") != None {
             return vec![];
         };
@@ -322,7 +324,12 @@ impl PleaseSendContent {
             }
         };
 
-        debug!("going to send {:?} at {:?} to {:?}", self.id, self.offset/BLOCK_SIZE!(),src);
+        debug!(
+            "going to send {:?} at {:?} to {:?}",
+            self.id,
+            self.offset / BLOCK_SIZE!(),
+            src
+        );
 
         let mut buf = vec![0; length as usize];
         length = file.read_at(&mut buf, self.offset as u64).unwrap() as u64;
@@ -365,7 +372,7 @@ impl Content {
                 .decode(&self.base64)
                 .unwrap();
             i.file.write_at(&bytes, self.offset).unwrap();
-            if (i.blocks_complete +1) * BLOCK_SIZE!() >= i.eof {
+            if (i.blocks_complete + 1) * BLOCK_SIZE!() >= i.eof {
                 println!("{0} complete ", i.id);
                 let path = "./incoming/".to_owned() + &i.id;
                 let new_path = "./".to_owned() + &i.id;
@@ -373,7 +380,7 @@ impl Content {
                 inbound_states.remove(&self.id);
                 return vec![];
             };
-            if bytes.len()==BLOCK_SIZE!() {
+            if bytes.len() == BLOCK_SIZE!() {
                 // no reason someone would send a short block, but, just in case
                 i.blocks_complete += 1;
                 i.bitmap.set(block_number, true);
@@ -452,7 +459,9 @@ impl InboundState {
                     should_have
                 );
 
-                info!("re-requesting unreceived blocks (the tail is probably in flight, not lost): ");
+                info!(
+                    "re-requesting unreceived blocks (the tail is probably in flight, not lost): "
+                );
                 for i in self.bitmap.iter_zeros() {
                     info!("{i}");
                 }
