@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::cmp;
 use std::io::Write;
 //use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 //use std::convert::TryInto;
 use std::env;
 //use std::fmt;
@@ -64,7 +64,9 @@ impl PeerState {
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
             let json: Vec<(SocketAddr, PeerInfo)> =
                 serde_json::from_reader(&file.unwrap()).unwrap();
+            let before = self.peer_map.len();
             self.peer_map.extend(json);
+            info!("loaded {0} peers", self.peer_map.len() - before);
         }
     }
     fn save_peers(&self) -> () {
@@ -132,7 +134,7 @@ fn main() -> Result<(), std::io::Error> {
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     for v in args {
         info!("queing inbound file {:?}", v);
-        new_inbound_state(&mut inbound_states, v.as_str());
+        InboundState::new_inbound_state(&mut inbound_states, v.as_str());
     }
     ps.socket.set_read_timeout(Some(Duration::new(1, 0)))?;
     let mut last_maintenance = UNIX_EPOCH;
@@ -199,7 +201,7 @@ fn main() -> Result<(), std::io::Error> {
                     Message::PleaseSendPeers(t) => t.send_peers(&ps),
                     Message::TheseArePeers(t) => t.receive_peers(&mut ps),
                     Message::PleaseSendContent(t) => t.send_content(&mut inbound_states),
-                    Message::HereIsContent(t) => t.receive_content(&mut inbound_states),
+                    Message::HereIsContent(t) => t.receive_content(&mut inbound_states, src),
                     Message::ReturnedMessage(t) => t.update_time(&mut ps, src),
                     _ => vec![],
                 };
@@ -336,12 +338,17 @@ impl PleaseSendContent {
 }
 
 impl HereIsContent {
-    fn receive_content(&self, inbound_states: &mut HashMap<String, InboundState>) -> Vec<Message> {
+    fn receive_content(
+        &self,
+        inbound_states: &mut HashMap<String, InboundState>,
+        src: SocketAddr,
+    ) -> Vec<Message> {
         let block_number = (self.content_offset / BLOCK_SIZE!()) as usize;
         if !inbound_states.contains_key(&self.content_id) {
             return vec![];
         }
         let i = inbound_states.get_mut(&self.content_id).unwrap();
+        i.peers.insert(src);
         debug!("received  {:?} block {:?}", self.content_id, block_number);
         if self.content_eof > i.eof {
             i.eof = self.content_eof;
@@ -377,11 +384,11 @@ impl HereIsContent {
             .unwrap();
         i.blocks_complete += 1;
         i.bitmap.set(block_number, true);
-        let mut message_out = request_content_block(i);
+        let mut message_out = i.request_content_block();
         debug!("requesting  {:?} offset {:?} ", i.content_id, i.next_block);
         i.next_block += 1;
         if (i.blocks_complete % 100) == 0 {
-            message_out.append(&mut request_content_block(i));
+            message_out.append(&mut i.request_content_block());
             debug!(
                 "requesting  {:?} offset {:?} ACCELERATOR",
                 i.content_id, i.next_block
@@ -395,55 +402,6 @@ impl HereIsContent {
     }
 }
 //
-fn request_content_block(inbound_state: &mut InboundState) -> Vec<Message> {
-    if inbound_state.blocks_complete * BLOCK_SIZE!() >= inbound_state.eof {
-        return vec![];
-    }
-    while {
-        if inbound_state.next_block * BLOCK_SIZE!() >= inbound_state.eof {
-            info!("almost done with {0}", inbound_state.content_id);
-            info!("pending blocks: ");
-
-            for i in inbound_state.bitmap.iter_zeros() {
-                info!("{i}");
-            }
-
-            inbound_state.next_block = 0;
-        }
-        inbound_state.bitmap[inbound_state.next_block as usize]
-    } {
-        inbound_state.next_block += 1;
-    }
-    inbound_state.blocks_requested += 1;
-    return vec![Message::PleaseSendContent(PleaseSendContent {
-        content_id: inbound_state.content_id.to_owned(),
-        content_offset: inbound_state.next_block * BLOCK_SIZE!(),
-        content_length: BLOCK_SIZE!(),
-    })];
-}
-
-fn new_inbound_state(inbound_states: &mut HashMap<String, InboundState>, content_id: &str) -> () {
-    fs::create_dir("./incoming").ok();
-    let path = "./incoming/".to_owned() + &content_id;
-    let mut inbound_state = InboundState {
-        file: OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(path)
-            .unwrap(),
-        next_block: 0,
-        bitmap: BitVec::new(),
-        content_id: content_id.to_string(),
-        eof: 1,
-        blocks_complete: 0,
-        blocks_requested: 0,
-        dups: 0,
-    };
-    inbound_state.bitmap.resize(1, false);
-    inbound_states.insert(content_id.to_string(), inbound_state);
-}
-
 struct InboundState {
     file: File,
     next_block: u64,
@@ -453,7 +411,84 @@ struct InboundState {
     blocks_complete: u64,
     blocks_requested: u64,
     dups: u64,
-    // last host
+    peers: HashSet<SocketAddr>, // last host
+}
+
+impl InboundState {
+    fn new_inbound_state(
+        inbound_states: &mut HashMap<String, InboundState>,
+        content_id: &str,
+    ) -> () {
+        fs::create_dir("./incoming").ok();
+        let path = "./incoming/".to_owned() + &content_id;
+        let mut inbound_state = InboundState {
+            file: OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .open(path)
+                .unwrap(),
+            next_block: 0,
+            bitmap: BitVec::new(),
+            content_id: content_id.to_string(),
+            eof: 1,
+            blocks_complete: 0,
+            blocks_requested: 0,
+            peers: HashSet::new(),
+            dups: 0,
+        };
+        inbound_state.bitmap.resize(1, false);
+        inbound_states.insert(content_id.to_string(), inbound_state);
+    }
+
+    fn request_content_block(&mut self) -> Vec<Message> {
+        if self.blocks_complete * BLOCK_SIZE!() >= self.eof {
+            return vec![];
+        }
+        while {
+            if self.next_block * BLOCK_SIZE!() >= self.eof {
+                info!("almost done with {0}", self.content_id);
+                info!("pending blocks: ");
+
+                for i in self.bitmap.iter_zeros() {
+                    info!("{i}");
+                }
+
+                self.next_block = 0;
+            }
+            self.bitmap[self.next_block as usize]
+        } {
+            self.next_block += 1;
+        }
+        self.blocks_requested += 1;
+        return vec![Message::PleaseSendContent(PleaseSendContent {
+            content_id: self.content_id.to_owned(),
+            content_offset: self.next_block * BLOCK_SIZE!(),
+            content_length: BLOCK_SIZE!(),
+        })];
+    }
+    fn bump(&mut self, ps: &mut PeerState) {
+        for sa in self
+            .peers
+            .clone()
+            .into_iter()
+            .chain(ps.best_peers(50, 6).into_iter())
+        {
+            let mut message_out: Vec<Message> = Vec::new();
+            message_out.append(&mut self.request_content_block());
+            message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
+                sent_at: UNIX_EPOCH.elapsed().unwrap().as_secs_f64(),
+            }));
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
+            debug!(
+                "requesting  {:?} offset {:?} EXTRA from {:?}",
+                self.content_id, self.next_block, sa
+            );
+            ps.socket.send_to(&message_out_bytes, sa).ok();
+        }
+        self.next_block += 1;
+    }
 }
 
 fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
@@ -476,21 +511,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     }
 
     for (_, i) in inbound_states.iter_mut() {
-        for sa in ps.best_peers(50, 6) {
-            let mut message_out: Vec<Message> = Vec::new();
-            message_out.append(&mut request_content_block(i));
-            message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
-                sent_at: UNIX_EPOCH.elapsed().unwrap().as_secs_f64(),
-            }));
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
-            debug!(
-                "requesting  {:?} offset {:?} EXTRA from {:?}",
-                i.content_id, i.next_block, sa
-            );
-            ps.socket.send_to(&message_out_bytes, sa).ok();
-        }
-        i.next_block += 1;
+        i.bump(ps);
     }
 }
 
