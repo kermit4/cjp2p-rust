@@ -283,7 +283,7 @@ struct PleaseSendContent {
 struct HereIsContent {
     id: String,
     offset: u64,
-    b64: String,
+    base64: String,
     eof: u64,
 }
 
@@ -332,7 +332,7 @@ impl PleaseSendContent {
         return vec![Message::HereIsContent(HereIsContent {
             id: self.id.clone(),
             offset: self.offset,
-            b64: general_purpose::STANDARD_NO_PAD.encode(content),
+            base64: general_purpose::STANDARD_NO_PAD.encode(content),
             eof: file.metadata().unwrap().len(),
         })];
     }
@@ -378,7 +378,7 @@ impl HereIsContent {
         }
         else {
         let bytes = general_purpose::STANDARD_NO_PAD
-            .decode(&self.b64)
+            .decode(&self.base64)
             .unwrap();
         i.file
             .write_at(&bytes, self.offset)
