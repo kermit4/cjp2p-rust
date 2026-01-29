@@ -47,6 +47,19 @@ struct PeerState {
     boot: Instant,
 }
 impl PeerState {
+    fn probe(&self) -> () {
+        for sa in self.best_peers(10, 3) {
+            let mut message_out: Vec<Message> = Vec::new();
+            message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
+            message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
+                sent_at: self.boot.elapsed().as_secs_f64(),
+            }));
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+
+            self.socket.send_to(&message_out_bytes, sa).ok();
+        }
+    }
+
     fn sort(&mut self) -> () {
         let now = Instant::now();
         self.peer_vec = self.peer_map.clone().into_iter().collect();
@@ -510,17 +523,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     if Utc::now().second() + (Utc::now().minute() % 1) == 0 {
         ps.save_peers();
     }
-
-    for sa in ps.best_peers(10, 3) {
-        let mut message_out: Vec<Message> = Vec::new();
-        message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
-        message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
-            sent_at: ps.boot.elapsed().as_secs_f64(),
-        }));
-        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-
-        ps.socket.send_to(&message_out_bytes, sa).ok();
-    }
+    ps.probe();
 
     for (_, i) in inbound_states.iter_mut() {
         i.grow_window(ps);
