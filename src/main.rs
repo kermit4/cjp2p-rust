@@ -400,7 +400,6 @@ impl Content {
                 i.bitmap.set(block_number, true);
             }
         }
-        i.next_block += 1;
         let mut message_out = i.request_block();
         debug!(
             "requesting {:?} offset {:?} window {:?} from {:?}",
@@ -409,8 +408,7 @@ impl Content {
             i.next_block as i64 - i.bitmap.iter_ones().last().unwrap_or_default() as i64,
             src
         );
-        if (i.blocks_complete % 100) == 0 {
-            i.next_block += 1;
+        if (i.blocks_complete % 101) == 0 {
             i.grow_window(ps);
             message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                 sent_at: ps.boot.elapsed().as_secs_f64(),
@@ -461,9 +459,10 @@ impl InboundState {
             return vec![];
         }
         while {
+            self.next_block += 1;
             if self.next_block * BLOCK_SIZE!() >= self.eof {
                 info!("almost done with {0}", self.id);
-                let should_have = self.bitmap.iter_ones().last().unwrap() + 1; // don't include the tail thats in flight for this calculation
+                let should_have = self.bitmap.iter_ones().last().unwrap_or_default() + 1; // don't include the tail thats in flight for this calculation
                 info!(
                     "{0} almost done {1} dups of, lost {2}% {3}/{4} blocks ",
                     self.id,
@@ -484,7 +483,6 @@ impl InboundState {
             }
             self.bitmap[self.next_block as usize]
         } {
-            self.next_block += 1;
         }
         return vec![Message::PleaseSendContent(PleaseSendContent {
             id: self.id.to_owned(),
@@ -501,9 +499,23 @@ impl InboundState {
         self.message_request_extra_block(ps, ps.best_peers(50, 6));
     }
     fn message_request_extra_block(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
+        let mut wanted_block = self.next_block;
+        let next_mi = self.bitmap.first_zero().unwrap() as u64;
+        we want a next_missing that loops without known window on older than 2x  window loop
+        let highest_received = self.bitmap.iter_ones().last().unwrap_or_default() as i64;
+        let window = self.next_block as i64 - highest_received;
+        if (lowest_missing as i64) < highest_received - window {
+            wanted_block = next_missing;
+        }
         for sa in some_peers {
             let mut message_out: Vec<Message> = Vec::new();
-            message_out.append(&mut self.request_block());
+            message_out.append(
+
+               return vec![Message::PleaseSendContent(PleaseSendContent {
+            id: self.id.to_owned(),
+            offset: wanted_block * BLOCK_SIZE!(),
+            length: BLOCK_SIZE!(),
+        })];
             message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                 sent_at: ps.boot.elapsed().as_secs_f64(),
             }));
@@ -520,7 +532,7 @@ impl InboundState {
 
 fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
     ps.sort();
-    if Utc::now().second() + (Utc::now().minute() % 1) == 0 {
+    if Utc::now().second() + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();
     }
     ps.probe();

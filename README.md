@@ -19,14 +19,16 @@ try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
 or info/warn log levels
 
 # TODO
+- rel-let instead of mut?
+- need sweeper  0 to 2x window , always do but when loops pause for a window...watch for change in dups
+- broahcast and multicast peer discovery..listen on known and unknown ports?
 - literally the most recently spoke to peers is probbaly the ones sending us data, so just suggest those with inbound state bumps, and ask for some in those too, to whoveer i expect will have the data so thta same loop..also occationally during xfer just ask them for peers, no sep list needed for now, its self solving, also this will include people asking for this data too
 - chose random port on first run, but then stick with it between restarts, save in a config file json
 - inboundstate - save peers known to have some of a file for stalls to resume without a search and window growth
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere
 - some way to not be used as a DDOS as people can spoof their IPs in a request for peers or contont
-- some networks just dont fragment, black holes..may have to reduce block size here, and grow window a different way, if it happens a lot, even 1k blocks were too much in one case.
 - streaming (files that grow after they're started.. with a goal that someone streaming video to millions only needs enough bandwidth to send out one copy, live, with little delay.  Multicast, as real multicast never caught on on the internet sadly.)
--- prioritize earlier packets to improve streaming  - sweeps of dropped packtes.   
+-- prioritize earlier packets to improve streaming  - sweeps of dropped packtes.    -- if earliest unseen block is farther back than the window..then..something
 
 maybe replies just include request and that it is a reply, so cookies and all data are there even if not used by replier
  
