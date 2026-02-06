@@ -365,12 +365,17 @@ impl Content {
         ps: &mut PeerState,
     ) -> Vec<Message> {
         if !inbound_states.contains_key(&self.id) {
+            debug!(
+                "spam, probably tail dups, for {0} block {1}",
+                self.id,
+                self.offset / BLOCK_SIZE!()
+            );
             return vec![];
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
         i.last_time_received = Instant::now();
-        let block_number = (self.offset / BLOCK_SIZE!()) as usize;
+        let block_number = self.offset / BLOCK_SIZE!();
         debug!("received  {:?} block {:?}", self.id, block_number);
         if self.eof > i.eof {
             i.eof = self.eof;
@@ -378,7 +383,7 @@ impl Content {
         let blocks = (i.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
         i.bitmap.resize(blocks as usize, false);
 
-        if i.bitmap[block_number] {
+        if i.bitmap[block_number as usize] {
             i.dups += 1;
             debug!("dup {block_number}");
         } else {
@@ -397,10 +402,17 @@ impl Content {
             if bytes.len() == BLOCK_SIZE!() {
                 // no reason someone would send a short block, but, just in case
                 i.blocks_complete += 1;
-                i.bitmap.set(block_number, true);
+                i.bitmap.set(block_number as usize, true);
+                if block_number > i.highest_block_received {
+                    i.highest_block_received = block_number;
+                }
+                while i.bitmap[i.lowest_block_not_received as usize]
+                    && i.lowest_block_not_received < i.highest_block_received
+                {
+                    i.lowest_block_not_received += 1;
+                }
             }
         }
-        i.next_block += 1;
         let mut message_out = i.request_block();
         debug!(
             "requesting {:?} offset {:?} window {:?} from {:?}",
@@ -409,8 +421,7 @@ impl Content {
             i.next_block as i64 - i.bitmap.iter_ones().last().unwrap_or_default() as i64,
             src
         );
-        if (i.blocks_complete % 100) == 0 {
-            i.next_block += 1;
+        if (i.blocks_complete % 70) == 0 {
             i.grow_window(ps);
             message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                 sent_at: ps.boot.elapsed().as_secs_f64(),
@@ -423,6 +434,9 @@ impl Content {
 struct InboundState {
     file: File,
     next_block: u64,
+    highest_block_received: u64,
+    lowest_block_not_received: u64,
+    next_block_to_retry: u64,
     bitmap: BitVec,
     id: String,
     eof: u64,
@@ -444,6 +458,9 @@ impl InboundState {
                 .open(path)
                 .unwrap(),
             next_block: 0,
+            highest_block_received: 0,
+            lowest_block_not_received: 0,
+            next_block_to_retry: 0,
             bitmap: BitVec::new(),
             id: id.to_string(),
             eof: 1,
@@ -461,16 +478,18 @@ impl InboundState {
             return vec![];
         }
         while {
+            self.next_block += 1;
             if self.next_block * BLOCK_SIZE!() >= self.eof {
                 info!("almost done with {0}", self.id);
-                let should_have = self.bitmap.iter_ones().last().unwrap() + 1; // don't include the tail thats in flight for this calculation
                 info!(
                     "{0} almost done {1} dups of, lost {2}% {3}/{4} blocks ",
                     self.id,
                     self.dups,
-                    100.0 * (1.0 - (self.blocks_complete as f64 / should_have as f64)),
-                    should_have as i64 - self.blocks_complete as i64,
-                    should_have
+                    100.0
+                        * (1.0
+                            - (self.blocks_complete as f64 / self.highest_block_received as f64)),
+                    self.highest_block_received as i64 - self.blocks_complete as i64,
+                    self.highest_block_received
                 );
 
                 info!(
@@ -483,9 +502,7 @@ impl InboundState {
                 self.next_block = 0;
             }
             self.bitmap[self.next_block as usize]
-        } {
-            self.next_block += 1;
-        }
+        } {}
         return vec![Message::PleaseSendContent(PleaseSendContent {
             id: self.id.to_owned(),
             offset: self.next_block * BLOCK_SIZE!(),
@@ -494,25 +511,39 @@ impl InboundState {
     }
     fn grow_window(&mut self, ps: &mut PeerState) {
         debug!("growing window for {0}", self.id);
-        self.message_request_extra_block(ps, self.peers.clone());
+        self.retry_block(ps, self.peers.clone());
+            self.next_block_to_retry += 1;
     }
     fn search(&mut self, ps: &mut PeerState) {
         debug!("searching for {0}", self.id);
-        self.message_request_extra_block(ps, ps.best_peers(50, 6));
+        self.retry_block(ps, ps.best_peers(50, 6));
     }
-    fn message_request_extra_block(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
+    fn retry_block(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
+        while {
+            self.next_block_to_retry < self.highest_block_received
+                && self.bitmap[self.next_block_to_retry as usize]
+        } {
+            self.next_block_to_retry += 1;
+        }
+        if self.next_block_to_retry >= self.highest_block_received {
+            self.next_block_to_retry = self.lowest_block_not_received
+        }
         for sa in some_peers {
-            let mut message_out: Vec<Message> = Vec::new();
-            message_out.append(&mut self.request_block());
+            let mut message_out: Vec<Message> =
+                vec![Message::PleaseSendContent(PleaseSendContent {
+                    id: self.id.to_owned(),
+                    offset: self.next_block_to_retry * BLOCK_SIZE!(),
+                    length: BLOCK_SIZE!(),
+                })];
             message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                 sent_at: ps.boot.elapsed().as_secs_f64(),
             }));
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
             debug!(
                 "requesting  {:?} offset {:?} EXTRA from {:?}",
-                self.id, self.next_block, sa
+                self.id, self.next_block_to_retry, sa
             );
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
     }
@@ -520,22 +551,17 @@ impl InboundState {
 
 fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
     ps.sort();
-    if Utc::now().second() + (Utc::now().minute() % 1) == 0 {
+    if Utc::now().second()/3 + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();
     }
     ps.probe();
 
     for (_, i) in inbound_states.iter_mut() {
         i.grow_window(ps);
-        if i.last_time_received.elapsed() > Duration::from_secs(3) {
+        i.next_block_to_retry = i.lowest_block_not_received; 
+        if i.last_time_received.elapsed() > Duration::from_secs(3) { // stalled
+            i.next_block = i.lowest_block_not_received;
             i.search(ps);
-            i.search(ps);
-            i.search(ps);
-            i.search(ps);
-            i.search(ps);
-            i.grow_window(ps);
-            i.grow_window(ps);
-            i.grow_window(ps);
             i.grow_window(ps);
         }
         i.search(ps);
