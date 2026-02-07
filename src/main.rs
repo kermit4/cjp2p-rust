@@ -56,7 +56,10 @@ impl PeerState {
             }));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
 
-            self.socket.send_to(&message_out_bytes, sa).ok();
+            match self.socket.send_to(&message_out_bytes, sa) {
+                Ok(s) => trace!("sent {s}"),
+                Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
+            }
         }
     }
 
@@ -127,6 +130,7 @@ fn main() -> Result<(), std::io::Error> {
         socket: UdpSocket::bind("0.0.0.0:24254")?,
         boot: Instant::now(),
     };
+    ps.socket.set_broadcast(true).ok();
     ps.peer_map.insert(
         "148.71.89.128:24254".parse().unwrap(),
         PeerInfo {
@@ -136,6 +140,20 @@ fn main() -> Result<(), std::io::Error> {
     );
     ps.peer_map.insert(
         "159.69.54.127:24254".parse().unwrap(),
+        PeerInfo {
+            when_last_seen: Instant::now(),
+            delay: Duration::new(1, 0),
+        },
+    );
+    ps.peer_map.insert(
+        "192.168.1.255:24254".parse().unwrap(),
+        PeerInfo {
+            when_last_seen: Instant::now(),
+            delay: Duration::new(1, 0),
+        },
+    );
+    ps.peer_map.insert(
+        "224.0.0.1:24254".parse().unwrap(),
         PeerInfo {
             when_last_seen: Instant::now(),
             delay: Duration::new(1, 0),
