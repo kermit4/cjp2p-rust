@@ -244,7 +244,10 @@ fn main() -> Result<(), std::io::Error> {
                     Message::ContentPeerSuggestions(t) => {
                         t.add_peer_suggestions(&mut inbound_states)
                     }
-                    _ => vec![],
+                    _ => {
+                        warn!("unknown message type ");
+                        vec![]
+                    }
                 };
                 for m in reply {
                     message_out.push(serde_json::to_value(m).unwrap());
@@ -323,7 +326,7 @@ struct Content {
     id: String,
     offset: usize,
     base64: String,
-    eof: usize,
+    eof: Option<usize>,
 }
 
 impl PleaseSendContent {
@@ -397,8 +400,8 @@ impl PleaseSendContent {
         return vec![Message::Content(Content {
             id: self.id.clone(),
             offset: self.offset,
-            base64: general_purpose::STANDARD_NO_PAD.encode(content),
-            eof: file.metadata().unwrap().len() as usize,
+            base64: general_purpose::STANDARD.encode(content),
+            eof: Some(file.metadata().unwrap().len() as usize),
         })];
     }
 }
@@ -422,9 +425,18 @@ impl Content {
         i.peers.insert(src);
         i.last_time_received = Instant::now();
         let block_number = self.offset / BLOCK_SIZE!();
-        debug!("received  {:?} block {:?}", self.id, block_number);
-        if self.eof > i.eof {
-            i.eof = self.eof;
+        debug!(
+            "received  {:?} block {:?} from {:?}",
+            self.id, block_number, src
+        );
+        let bytes = general_purpose::STANDARD.decode(&self.base64).unwrap();
+        if self.eof.is_some() && self.eof.unwrap() > i.eof {
+            i.eof = self.eof.unwrap();
+        } else {
+            let this_eof = self.offset + bytes.len() + 1;
+            if this_eof > i.eof {
+                i.eof = this_eof;
+            }
         }
         let blocks = (i.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
         i.bitmap.resize(blocks, false);
@@ -433,9 +445,6 @@ impl Content {
             i.dups += 1;
             debug!("dup {block_number}");
         } else {
-            let bytes = general_purpose::STANDARD_NO_PAD
-                .decode(&self.base64)
-                .unwrap();
             i.file.write_at(&bytes, self.offset as u64).unwrap();
             if (i.blocks_complete + 1) * BLOCK_SIZE!() >= i.eof {
                 println!("{0} complete ", i.id);
@@ -558,7 +567,6 @@ impl InboundState {
     fn request_more_in_transit(&mut self, ps: &mut PeerState) {
         debug!("growing window for {0}", self.id);
         self.retry_block(ps, self.peers.clone());
-        self.next_block_to_retry += 1;
     }
     fn search(&mut self, ps: &mut PeerState) {
         debug!("searching for {0}", self.id);
@@ -591,6 +599,7 @@ impl InboundState {
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
             ps.socket.send_to(&message_out_bytes, sa).ok();
+            self.next_block_to_retry += 1;
         }
     }
 }
