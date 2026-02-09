@@ -19,12 +19,12 @@ try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
 or info/warn log levels
 
 # TODO
-- literally the most recently spoke to peers is probbaly the ones sending us data, so just suggest those with inbound state bumps, and ask for some in those too, to whoveer i expect will have the data so thta same loop..also occationally during xfer just ask them for peers, no sep list needed for now, its self solving, also this will include people asking for this data too
+- track who is pulling from us and suggest those to the pullers with ContentPeerSuggestions
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere .. https://dasl.ing/ ?  blake3?
 - some way to not be used as a DDOS as people can spoof their IPs in a request for peers or contont
-- streaming (files that grow after they're started.. with a goal that someone streaming video to millions only needs enough bandwidth to send out one copy, live, with little delay.  Multicast, as real multicast never caught on on the internet sadly.).. i think the code is there, it just needs to say to not stop, infinite EOF
+- streaming (files that grow after they're started.. with a goal that someone streaming video to millions only needs enough bandwidth to send out one copy, live, with little delay.  Multicast, as real multicast never caught on on the internet sadly.).. i think the code is there, it just needs to say to not stop, infinite EOF, or just make eof optional..as all fields should be
 
-maybe replies just include request and that it is a reply, so cookies and all data are there even if not used by replier
+maybe replies just include the original request but note that it is a reply, so cookies and all data are there even if not used by replier, rather than separate message types? this would be less code?
  
 remember to talk like people not a computer (naming)
 
@@ -32,7 +32,7 @@ this should be like a daemon, runnin locally, things can communate through it, r
 
 streaming live cam of somethin is a good test case.. the sky .. ffmpeg -i /dev/video2 o.mkv .. 
 
-lossy real time streams?
+lossy real time streams? it would require knowing the media's container block boundaries
 
 try all interfaces' broadcast addresses
 
