@@ -19,37 +19,21 @@ try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
 or info/warn log levels
 
 # TODO
-- rel-let instead of mut?
-- broahcast and multicast peer discovery..listen on known and unknown ports?
 - literally the most recently spoke to peers is probbaly the ones sending us data, so just suggest those with inbound state bumps, and ask for some in those too, to whoveer i expect will have the data so thta same loop..also occationally during xfer just ask them for peers, no sep list needed for now, its self solving, also this will include people asking for this data too
-- chose random port on first run, but then stick with it between restarts, save in a config file json
-- inboundstate - save peers known to have some of a file for stalls to resume without a search and window growth
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere .. https://dasl.ing/ ?  blake3?
 - some way to not be used as a DDOS as people can spoof their IPs in a request for peers or contont
-- streaming (files that grow after they're started.. with a goal that someone streaming video to millions only needs enough bandwidth to send out one copy, live, with little delay.  Multicast, as real multicast never caught on on the internet sadly.)
-- for speed i suppose i could ask for big blobs, once i have the hash map
+- streaming (files that grow after they're started.. with a goal that someone streaming video to millions only needs enough bandwidth to send out one copy, live, with little delay.  Multicast, as real multicast never caught on on the internet sadly.).. i think the code is there, it just needs to say to not stop, infinite EOF
 
 maybe replies just include request and that it is a reply, so cookies and all data are there even if not used by replier
  
-cookie as its own message.  be sure to call part timestamp too  so people dont cache it
-
-trim peers last seen or rtt? or both? and track unverified
-ping new.   
-
-randomize peer suggestions
-, share more often than just at inactivity.   
-
-remember to talk like people.        
-
+remember to talk like people not a computer (naming)
 
 this should be like a daemon, runnin locally, things can communate through it, rather than speak it directly?  localhost URLs?
 
 streaming live cam of somethin is a good test case.. the sky .. ffmpeg -i /dev/video2 o.mkv .. 
 
+lossy real time streams?
 
-streams...allow lossy for real time, must know where to break blocks and a codec that allows it
-c
-
-broahcast and multicast peer discovery..listen on known and unknown ports?
+try all interfaces' broadcast addresses
 
 CLI commands  / API, run as a daemon?  do we want each app speaking the protocol or using a daemon("node")?

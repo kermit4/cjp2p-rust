@@ -164,10 +164,10 @@ fn main() -> Result<(), std::io::Error> {
     ps.load_peers();
     let mut args = env::args();
     args.next();
-    let mut inbound_states: HashMap<String, TransferStatus> = HashMap::new();
+    let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     for v in args {
         info!("queing inbound file {:?}", v);
-        TransferStatus::new_inbound_state(&mut inbound_states, v.as_str());
+        InboundState::new(&mut inbound_states, v.as_str());
     }
     ps.socket.set_read_timeout(Some(Duration::new(1, 0)))?;
     let mut last_maintenance = Instant::now() - Duration::new(10, 0);
@@ -326,7 +326,7 @@ struct Content {
 impl PleaseSendContent {
     fn send_content(
         &self,
-        inbound_states: &mut HashMap<String, TransferStatus>,
+        inbound_states: &mut HashMap<String, InboundState>,
         src: SocketAddr,
     ) -> Vec<Message> {
         if self.id.find("/") != None || self.id.find("\\") != None {
@@ -383,7 +383,7 @@ impl PleaseSendContent {
 impl Content {
     fn receive_content(
         &self,
-        inbound_states: &mut HashMap<String, TransferStatus>,
+        inbound_states: &mut HashMap<String, InboundState>,
         src: SocketAddr,
         ps: &mut PeerState,
     ) -> Vec<Message> {
@@ -445,7 +445,7 @@ impl Content {
             src
         );
         if (i.blocks_complete % 101) == 0 {
-            i.grow_window(ps);
+            i.request_more_in_transit(ps);
             message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                 sent_at: ps.boot.elapsed().as_secs_f64(),
             }));
@@ -454,7 +454,7 @@ impl Content {
     }
 }
 //
-struct TransferStatus {
+struct InboundState {
     file: File,
     next_block: usize,
     highest_block_received: usize,
@@ -469,11 +469,11 @@ struct TransferStatus {
     last_time_received: Instant,
 }
 
-impl TransferStatus {
-    fn new_inbound_state(inbound_states: &mut HashMap<String, TransferStatus>, id: &str) -> () {
+impl InboundState {
+    fn new(inbound_states: &mut HashMap<String, InboundState>, id: &str) -> () {
         fs::create_dir("./incoming").ok();
         let path = "./incoming/".to_owned() + &id;
-        let mut inbound_state = TransferStatus {
+        let mut inbound_state = InboundState {
             file: OpenOptions::new()
                 .create(true)
                 .read(true)
@@ -532,7 +532,7 @@ impl TransferStatus {
             length: BLOCK_SIZE!(),
         })];
     }
-    fn grow_window(&mut self, ps: &mut PeerState) {
+    fn request_more_in_transit(&mut self, ps: &mut PeerState) {
         debug!("growing window for {0}", self.id);
         self.retry_block(ps, self.peers.clone());
         self.next_block_to_retry += 1;
@@ -572,7 +572,7 @@ impl TransferStatus {
     }
 }
 
-fn maintenance(inbound_states: &mut HashMap<String, TransferStatus>, ps: &mut PeerState) -> () {
+fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
     ps.sort();
     if Utc::now().second() / 3 + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();
@@ -580,13 +580,13 @@ fn maintenance(inbound_states: &mut HashMap<String, TransferStatus>, ps: &mut Pe
     ps.probe();
 
     for (_, i) in inbound_states.iter_mut() {
-        i.grow_window(ps);
+        i.request_more_in_transit(ps);
         i.next_block_to_retry = i.lowest_block_not_received;
         if i.last_time_received.elapsed() > Duration::from_secs(3) {
             // stalled
             i.next_block = i.lowest_block_not_received;
+            i.request_more_in_transit(ps);
             i.search(ps);
-            i.grow_window(ps);
         }
         i.search(ps);
     }
