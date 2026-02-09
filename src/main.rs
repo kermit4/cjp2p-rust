@@ -339,16 +339,32 @@ impl PleaseSendContent {
 
         let file: &File;
         let file_: File;
+        let mut message_out: Vec<Message> = Vec::new();
         if inbound_states.contains_key(&self.id) {
+            let i = &inbound_states[&self.id];
+
+            if (rand::thread_rng().gen::<u32>() % 37) == 0 {
+                message_out.push(Message::ContentPeerSuggestions(ContentPeerSuggestions {
+                    id: self.id.to_owned(),
+                    peers: i.peers.clone(),
+                }));
+            }
+
             if self.offset + length < inbound_states[&self.id].eof
                 && inbound_states[&self.id].bitmap[self.offset / BLOCK_SIZE!()]
                 && ((self.offset % BLOCK_SIZE!()) == 0)
             // TODO it is rude to ignore them just because they asked for a non-aligned block, but be sure im checking all blocks otherwise
             {
-                file = &inbound_states[&self.id].file;
+                file = &i.file;
             } else {
                 // don't proceed to try to send out a file we're downloading even if we have it, as thats probably some testing situatoin not a real world situation
-                return vec![];
+                //                push ContentPeerSuggestions
+
+                message_out.push(Message::ContentPeerSuggestions(ContentPeerSuggestions {
+                    id: self.id.to_owned(),
+                    peers: i.peers.clone(),
+                }));
+                return message_out;
             }
         } else {
             match File::open(&self.id) {
@@ -356,7 +372,7 @@ impl PleaseSendContent {
                     file_ = _r;
                     file = &file_;
                 }
-                _ => return vec![],
+                _ => return message_out,
             }
         }
 
@@ -592,6 +608,11 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
 }
 
 #[derive(Serialize, Deserialize)]
+struct ContentPeerSuggestions {
+    id: String,
+    peers: HashSet<SocketAddr>,
+}
+#[derive(Serialize, Deserialize)]
 struct PleaseReturnThisMessage {
     sent_at: f64,
 }
@@ -621,4 +642,5 @@ enum Message {
     Content(Content),
     PleaseReturnThisMessage(PleaseReturnThisMessage),
     ReturnedMessage(ReturnedMessage),
+    ContentPeerSuggestions(ContentPeerSuggestions),
 }
