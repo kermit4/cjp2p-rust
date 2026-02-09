@@ -188,7 +188,7 @@ fn main() -> Result<(), std::io::Error> {
         let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
             Ok(_r) => _r,
             _ => {
-                error!(
+                warn!(
                     "could not deserialize an incoming message {:?}",
                     String::from_utf8_lossy(message_in_bytes)
                 );
@@ -231,7 +231,7 @@ fn main() -> Result<(), std::io::Error> {
                 let message_in_enum: Message = match serde_json::from_value(message_in.clone()) {
                     Ok(_r) => _r,
                     _ => {
-                        error!("could not deserialize an incoming message {:?}", message_in);
+                        warn!("could not deserialize an incoming message {:?}", message_in);
                         continue;
                     }
                 };
@@ -339,19 +339,18 @@ impl PleaseSendContent {
 
         let file: &File;
         let file_: File;
-        if inbound_states.contains_key(&self.id)
-            && self.offset + length < inbound_states[&self.id].eof
-            && inbound_states[&self.id].bitmap[self.offset / BLOCK_SIZE!()]
-            && ((self.offset % BLOCK_SIZE!()) == 0)
-        // TODO it is rude to ignore them just because they asked for a non-aligned block, but be sure im checking all blocks otherwise
-        {
-            file = &inbound_states[&self.id].file;
-        } else {
-            // if we're going to get it from ourselves, this is not the way to do it.  If we get here its probably for testing.
-            if inbound_states.contains_key(&self.id) {
+        if inbound_states.contains_key(&self.id) {
+            if self.offset + length < inbound_states[&self.id].eof
+                && inbound_states[&self.id].bitmap[self.offset / BLOCK_SIZE!()]
+                && ((self.offset % BLOCK_SIZE!()) == 0)
+            // TODO it is rude to ignore them just because they asked for a non-aligned block, but be sure im checking all blocks otherwise
+            {
+                file = &inbound_states[&self.id].file;
+            } else {
+                // don't proceed to try to send out a file we're downloading even if we have it, as thats probably some testing situatoin not a real world situation
                 return vec![];
             }
-
+        } else {
             match File::open(&self.id) {
                 Ok(_r) => {
                     file_ = _r;
@@ -359,7 +358,7 @@ impl PleaseSendContent {
                 }
                 _ => return vec![],
             }
-        };
+        }
 
         debug!(
             "going to send {:?} at {:?} to {:?}",
