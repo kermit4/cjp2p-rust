@@ -567,6 +567,7 @@ impl InboundState {
     fn request_more_in_transit(&mut self, ps: &mut PeerState) {
         debug!("growing window for {0}", self.id);
         self.retry_block(ps, self.peers.clone());
+        self.next_block_to_retry += 1;
     }
     fn search(&mut self, ps: &mut PeerState) {
         debug!("searching for {0}", self.id);
@@ -599,7 +600,6 @@ impl InboundState {
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             trace!("sending message {:?}", str::from_utf8(&message_out_bytes));
             ps.socket.send_to(&message_out_bytes, sa).ok();
-            self.next_block_to_retry += 1;
         }
     }
 }
