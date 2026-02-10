@@ -241,9 +241,7 @@ fn main() -> Result<(), std::io::Error> {
                     Message::PleaseSendContent(t) => t.send_content(&mut inbound_states, src),
                     Message::Content(t) => t.receive_content(&mut inbound_states, src, &mut ps),
                     Message::ReturnedMessage(t) => t.update_time(&mut ps, src),
-                    Message::ContentPeerSuggestions(t) => {
-                        t.add_peer_suggestions(&mut inbound_states)
-                    }
+                    Message::ContentPeers(t) => t.add_peer_suggestions(&mut inbound_states),
                     _ => {
                         warn!("unknown message type ");
                         vec![]
@@ -351,7 +349,7 @@ impl PleaseSendContent {
             i.peers.insert(src);
 
             if (rand::thread_rng().gen::<u32>() % 37) == 0 {
-                message_out.push(Message::ContentPeerSuggestions(ContentPeerSuggestions {
+                message_out.push(Message::ContentPeers(ContentPeers {
                     id: self.id.to_owned(),
                     peers: i.peers.clone(),
                 }));
@@ -365,9 +363,9 @@ impl PleaseSendContent {
                 file = &i.file;
             } else {
                 // don't proceed to try to send out a file we're downloading even if we have it, as thats probably some testing situatoin not a real world situation
-                //                push ContentPeerSuggestions
+                //                push ContentPeers
 
-                message_out.push(Message::ContentPeerSuggestions(ContentPeerSuggestions {
+                message_out.push(Message::ContentPeers(ContentPeers {
                     id: self.id.to_owned(),
                     peers: i.peers.clone(),
                 }));
@@ -381,7 +379,7 @@ impl PleaseSendContent {
                     file = &file_;
                 }
                 // TODO even if we dont have and arent downloading the file, maybe we should be nice and keep track
-                // of who's been looking and send them ContentPeerSuggestions ..they would really
+                // of who's been looking and send them ContentPeers ..they would really
                 // appreciate it i'm sure, and costs us very little
                 _ => return message_out,
             }
@@ -430,15 +428,14 @@ impl Content {
             self.id, block_number, src
         );
         let bytes = general_purpose::STANDARD.decode(&self.base64).unwrap();
-        let this_eof = 
-        match self.eof {
-            Some(n) =>  n,
+        let this_eof = match self.eof {
+            Some(n) => n,
             None => self.offset + bytes.len() + 1,
         };
 
-            if this_eof > i.eof {
-                i.eof = this_eof;
-            }
+        if this_eof > i.eof {
+            i.eof = this_eof;
+        }
         let blocks = (i.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
         i.bitmap.resize(blocks, false);
 
@@ -447,7 +444,7 @@ impl Content {
             debug!("dup {block_number}");
         } else {
             i.file.write_at(&bytes, self.offset as u64).unwrap();
-            if i.blocks_complete +1 == blocks {
+            if i.blocks_complete + 1 == blocks {
                 println!("{0} complete ", i.id);
                 let path = "./incoming/".to_owned() + &i.id;
                 let new_path = "./".to_owned() + &i.id;
@@ -628,12 +625,12 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
 }
 
 #[derive(Serialize, Deserialize)]
-struct ContentPeerSuggestions {
+struct ContentPeers {
     id: String,
     peers: HashSet<SocketAddr>,
 }
 
-impl ContentPeerSuggestions {
+impl ContentPeers {
     fn add_peer_suggestions(
         self,
         inbound_states: &mut HashMap<String, InboundState>,
@@ -678,5 +675,5 @@ enum Message {
     Content(Content),
     PleaseReturnThisMessage(PleaseReturnThisMessage),
     ReturnedMessage(ReturnedMessage),
-    ContentPeerSuggestions(ContentPeerSuggestions),
+    ContentPeers(ContentPeers),
 }
