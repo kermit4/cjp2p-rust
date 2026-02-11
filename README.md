@@ -1,4 +1,4 @@
-This implements the https://github.com/kermit4/cjp2p protocol.
+This implements everything in spotted and listed in the https://github.com/kermit4/cjp2p protocol repo.
 
 This will make available any files in the directory ./cjp2p  It will ignore any requests for anything that has a / or \ in it, so as long as Rust's JSON parser (Serde) doesn't have an exploit, it seems safe to leave running.
 
@@ -19,6 +19,7 @@ try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
 or info/warn log levels
 
 # TODO
+- use Option in PleaseReturnThisMessage so it can be in the usual spot in the loop, just still send back unknown parts when getting one.
 - save inbound peers list to share with others even after its done
 - save peers looking for content to share with others looking for it so they can collaborate
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere .. https://dasl.ing/ ?  blake3?

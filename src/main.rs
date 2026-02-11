@@ -241,7 +241,7 @@ fn main() -> Result<(), std::io::Error> {
                     Message::PleaseSendContent(t) => t.send_content(&mut inbound_states, src),
                     Message::Content(t) => t.receive_content(&mut inbound_states, src, &mut ps),
                     Message::ReturnedMessage(t) => t.update_time(&mut ps, src),
-                    Message::ContentPeers(t) => t.add_peer_suggestions(&mut inbound_states),
+                    Message::MaybeTheyHaveSome(t) => t.add_peer_suggestions(&mut inbound_states),
                     _ => {
                         warn!("unknown message type ");
                         vec![]
@@ -349,7 +349,7 @@ impl PleaseSendContent {
             i.peers.insert(src);
 
             if (rand::thread_rng().gen::<u32>() % 37) == 0 {
-                message_out.push(Message::ContentPeers(ContentPeers {
+                message_out.push(Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
                     id: self.id.to_owned(),
                     peers: i.peers.clone(),
                 }));
@@ -363,9 +363,9 @@ impl PleaseSendContent {
                 file = &i.file;
             } else {
                 // don't proceed to try to send out a file we're downloading even if we have it, as thats probably some testing situatoin not a real world situation
-                //                push ContentPeers
+                //                push MaybeTheyHaveSome
 
-                message_out.push(Message::ContentPeers(ContentPeers {
+                message_out.push(Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
                     id: self.id.to_owned(),
                     peers: i.peers.clone(),
                 }));
@@ -379,7 +379,7 @@ impl PleaseSendContent {
                     file = &file_;
                 }
                 // TODO even if we dont have and arent downloading the file, maybe we should be nice and keep track
-                // of who's been looking and send them ContentPeers ..they would really
+                // of who's been looking and send them MaybeTheyHaveSome ..they would really
                 // appreciate it i'm sure, and costs us very little
                 _ => return message_out,
             }
@@ -625,12 +625,12 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
 }
 
 #[derive(Serialize, Deserialize)]
-struct ContentPeers {
+struct MaybeTheyHaveSome {
     id: String,
     peers: HashSet<SocketAddr>,
 }
 
-impl ContentPeers {
+impl MaybeTheyHaveSome {
     fn add_peer_suggestions(
         self,
         inbound_states: &mut HashMap<String, InboundState>,
@@ -675,5 +675,5 @@ enum Message {
     Content(Content),
     PleaseReturnThisMessage(PleaseReturnThisMessage),
     ReturnedMessage(ReturnedMessage),
-    ContentPeers(ContentPeers),
+    MaybeTheyHaveSome(MaybeTheyHaveSome),
 }
