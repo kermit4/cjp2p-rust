@@ -159,8 +159,8 @@ fn main() -> Result<(), std::io::Error> {
             delay: Duration::new(1, 0),
         },
     );
-    fs::create_dir("./cjp2p").ok();
-    std::env::set_current_dir("./cjp2p").unwrap();
+    fs::create_dir("./shared").ok();
+    std::env::set_current_dir("./shared").unwrap();
     ps.load_peers();
     let mut args = env::args();
     args.next();

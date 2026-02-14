@@ -7,3 +7,5 @@ release:
 
 check:
 	cargo check
+
+all: check release debug
