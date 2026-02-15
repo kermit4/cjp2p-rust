@@ -458,7 +458,7 @@ impl Content {
             if bytes.len() == BLOCK_SIZE!() {
                 // no reason someone would send a short block, but, just in case
                 // i think this is a bug that will ignore the last block until the rest is done,
-                // unless its the usual block size
+                // unless its the usual block size, but that last block could grow so thats why
                 i.bytes_complete += bytes.len();
                 i.bitmap.set(block_number, true);
                 if block_number > i.highest_block_received {
