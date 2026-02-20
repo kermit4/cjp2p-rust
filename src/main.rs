@@ -434,7 +434,7 @@ impl Content {
                     block_number,
                     block_number * BLOCK_SIZE!(),
                     src,
-                    i.next_block - block_number
+                    i.next_block as i64 - block_number as i64
                 );
                 let bytes = general_purpose::STANDARD.decode(&self.base64).unwrap();
                 let this_eof = match self.eof {
@@ -452,7 +452,6 @@ impl Content {
                 }
 
                 if i.bitmap[block_number] {
-                    i.dups += 1;
                     info!("dup {block_number}");
                     return vec![];
                 }
@@ -469,19 +468,17 @@ impl Content {
                 message_out = i.request_next_block();
                 i.next_block += 1;
             }
-            {
-                if (rand::thread_rng().gen::<u32>() % 101) == 0 {
-                    for (_, i) in inbound_states.iter_mut() {
-                        if i.next_block * BLOCK_SIZE!() >= i.eof {
-                            continue;
-                        }
-                        debug!("growing window for {0}", i.id);
-                        let grow = i.request_next_block();
-                        i.next_block += 1;
-                        let message_out_bytes: Vec<u8> = serde_json::to_vec(&grow).unwrap();
-                        ps.socket.send_to(&message_out_bytes, src).ok();
-                        break;
+            if (rand::thread_rng().gen::<u32>() % 101) == 0 {
+                for (_, i) in inbound_states.iter_mut() {
+                    if i.next_block * BLOCK_SIZE!() >= i.eof {
+                        continue;
                     }
+                    debug!("growing window for {0}", i.id);
+                    let grow = i.request_next_block();
+                    i.next_block += 1;
+                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&grow).unwrap();
+                    ps.socket.send_to(&message_out_bytes, src).ok();
+                    break;
                 }
             }
             let i = inbound_states.get_mut(&self.id).unwrap();
@@ -492,15 +489,19 @@ impl Content {
                 io::copy(&mut i.file, &mut hasher).ok();
                 let hash = format!("{:x}", hasher.finalize());
                 println!("{} sha256sum", hash);
-                if hash != i.id.to_lowercase() {
-                    error!("hash doesnt mattch!");
+                if hash == i.id.to_lowercase() {
+                    info!("{0} finished ", i.id);
+                    println!("{0} finished ", i.id);
+                    let path = "./incoming/".to_owned() + &i.id;
+                    let new_path = "./".to_owned() + &i.id;
+                    fs::rename(path, new_path).unwrap();
+                    inbound_states.remove(&self.id);
+                } else {
+                    error!("hash doesnt match!");
+                    i.bitmap.fill(false);
+                    i.next_block=0;
+                    i.bytes_complete=0;
                 };
-                info!("{0} finished ", i.id);
-                println!("{0} finished ", i.id);
-                let path = "./incoming/".to_owned() + &i.id;
-                let new_path = "./".to_owned() + &i.id;
-                fs::rename(path, new_path).unwrap();
-                inbound_states.remove(&self.id);
             }
         }
         if message_out.len() == 0 {
@@ -524,7 +525,6 @@ struct InboundState {
     id: String,
     eof: usize,
     bytes_complete: usize,
-    dups: usize,
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
 }
@@ -546,7 +546,6 @@ impl InboundState {
             eof: 1 << 18,
             bytes_complete: 0,
             peers: HashSet::new(),
-            dups: 0,
             last_activity: Instant::now() - Duration::new(999, 00),
         };
         i.bitmap
@@ -559,13 +558,9 @@ impl InboundState {
             if self.next_block * BLOCK_SIZE!() >= self.eof {
                 // %EOF
                 info!(
-                    "\x1b[36m{0} almost done {1} dups of, lost {2}% {3} lost {4}/{5} blocks done (missing {6}) (eof: {7}) , \x1b[m",
+                    "\x1b[36m{} almost done {}/{} blocks done (eof: {}) , \x1b[m",
                     self.id,
-                    self.dups,
-                            "",
-                    "",
                     self.bytes_complete/BLOCK_SIZE!(),
-                    "",
                     (self.eof-self.bytes_complete)/BLOCK_SIZE!(),
                     self.eof,
                 );
