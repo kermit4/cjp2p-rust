@@ -19,8 +19,6 @@ try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
 or info/warn log levels
 
 # TODO
-- use Option in PleaseReturnThisMessage so it can be in the usual spot in the loop, just still send back unknown parts when getting one.
-- save inbound peers list to share with others even after its done
 - save peers looking for content to share with others looking for it so they can collaborate
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere .. https://dasl.ing/ ?  blake3?
 - some way to not be used as a DDOS as people can spoof their IPs in a request for peers or contont
