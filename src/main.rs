@@ -229,10 +229,10 @@ fn main() -> Result<(), std::io::Error> {
                     serde_json::json!({"ReturnedMessage":message_in["PleaseReturnThisMessage"]}),
                 );
             } else {
-                let message_in_enum: Message = match serde_json::from_value(message_in.clone()) {
+                let message_in_enum: Message = match serde_json::from_value(message_in) {
                     Ok(_r) => _r,
                     _ => {
-                        warn!("could not deserialize an incoming message {:?}", message_in);
+                        error!("could not deserialize an incoming message.");
                         continue;
                     }
                 };
