@@ -43,3 +43,4 @@ or info/warn log levels
 - strace of the release build shows the peers.json loads one byte at a time. thats odd, understand why in case there are larger JSON files ever
 - actually store sources for MaybeTheyHaveSome outside of just current transfers
 - always MaybeTheyHaveSome for block 0 requests if any known
+- should be some delay if a hash doesnt match so it doest loop forever eating bandwidth

@@ -499,8 +499,8 @@ impl Content {
                 } else {
                     error!("hash doesnt match!");
                     i.bitmap.fill(false);
-                    i.next_block=0;
-                    i.bytes_complete=0;
+                    i.next_block = 0;
+                    i.bytes_complete = 0;
                 };
             }
         }
@@ -560,8 +560,8 @@ impl InboundState {
                 info!(
                     "\x1b[36m{} almost done {}/{} blocks done (eof: {}) , \x1b[m",
                     self.id,
-                    self.bytes_complete/BLOCK_SIZE!(),
-                    (self.eof-self.bytes_complete)/BLOCK_SIZE!(),
+                    self.bytes_complete / BLOCK_SIZE!(),
+                    (self.eof - self.bytes_complete) / BLOCK_SIZE!(),
                     self.eof,
                 );
 
