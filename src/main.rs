@@ -7,8 +7,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::cmp;
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::io::Write;
+use std::io::{self, Seek, SeekFrom};
 //use std::convert::TryInto;
 use std::env;
 //use std::fmt;
@@ -352,7 +352,9 @@ impl PleaseSendContent {
             return message_out;
         }
         if self.offset == 0 || (rand::thread_rng().gen::<u32>() % 37) == 0 {
-            message_out.append(&mut InboundState::send_transfer_peers_from_disk(&self.id));
+            message_out.append(&mut InboundState::send_transfer_peers_from_disk(
+                &self.id, &src,
+            ));
         }
         {
             match File::open(&self.id) {
@@ -599,15 +601,31 @@ impl InboundState {
             )
             .ok();
     }
-    fn send_transfer_peers_from_disk(id: &String) -> Vec<Message> {
+    fn send_transfer_peers_from_disk(id: &String, src: &SocketAddr) -> Vec<Message> {
         let filename = "./metadata/".to_owned() + &id + ".json";
-        let file = OpenOptions::new().read(true).open(filename);
-        if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
-            let json: serde_json::Value = serde_json::from_reader(file.unwrap()).unwrap();
-            let peers: HashSet<SocketAddr> = serde_json::from_value(json["Peers"].clone()).unwrap();
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .truncate(false)
+            .open(filename)
+            .unwrap();
+
+        let peers: &mut HashSet<SocketAddr> = &mut HashSet::new();
+        if file.metadata().unwrap().len() > 0 {
+            let json: serde_json::Value = serde_json::from_reader(&file).unwrap();
+            let loaded_peers: HashSet<SocketAddr> =
+                serde_json::from_value(json["Peers"].clone()).unwrap();
+            peers.extend(loaded_peers);
+        }
+        if peers.insert(*src) {
+            file.seek(SeekFrom::Start(0)).ok();
+            serde_json::to_writer_pretty(file, &json!({"Peers":&peers})).unwrap();
+        }
+        if peers.len() > 1 {
             return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
                 id: id.to_owned(),
-                peers: peers,
+                peers: peers.clone(),
             })];
         }
         return vec![];
