@@ -3,7 +3,7 @@ use bitvec::prelude::*;
 use chrono::{Timelike, Utc};
 use log::{debug, error, info, log_enabled, trace, warn, Level};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::cmp;
 use std::collections::{HashMap, HashSet};
@@ -592,17 +592,22 @@ impl InboundState {
             .truncate(true)
             .open(filename)
             .unwrap()
-            .write_all(&serde_json::to_vec_pretty(&self.peers).unwrap())
+            .write_all(
+                serde_json::to_vec_pretty(&json!({"Peers":&self.peers}))
+                    .unwrap()
+                    .as_slice(),
+            )
             .ok();
     }
     fn send_transfer_peers_from_disk(id: &String) -> Vec<Message> {
         let filename = "./metadata/".to_owned() + &id + ".json";
         let file = OpenOptions::new().read(true).open(filename);
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
-            let json: HashSet<SocketAddr> = serde_json::from_reader(&file.unwrap()).unwrap();
+            let json: serde_json::Value = serde_json::from_reader(file.unwrap()).unwrap();
+            let peers: HashSet<SocketAddr> = serde_json::from_value(json["Peers"].clone()).unwrap();
             return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
                 id: id.to_owned(),
-                peers: json,
+                peers: peers,
             })];
         }
         return vec![];
