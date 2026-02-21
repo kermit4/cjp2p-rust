@@ -34,7 +34,7 @@ fn instant_default() -> Instant {
     Instant::now() - Duration::new(999000000, 00)
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 struct PeerInfo {
     #[serde(skip, default = "instant_default")]
     when_last_seen: Instant,
@@ -47,6 +47,55 @@ struct PeerState {
     boot: Instant,
 }
 impl PeerState {
+    fn probe_interfaces(&mut self) -> () {
+        let to_probe: &mut HashSet<SocketAddr> = &mut HashSet::new();
+        let addrs = nix::ifaddrs::getifaddrs().unwrap();
+        for ifaddr in addrs {
+            match ifaddr.address {
+                Some(address) => {
+                    println!("interface {} address {}", ifaddr.interface_name, address);
+                    match address.as_sockaddr_in() {
+                        Some(addr) => {
+                            let mut sa = SocketAddr::from(*addr);
+                            sa.set_port(24254);
+                            self.peer_map.insert(
+                                sa,
+                                PeerInfo {
+                                    when_last_seen: Instant::now(),
+                                    delay: Duration::new(1, 0),
+                                },
+                            );
+                            ()
+                        }
+                        None => (),
+                    }
+                }
+                None => (),
+            }
+            match ifaddr.broadcast {
+                Some(address) => {
+                    println!("interface {} address {}", ifaddr.interface_name, address);
+                    match address.as_sockaddr_in() {
+                        Some(addr) => {
+                            let mut sa = SocketAddr::from(*addr);
+                            sa.set_port(24254);
+                            to_probe.insert(sa);
+                            ()
+                        }
+                        None => (),
+                    }
+                }
+                None => (),
+            }
+        }
+        to_probe.insert("224.0.0.1:24254".parse().unwrap());
+        for sa in to_probe.iter() {
+            let mut message_out: Vec<Message> = Vec::new();
+            message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            self.socket.send_to(&message_out_bytes, sa).ok();
+        }
+    }
     fn probe(&self) -> () {
         for sa in self.best_peers(10, 3) {
             let mut message_out: Vec<Message> = Vec::new();
@@ -131,12 +180,7 @@ fn main() -> Result<(), std::io::Error> {
         boot: Instant::now(),
     };
     ps.socket.set_broadcast(true).ok();
-    for p in [
-        "148.71.89.128:24254",
-        "159.69.54.127:24254",
-        "192.168.1.255:24254",
-        "224.0.0.1:24254",
-    ] {
+    for p in ["148.71.89.128:24254", "159.69.54.127:24254"] {
         ps.peer_map.insert(
             p.parse().unwrap(),
             PeerInfo {
@@ -643,8 +687,8 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     if Utc::now().second() / 3 + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();
     }
+    ps.probe_interfaces();
     ps.probe();
-
     for (_, i) in inbound_states.iter_mut() {
         if i.last_activity.elapsed() > Duration::from_secs(1) && i.next_block != 0 {
             debug!("stalled {}", i.id);
