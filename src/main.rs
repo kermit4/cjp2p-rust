@@ -63,6 +63,7 @@ struct PeerState {
 }
 impl PeerState {
     fn always_returned(&self, sa: SocketAddr) -> Vec<Value> {
+        debug!("always_returned for {sa}");
         let key = self
             .peer_map
             .get(&sa)
@@ -72,6 +73,7 @@ impl PeerState {
         if key == json!({}) {
             return vec![];
         }
+        debug!("always_returned for {sa} found {key}");
         return vec![
             serde_json::json!({"AlwaysReturned": self.peer_map .get(&sa) .unwrap() .anti_ddos_key_to_send_to_them }),
         ];
@@ -86,7 +88,10 @@ impl PeerState {
                     Some(addr) => {
                         let mut sa = SocketAddr::from(*addr);
                         sa.set_port(24254);
-                        self.peer_map.insert(sa, PeerInfo::new());
+                        debug!("found local interface {:?}", sa);
+                        if !self.peer_map.contains_key(&sa) {
+                            self.peer_map.insert(sa, PeerInfo::new());
+                        }
                         ()
                     }
                     None => (),
@@ -111,6 +116,10 @@ impl PeerState {
             let mut message_out: Vec<Message> = Vec::new();
             message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            debug!(
+                "sending message {:?} to {sa}",
+                String::from_utf8_lossy(&message_out_bytes)
+            );
             self.socket.send_to(&message_out_bytes, sa).ok();
         }
     }
@@ -131,6 +140,10 @@ impl PeerState {
             );
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
 
+            debug!(
+                "sending message {:?} to {sa}",
+                String::from_utf8_lossy(&message_out_bytes)
+            );
             match self.socket.send_to(&message_out_bytes, sa) {
                 Ok(s) => trace!("sent {s}"),
                 Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
@@ -248,7 +261,7 @@ fn main() -> Result<(), std::io::Error> {
                 continue;
             }
         };
-        trace!(
+        debug!(
             "incoming message {:?} from {src}",
             String::from_utf8_lossy(message_in_bytes)
         );
@@ -315,6 +328,7 @@ fn main() -> Result<(), std::io::Error> {
             continue;
         }
         if !their_key_passed {
+            warn!("re-supplying key to {}", src);
             message_out =
                 vec![serde_json::to_value(PleaseAlwaysReturnThisMessage::send(&ps, src)).unwrap()];
         } else {
@@ -331,7 +345,7 @@ fn main() -> Result<(), std::io::Error> {
             }
         }
         let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-        trace!(
+        debug!(
             "sending message {:?} to {src}",
             String::from_utf8_lossy(&message_out_bytes)
         );
@@ -368,10 +382,12 @@ struct PleaseAlwaysReturnThisMessage {
 }
 impl PleaseAlwaysReturnThisMessage {
     fn save_key(ps: &mut PeerState, src: SocketAddr, cookie: Value) {
+        debug!("saving key {cookie} for {src}");
         ps.peer_map
             .get_mut(&src)
             .unwrap()
             .anti_ddos_key_to_send_to_them = cookie;
+        debug!("saved key verified {:?}", ps.always_returned(src));
     }
     fn send(ps: &PeerState, src: SocketAddr) -> Message {
         let correct_key = ps
@@ -574,6 +590,10 @@ impl Content {
 
                     i.next_block += 1;
                     let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                    debug!(
+                        "sending message {:?} to {src}",
+                        String::from_utf8_lossy(&message_out_bytes)
+                    );
                     ps.socket.send_to(&message_out_bytes, src).ok();
                     break;
                 }
@@ -701,6 +721,10 @@ impl InboundState {
             message_out.extend(ps.always_returned(sa));
 
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            debug!(
+                "sending message {:?} to {sa}",
+                String::from_utf8_lossy(&message_out_bytes)
+            );
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
     }

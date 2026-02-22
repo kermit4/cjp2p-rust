@@ -37,3 +37,4 @@ or info/warn log levels
 - actually store sources for MaybeTheyHaveSome outside of just current transfers
 - should be some delay if a hash doesnt match so it doest loop forever eating bandwidth
 - make this a rust crate?
+- how would end users best interact? through a browser? how about sending or streaming
