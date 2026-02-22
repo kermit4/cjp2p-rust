@@ -22,8 +22,6 @@ or info/warn log levels
 - need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere .. https://dasl.ing/ ?  blake3?
 - streaming (files that grow after they're started.. with a goal that someone streaming video to millions only needs enough bandwidth to send out one copy, live, with little delay.  Multicast, as real multicast never caught on on the internet sadly.).. i think the code is there, it just needs to say to not stop, infinite EOF, or just make eof optional..as all fields should be
 
-- maybe replies just include the original request but note that it is a reply, so cookies and all data are there even if not used by replier, rather than separate message types? this would be less code?
--  
 - remember to talk like people not a computer (naming)
 - 
 - this should be like a daemon, runnin locally, things can communate through it, rather than speak it directly?  localhost URLs?
@@ -34,7 +32,6 @@ or info/warn log levels
 - 
 - CLI commands  / API, run as a daemon?  do we want each app speaking the protocol or using a daemon("node")?
 - mplayer seekable streams.   cli search.    
-- actually store sources for MaybeTheyHaveSome outside of just current transfers
 - should be some delay if a hash doesnt match so it doest loop forever eating bandwidth
 - make this a rust crate?
 - how would end users best interact? through a browser? how about sending or streaming

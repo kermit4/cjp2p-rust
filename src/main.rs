@@ -214,6 +214,11 @@ fn main() -> Result<(), std::io::Error> {
     env_logger::builder()
         .format_timestamp(Some(TimestampPrecision::Millis))
         .init();
+    trace!("trace logging on");
+    debug!("debug logging on");
+    info!("info logging on");
+    warn!("warn logging on");
+    error!("error logging on");
     let mut ps: PeerState = PeerState {
         peer_map: HashMap::new(),
         peer_vec: Vec::new(),
@@ -607,8 +612,8 @@ impl Content {
                 let hash = format!("{:x}", hasher.finalize());
                 println!("{} sha256sum", hash);
                 if hash == i.id.to_lowercase() {
-                    info!("{0} finished ", i.id);
-                    println!("{0} finished ", i.id);
+                    info!("{0} finished {1} bytes", i.id, i.eof);
+                    println!("{0} finished {1} bytes", i.id, i.eof);
                     let path = "./incoming/".to_owned() + &i.id;
                     let new_path = "./".to_owned() + &i.id;
                     fs::rename(path, new_path).unwrap();
