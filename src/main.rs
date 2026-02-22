@@ -104,6 +104,13 @@ impl PeerState {
             let mut message_out: Vec<Message> = Vec::new();
             message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
             message_out.push(PleaseAlwaysReturnThisMessage::send(&self, sa));
+            message_out.push(Message::AlwaysReturned(AlwaysReturned {
+                key: self
+                    .peer_map
+                    .get(&sa)
+                    .unwrap()
+                    .anti_ddos_key_to_send_to_them,
+            }));
             message_out.push(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                 sent_at: self.boot.elapsed().as_secs_f64(),
             }));
@@ -190,8 +197,8 @@ fn main() -> Result<(), std::io::Error> {
         ps.peer_map.insert(p.parse().unwrap(), PeerInfo::new());
     }
     fs::create_dir("./shared").ok();
-    fs::create_dir("./metadata").ok();
     std::env::set_current_dir("./shared").unwrap();
+    fs::create_dir("./metadata").ok();
     ps.load_peers();
     let mut args = env::args();
     args.next();
@@ -233,13 +240,12 @@ fn main() -> Result<(), std::io::Error> {
         match ps.peer_map.get_mut(&src) {
             Some(peer) => peer.when_last_seen = Instant::now(),
             _ => {
-                // TODO send keys with probes.  if somenoe contacts me without my key, send the probe (with their key)
                 ps.peer_map.insert(src, PeerInfo::new());
                 warn!("new peer spotted {src}");
             }
         };
         // This isn't an arrray of Messages because of the PleaseReturn that I don't know
-        // always know the structure of
+        // always know the structure of,
         let mut message_out: Vec<Value> = Vec::new();
         debug!("received messages {:?} from {src}", messages.len());
         let mut their_key_passed = false;
@@ -291,13 +297,9 @@ fn main() -> Result<(), std::io::Error> {
                 vec![serde_json::to_value(PleaseAlwaysReturnThisMessage::send(&ps, src)).unwrap()];
         } else {
             message_out.push(
-                serde_json::to_value(AlwaysReturned {
-                    key: ps
-                        .peer_map
-                        .get(&src)
-                        .unwrap()
-                        .anti_ddos_key_to_expect_from_them,
-                })
+                serde_json::to_value(Message::AlwaysReturned(AlwaysReturned {
+                    key: ps.peer_map.get(&src).unwrap().anti_ddos_key_to_send_to_them,
+                }))
                 .unwrap(),
             );
 
@@ -548,9 +550,14 @@ impl Content {
                         continue;
                     }
                     debug!("growing window for {0}", i.id);
-                    let grow = i.request_next_block();
+
+                    let mut message_out = i.request_next_block();
+                    message_out.push(Message::AlwaysReturned(AlwaysReturned {
+                        key: ps.peer_map.get(&src).unwrap().anti_ddos_key_to_send_to_them,
+                    }));
+
                     i.next_block += 1;
-                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&grow).unwrap();
+                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                     ps.socket.send_to(&message_out_bytes, src).ok();
                     break;
                 }
@@ -667,12 +674,15 @@ impl InboundState {
         })];
     }
     fn request_blocks(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
-        let message_out = self.request_next_block();
-        if message_out.len() < 1 {
-            return;
-        }
-        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
         for sa in some_peers {
+            let mut message_out = self.request_next_block();
+            if message_out.len() < 1 {
+                return;
+            }
+            message_out.push(Message::AlwaysReturned(AlwaysReturned {
+                key: ps.peer_map.get(&sa).unwrap().anti_ddos_key_to_send_to_them,
+            }));
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
     }
