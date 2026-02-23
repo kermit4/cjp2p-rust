@@ -214,11 +214,7 @@ fn main() -> Result<(), std::io::Error> {
     env_logger::builder()
         .format_timestamp(Some(TimestampPrecision::Millis))
         .init();
-    trace!("trace logging on");
-    debug!("debug logging on");
-    info!("info logging on");
-    warn!("warn logging on");
-    error!("error logging on");
+    println!("logging level: {}",log::max_level());
     let mut ps: PeerState = PeerState {
         peer_map: HashMap::new(),
         peer_vec: Vec::new(),
@@ -333,7 +329,7 @@ fn main() -> Result<(), std::io::Error> {
             continue;
         }
         if !their_key_passed {
-            warn!("re-supplying key to {}", src);
+            info!("supplying key to {}", src);
             message_out =
                 vec![serde_json::to_value(PleaseAlwaysReturnThisMessage::send(&ps, src)).unwrap()];
         } else {
