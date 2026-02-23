@@ -766,7 +766,7 @@ impl InboundState {
             file.seek(SeekFrom::Start(0)).ok();
             serde_json::to_writer_pretty(BufWriter::new(file), &json!({"Peers":&peers})).unwrap();
         }
-        if peers.len() > 1 {
+        if peers.len() > 0 {
             return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
                 id: id.to_owned(),
                 peers: peers.clone(),
