@@ -38,6 +38,8 @@ fn instant_default() -> Instant {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+
+// when this gets to millions of peers, consider keeping less info about the slower ones
 struct PeerInfo {
     #[serde(skip, default = "instant_default")]
     when_last_seen: Instant,

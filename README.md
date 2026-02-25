@@ -39,4 +39,4 @@ or info/warn log levels
 - how would end users best interact? through a browser? how about sending or streaming
 - stop using empty strings or zeros to mean unset and do it the Rusty way with Option
 - probably less unwrap and more questoin marks
-+- downloads assume it has the always returned key already.when it just started...and crashes
+- encryption? snow crate / noise protocol 
