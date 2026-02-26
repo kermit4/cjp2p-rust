@@ -41,7 +41,6 @@ the debug build won't care if you dont send AlwaysReturned, so easier for testin
 - how would end users best interact? through a browser? how about sending or streaming
 - probably less unwrap and more questoin marks
 - encryption? snow crate / noise protocol 
-- on any NEW MaybeTheyHaveSome peers try the new ones
 - it could track hosts by public key not host port to get rid of the issuew with these weird rolling port nats
 - if content exists, but there is no AlwaysReply key, send one byte, so a big search can at least ind it even if it doesnt have the key
 - worry less about DOS stuff right now, deal with that later, make it easy to use right now

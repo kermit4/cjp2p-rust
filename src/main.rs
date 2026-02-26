@@ -354,6 +354,10 @@ fn main() -> Result<(), std::io::Error> {
                 serde_json::to_value(PleaseAlwaysReturnThisMessage::send_key(&ps, src)).unwrap(),
             ];
         } else {
+            if !their_key_passed { message_out.push(
+                serde_json::to_value(PleaseAlwaysReturnThisMessage::send_key(&ps, src)).unwrap(),
+            );
+            }
             message_out.extend(ps.always_returned(src));
             if (rand::thread_rng().gen::<u32>() % 73) == 0 {
                 message_out.push(
