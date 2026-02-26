@@ -179,6 +179,12 @@ impl PeerState {
     }
     fn save_peers(&self) -> () {
         debug!("saving peers");
+        let mut peers_to_save: Vec<(SocketAddr, PeerInfo)> = Vec::new();
+        for i in 0.. cmp::min(self.peer_vec.len(), 99) {
+            peers_to_save.push((self.peer_vec[i],self.peer_map[&self.peer_vec[i]].clone()))
+        }
+            
+
         OpenOptions::new()
             .create(true)
             .write(true)
@@ -186,8 +192,7 @@ impl PeerState {
             .open("peers.v2.json")
             .unwrap()
             .write_all(
-                &serde_json::to_vec_pretty(&self.peer_vec[..cmp::min(self.peer_vec.len(), 99)])
-                    .unwrap(),
+                    &serde_json::to_vec_pretty(&peers_to_save).unwrap()
             )
             .ok();
     }
