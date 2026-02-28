@@ -358,15 +358,14 @@ fn main() -> Result<(), std::io::Error> {
         if message_out.len() == 0 {
             continue;
         }
-        let mut message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-        let mut ratio =
-            (message_out_bytes.len() as f64 + 20.0 + 8.0) / (message_len as f64 + 20.0 + 8.0);
+        let mut message_out_bytes;
+        let mut ratio;
         // 20 is IP header, 8 is UDP header
-        trace!("ratio: {ratio}");
         while {
             message_out_bytes = serde_json::to_vec(&message_out).unwrap();
             ratio = // 20 is IP header, 8 is UDP header
             (message_out_bytes.len() as f64 + 20.0 + 8.0) / (message_len as f64 + 20.0 + 8.0);
+            trace!("ratio: {ratio}");
 
             message_out.len() > 0 && !their_key_passed && ratio > 2.5
         } {
