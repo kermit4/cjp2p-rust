@@ -46,3 +46,4 @@ the debug build won't care if you dont send AlwaysReturned, so easier for testin
 - rename anti_ddos and their_key_matched to not_spoofed_ip
 - send peers when asking for them? why not, be nice, save a RTT?
 - something broke speed in the last few commits
+- mulitple parallel downloads of the non default 2nd layer block size, 256k, get a bit messy on the transfe, but thats not realyl a probem?

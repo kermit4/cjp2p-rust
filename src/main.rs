@@ -619,15 +619,15 @@ impl Content {
                     info!("dup {block_number}");
                     return vec![];
                 }
-                if self.base64.len() == BLOCK_SIZE!()
-                    || self.base64.len() + block_number * BLOCK_SIZE!() == i.eof
-                {
+                if self.base64.len() == BLOCK_SIZE!() || self.base64.len() + self.offset == i.eof {
                     i.file.write_at(&self.base64, self.offset as u64).unwrap();
                     i.bytes_complete += self.base64.len();
                     i.bitmap.set(block_number, true);
-                    i.next_block += 1;
                 }
                 message_out = i.request_next_block();
+                if self.base64.len() == BLOCK_SIZE!() || self.base64.len() + self.offset == i.eof {
+                    i.next_block += 1;
+                }
             }
             if (rand::thread_rng().gen::<u32>() % 101) == 0 {
                 for (_, i) in inbound_states.iter_mut() {
@@ -718,16 +718,17 @@ impl InboundState {
             if self.next_block * BLOCK_SIZE!() >= self.eof {
                 // %EOF
                 info!(
-                    "\x1b[36m{} almost done {}/{} blocks done (eof: {}) , \x1b[m",
+                    "\x1b[36m{} almost done {}/{} blocks done/remaining (eof: {}) , lowest unreceived block {:?} \x1b[m",
                     self.id,
                     self.bytes_complete / BLOCK_SIZE!(),
                     (self.eof - self.bytes_complete) / BLOCK_SIZE!(),
                     self.eof,
+                    self.bitmap.first_zero()
                 );
 
-                if log_enabled!(Level::Trace) {
+                if log_enabled!(Level::Debug) {
                     for i in self.bitmap.iter_zeros() {
-                        trace!("{i}");
+                        debug!("{i}");
                     }
                 }
 
