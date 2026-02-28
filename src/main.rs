@@ -291,16 +291,17 @@ fn main() -> Result<(), std::io::Error> {
         debug!("received messages {:?} from {src}", messages.len());
         let mut their_key_passed = false;
         for message_in in &messages {
-            match &message_in["AlwaysReturned"] {
-                Value::Null => (),
-                v => match serde_json::from_value(v.clone()) {
+            if (message_in["AlwaysReturned"]) != Value::Null {
+                match serde_json::from_value(message_in.clone()) {
                     Ok(t) => match t {
-                        Message::AlwaysReturned(t) => their_key_passed = t.check_key(&mut ps, src),
-
+                        Message::AlwaysReturned(t) => {
+                            their_key_passed = t.check_key(&mut ps, src);
+                            trace!("their key passed? {their_key_passed}");
+                        }
                         _ => (),
                     },
                     _ => (),
-                },
+                }
             }
         }
 
