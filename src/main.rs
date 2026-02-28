@@ -64,19 +64,19 @@ struct PeerState {
 impl PeerState {
     fn always_returned(&self, sa: SocketAddr) -> Vec<Value> {
         debug!("always_returned for {sa}");
-        let key = self
-            .peer_map
-            .get(&sa)
-            .unwrap()
-            .anti_ddos_key_to_send_to_them
-            .to_owned();
-        if key == json!({}) {
-            return vec![];
+        match self.peer_map.get(&sa) {
+            None => return vec![],
+            Some(p) => {
+                let key = p.anti_ddos_key_to_send_to_them.to_owned();
+                if key == json!({}) {
+                    return vec![];
+                }
+                debug!("always_returned for {sa} found {key}");
+                return vec![
+                    serde_json::json!({"AlwaysReturned": self.peer_map .get(&sa) .unwrap() .anti_ddos_key_to_send_to_them }),
+                ];
+            }
         }
-        debug!("always_returned for {sa} found {key}");
-        return vec![
-            serde_json::json!({"AlwaysReturned": self.peer_map .get(&sa) .unwrap() .anti_ddos_key_to_send_to_them }),
-        ];
     }
 
     fn probe_interfaces(&mut self) -> () {
