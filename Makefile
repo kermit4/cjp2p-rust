@@ -23,7 +23,7 @@ all: check release debug
 crate: 
 	mkdir -p crate;\
 		cd crate;\
-		[[ ! -d */ ]] && git clone $$(realpath ..);\
+		[[ ! -d cjp2p-rust ]] && git clone $$(realpath ..);\
 		cd */;\
 		git pull;\
-		cargo publish 
+		cargo publish
