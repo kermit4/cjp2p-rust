@@ -21,4 +21,4 @@ all: check release debug
 .PHONY: crate
 
 crate: 
-	cargo publish --dry-run
+	cargo publish
