@@ -1,6 +1,6 @@
 [package]
 name = "libcjp"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license =  "GPL-3.0-only"
 description = "Connectionless JSON P2P (CJP2P) implementation in Rust.   To build p2p (peer-to-peer) applications without the application or OS overhead, or latency, of managing connections."
