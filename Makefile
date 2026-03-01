@@ -18,7 +18,9 @@ pretty: check
 
 all: check release debug
 
-crate:
+.PHONY: crate
+
+crate: 
 	mkdir -p crate;\
 		cd crate;\
 		git clone $$(realpath ..);\
