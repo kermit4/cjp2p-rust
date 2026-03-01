@@ -2,6 +2,13 @@
 name = "cjp2p-rust"
 version = "0.1.0"
 edition = "2018"
+license =  "GPL-3.0-only"
+description = "Connectionless JSON P2P (CJP2P) implementation in Rust.   To build p2p (peer-to-peer) applications without the application or OS overhead, or latency, of managing connections."
+documentation = "https://docs.rs/bitflags"
+repository = "https://github.com/kermit4/cjp2p-rust/"
+keywords = ["JSON","P2P","UDP","decentralized"]
+categories = ["network-programming","filesystem","email","cryptography::cryptocurrencies"]
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
