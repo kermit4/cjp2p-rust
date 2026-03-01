@@ -689,7 +689,7 @@ impl Content {
                 i.bitmap.fill(false);
                 i.next_block = 0;
                 i.bytes_complete = 0;
-                i.last_activity = Instant::now() + Duration::new(999, 00);
+                i.last_activity = Instant::now() + Duration::new(99, 00);
                 i.file = None;
                 return vec![];
             };
