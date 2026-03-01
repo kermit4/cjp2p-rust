@@ -21,9 +21,4 @@ all: check release debug
 .PHONY: crate
 
 crate: 
-	mkdir -p crate;\
-		cd crate;\
-		[[ ! -d cjp2p-rust ]] && git clone $$(realpath ..);\
-		cd */;\
-		git pull;\
-		cargo publish
+	cargo publish --dry-run
