@@ -22,5 +22,5 @@ crate:
 	mkdir -p crate;\
 		cd crate;\
 		git clone $$(realpath ..);\
-		cd libcjp;\
+		cd */;\
 		cargo publish 
