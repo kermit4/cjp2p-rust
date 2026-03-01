@@ -6,7 +6,7 @@ To request a file, run with the content_id as an arguement.  It will be placed i
 
 i.e. 
 
-     ./target/debug/cjp2p  c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b # ubuntu-24.04.3-live-server-amd64.iso
+     ./target/release/libcjp  c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b # ubuntu-24.04.3-live-server-amd64.iso
 
 
 # building
@@ -14,7 +14,7 @@ i.e.
 
 # hints
 
-try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
+try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/libcjp
 or info/warn log levels
 
 for fun try: make demo, ^C when it seems done, and then
@@ -25,16 +25,18 @@ sha256sum
 # should be  6f5a06b0a8b83d66583a319bfa104393f5e52d2c017437a1b425e9275576500c
 ```
 
+This is also at https://crates.io/crates/libcjp but probably isn't useful as a crate yet
+
 # TODO
-- need sub-hashes otherwise a bad bit may copy aroundd and the file may never complete correctly anywhere .. https://dasl.ing/ ?  blake3?
 - streaming (files that grow after they're started.. with a goal that someone streaming video to millions only needs enough bandwidth to send out one copy, live, with little delay.  Multicast, as real multicast never caught on on the internet sadly.).. i think the code is there, it just needs to say to not stop, infinite EOF, or just make eof optional..as all fields should be
 - remember to talk like people not a computer (naming)
 - this should be like a daemon, runnin locally, things can communate through it, rather than speak it directly?  localhost URLs?
 - streaming live cam of something is a good test case.. the sky .. ffmpeg -i /dev/video2 o.mkv .. 
 - lossy real time streams? it would require knowing the media's container block boundaries
 - CLI commands  / API, run as a daemon?  do we want each app speaking the protocol or using a daemon("node")?
-- mplayer seekable streams.   cli search.    
-- make this a rust crate? libcjp
+- mplayer seekable streams.    it probably does http range requests
+- cli search.    
+- make this crate more proper   https://rust-lang.github.io/api-guidelines/checklist.html  
 - how would end users best interact? through a browser? how about sending or streaming
 - probably less unwrap and more questoin marks
 - encryption? snow crate / noise protocol 

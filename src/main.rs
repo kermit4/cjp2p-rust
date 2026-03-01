@@ -675,6 +675,7 @@ impl Content {
             // little real improvement, so dont do that
             let mut hasher = Sha256::new();
             io::copy(i.file.as_mut().unwrap(), &mut hasher).ok();
+            info!("{} starting sha256sum", i.id);
             let hash = format!("{:x}", hasher.finalize());
             info!("{} sha256sum", hash);
             if hash == i.id.to_lowercase() {
