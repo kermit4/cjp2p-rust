@@ -23,6 +23,7 @@ all: check release debug
 crate: 
 	mkdir -p crate;\
 		cd crate;\
-		git clone $$(realpath ..);\
+		[[ ! -d */ ]] && git clone $$(realpath ..);\
 		cd */;\
+		git pull;\
 		cargo publish 
