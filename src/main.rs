@@ -517,6 +517,10 @@ impl PleaseSendContent {
         if might_be_ip_spoofing {
             length = 1; // just to show i have some in a search as they'll have the key next request
             if (rand::thread_rng().gen::<u32>() % 31) == 0 {
+                warn!(
+                    "randomly ignoring unverified source {src} request for {} at {}",
+                    self.id, self.offset
+                );
                 return vec![]; // in case its a client that completel doesn't support
                                // might_be_ip_spoofing so
                                // it doesn't just loop asking for the same block forever
