@@ -622,13 +622,11 @@ impl InboundState {
             self.bitmap.resize(blocks, false);
         }
 
-        let mut good_block = content.base64.len() == BLOCK_SIZE!()
-            || content.base64.len() + content.offset == self.eof;
         if self.bitmap[block_number] {
             info!("dup {block_number}");
-            good_block = false;
-        }
-        if good_block {
+        } else if content.base64.len() == BLOCK_SIZE!()
+            || content.base64.len() + content.offset == self.eof
+        {
             if self.file.is_none() {
                 debug!("{}  opening file!", self.id);
                 self.file = Some(
