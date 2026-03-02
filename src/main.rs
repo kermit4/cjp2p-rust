@@ -630,13 +630,6 @@ impl Content {
             self.base64.len() == BLOCK_SIZE!() || self.base64.len() + self.offset == i.eof;
         if good_block {
             if i.file.is_none() {
-                if i.last_activity > Instant::now() {
-                    // must be a delayed restart due to a failed hash, so they dont loop forever if
-                    // the source is giving out corrupt data
-                    // TODO this is confusing, dont overload the variable with other functionality
-                    warn!("delaying restart!");
-                    return vec![];
-                }
                 debug!("{}  opening file!", i.id);
                 i.file = Some(
                     OpenOptions::new()
@@ -662,7 +655,7 @@ impl Content {
         }
         if (rand::thread_rng().gen::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.last_activity > Instant::now() || i.next_block * BLOCK_SIZE!() >= i.eof {
+                if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
                 }
                 debug!("growing window for {0}", i.id);
@@ -672,16 +665,12 @@ impl Content {
             }
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
-        if i.bytes_complete == i.eof {
-            if i.really_finished() {
-                inbound_states.remove(&self.id);
-            } else {
-                return vec![];
-            }
+        if i.bytes_complete == i.eof && i.really_finished() {
+            inbound_states.remove(&self.id);
         }
         if message_out.len() == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.last_activity > Instant::now() || i.next_block * BLOCK_SIZE!() >= i.eof {
+                if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
                 }
                 message_out = i.request_next_block();
@@ -712,6 +701,7 @@ struct InboundState {
     bytes_complete: usize,
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
+    hash_failures: i32,
 }
 
 impl InboundState {
@@ -726,6 +716,7 @@ impl InboundState {
             bytes_complete: 0,
             peers: HashSet::new(),
             last_activity: Instant::now() - Duration::from_secs(999),
+            hash_failures: 0,
         };
         i.bitmap
             .resize((i.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!(), false);
@@ -867,10 +858,13 @@ impl InboundState {
             self.save_transfer_peers();
             return true;
         }
-        error!(
-            "{} hash doesnt match! restarting, after a delay",
-            self.id
-        );
+        error!("{} hash doesnt match! restarting", self.id);
+        self.hash_failures += 1;
+        if self.hash_failures > 2 {
+            error!("{} hash failed 3 times, giving up!", self.id);
+            return true;
+        }
+
         self.bitmap.fill(false);
         self.next_block = 0;
         self.bytes_complete = 0;
