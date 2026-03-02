@@ -553,58 +553,9 @@ impl Content {
                 self.id, self.offset / BLOCK_SIZE!());
             return vec![];
         }
-        let mut message_out;
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
-        let block_number = self.offset / BLOCK_SIZE!();
-        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
-        let this_eof = match self.eof {
-            Some(n) => n,
-            None => self.offset + self.base64.len() + 1,
-        };
-
-        if this_eof != i.eof {
-            i.eof = this_eof;
-            let blocks = (i.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
-            i.bitmap.resize(blocks, false);
-        }
-
-        if i.bitmap[block_number] {
-            info!("dup {block_number}");
-            // undecided if i want to return here.  it could be from a search.  A concern was some
-            // routes do duplicate some packets a lot, especially wireless.
-            // but, if its a search, and something got back sooner that one is probably better for
-            // now anyway.  For very common files (like test files) this would grow the window much
-            // too big too fast without the return.
-            return vec![];
-        }
-        let good_block =
-            self.base64.len() == BLOCK_SIZE!() || self.base64.len() + self.offset == i.eof;
-        if good_block {
-            if i.file.is_none() {
-                debug!("{}  opening file!", i.id);
-                i.file = Some(
-                    OpenOptions::new()
-                        .create(true)
-                        .read(true)
-                        .write(true)
-                        .open("./incoming/".to_owned() + &i.id)
-                        .unwrap(),
-                );
-            }
-            i.file
-                .as_mut()
-                .unwrap()
-                .write_at(&self.base64, self.offset as u64)
-                .unwrap();
-            i.bytes_complete += self.base64.len();
-            i.bitmap.set(block_number, true);
-        }
-        i.last_activity = Instant::now();
-        message_out = i.request_next_block();
-        if good_block {
-            i.next_block += 1;
-        }
+        let mut message_out = i.receive_content(&self);
         if (rand::thread_rng().gen::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
@@ -657,6 +608,51 @@ struct InboundState {
 }
 
 impl InboundState {
+    fn receive_content(&mut self, content: &Content) -> Vec<Message> {
+        let block_number = content.offset / BLOCK_SIZE!();
+        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", content.id, block_number, block_number * BLOCK_SIZE!(), "", self.next_block as i64 - block_number as i64);
+        let this_eof = match content.eof {
+            Some(n) => n,
+            None => content.offset + content.base64.len() + 1,
+        };
+
+        if this_eof != self.eof {
+            self.eof = this_eof;
+            let blocks = (self.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
+            self.bitmap.resize(blocks, false);
+        }
+
+        let mut good_block = content.base64.len() == BLOCK_SIZE!()
+            || content.base64.len() + content.offset == self.eof;
+        if self.bitmap[block_number] {
+            info!("dup {block_number}");
+            good_block = false;
+        }
+        if good_block {
+            if self.file.is_none() {
+                debug!("{}  opening file!", self.id);
+                self.file = Some(
+                    OpenOptions::new()
+                        .create(true)
+                        .read(true)
+                        .write(true)
+                        .open("./incoming/".to_owned() + &self.id)
+                        .unwrap(),
+                );
+            }
+            self.file
+                .as_mut()
+                .unwrap()
+                .write_at(&content.base64, content.offset as u64)
+                .unwrap();
+            self.bytes_complete += content.base64.len();
+            self.bitmap.set(block_number, true);
+        }
+        self.last_activity = Instant::now();
+        let message_out = self.request_next_block();
+        self.next_block += 1;
+        return message_out;
+    }
     fn new(inbound_states: &mut HashMap<String, InboundState>, id: &str) -> () {
         fs::create_dir("./incoming").ok();
         let mut i = InboundState {
@@ -679,7 +675,7 @@ impl InboundState {
         while {
             if self.next_block * BLOCK_SIZE!() >= self.eof {
                 // %EOF
-                info!( "\x1b[36m{} almost done {}/{} blocks done/remaining (eof: {})  \x1b[m", self.id, self.bytes_complete / BLOCK_SIZE!(), (self.eof - self.bytes_complete) / BLOCK_SIZE!(), self.eof,);
+                info!( "\x1b[36m{} almost done {}/{}/{}  blocks done/remaining/next \x1b[m", self.id, self.bytes_complete / BLOCK_SIZE!(), (self.eof - self.bytes_complete) / BLOCK_SIZE!(), self.next_block);
                 if log_enabled!(Level::Trace) {
                     for i in self.bitmap.iter_zeros() {
                         trace!("{i}");
@@ -782,8 +778,8 @@ impl InboundState {
         // yes this could sha as it goes, but then its not testing as much as it could, for
         // little real improvement, so dont do that
         let mut hasher = Sha256::new();
-        io::copy(self.file.as_mut().unwrap(), &mut hasher).ok();
         info!("{} starting sha256sum", self.id);
+        io::copy(self.file.as_mut().unwrap(), &mut hasher).ok();
         let hash = format!("{:x}", hasher.finalize());
         info!("{} sha256sum", hash);
         if hash == self.id.to_lowercase() {
@@ -831,7 +827,6 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         }
         debug!("restarting {}", i.id);
         i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
-
         i.request_blocks(ps, ps.best_peers(50, 6));
         break; // TODO maybe just search one at a time, but not always the same one?
                //
