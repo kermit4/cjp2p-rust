@@ -868,8 +868,6 @@ impl InboundState {
         self.bitmap.fill(false);
         self.next_block = 0;
         self.bytes_complete = 0;
-        self.last_activity = Instant::now() + Duration::from_secs(99);
-        self.file = None;
         return false;
     }
 }
