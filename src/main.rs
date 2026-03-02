@@ -47,7 +47,7 @@ struct PeerInfo {
 impl PeerInfo {
     fn new() -> PeerInfo {
         return PeerInfo {
-            delay: Duration::new(0, 200_000_000),
+            delay: Duration::from_millis(200),
             anti_ip_spoofing_token_they_expect: json!({}),
             anti_ip_spoofing_token_i_expect: rand::thread_rng().gen(),
             public_key: vec![],
@@ -254,8 +254,8 @@ fn main() -> Result<(), std::io::Error> {
         info!("queing inbound file {:?}", v);
         InboundState::new(&mut inbound_states, v.as_str());
     }
-    ps.socket.set_read_timeout(Some(Duration::new(1, 0)))?;
-    let mut last_maintenance = Instant::now() - Duration::new(9999, 0);
+    ps.socket.set_read_timeout(Some(Duration::from_secs(1)))?;
+    let mut last_maintenance = Instant::now() - Duration::from_secs(9999);
     loop {
         if last_maintenance.elapsed() > Duration::from_secs(1) {
             maintenance(&mut inbound_states, &mut ps);
@@ -725,7 +725,7 @@ impl InboundState {
             eof: 1 << 18,
             bytes_complete: 0,
             peers: HashSet::new(),
-            last_activity: Instant::now() - Duration::new(999, 00),
+            last_activity: Instant::now() - Duration::from_secs(999),
         };
         i.bitmap
             .resize((i.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!(), false);
@@ -868,13 +868,13 @@ impl InboundState {
             return true;
         }
         error!(
-            "{} hash doesnt match! restarting, after a large delay",
+            "{} hash doesnt match! restarting, after a delay",
             self.id
         );
         self.bitmap.fill(false);
         self.next_block = 0;
         self.bytes_complete = 0;
-        self.last_activity = Instant::now() + Duration::new(99, 00);
+        self.last_activity = Instant::now() + Duration::from_secs(99);
         self.file = None;
         return false;
     }
