@@ -660,7 +660,7 @@ impl Content {
         }
         if (rand::thread_rng().gen::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof {
+                if i.last_activity > Instant::now() || i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
                 }
                 debug!("growing window for {0}", i.id);
@@ -701,7 +701,7 @@ impl Content {
         }
         if message_out.len() == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof {
+                if i.last_activity > Instant::now() || i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
                 }
                 message_out = i.request_next_block();
