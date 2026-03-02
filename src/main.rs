@@ -590,7 +590,7 @@ impl Content {
         ps: &mut PeerState,
     ) -> Vec<Message> {
         if !inbound_states.contains_key(&self.id) {
-            info!(
+            debug!(
                 "unwanted content, probably dups -- the tail still in flight after completion, for {0} block {1}",
                 self.id,
                 self.offset / BLOCK_SIZE!());
@@ -609,10 +609,7 @@ impl Content {
             i.next_block as i64 - block_number as i64
         );
         let this_eof = match self.eof {
-            Some(n) => {
-                debug!("got eof {:?}", n);
-                n
-            }
+            Some(n) => n,
             None => self.offset + self.base64.len() + 1,
         };
 
@@ -624,6 +621,11 @@ impl Content {
 
         if i.bitmap[block_number] {
             info!("dup {block_number}");
+            // undecided if i want to return here.  it could be from a search.  A concern was some
+            // routes do duplicate some packets a lot, especially wireless.
+            // but, if its a search, and something got back sooner that one is probably better for
+            // now anyway.  For very common files (like test files) this would grow the window much
+            // too big too fast without the return.
             return vec![];
         }
         let good_block =
@@ -900,7 +902,9 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         if i.last_activity <= Instant::now() {
             debug!("searching for {}", i.id);
             i.request_blocks(ps, ps.best_peers(50, 6));
-            break; // this is to see how slow it would be if it was streaming new 256k created in real
+            break; // TODO maybe just search one at a time, but not always the same one?
+                   //
+                   // this is to see how slow it would be if it was streaming new 256k created in real
                    // time.  really this should handle many or all at once, but test how well that
                    // works with 10000 at once..first issue is open file handles.  2nd is excessive
                    // paccket loss trying to spark that many at once, so there needs to be some liimt,

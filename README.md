@@ -40,4 +40,5 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - how would end users best interact? through a browser? how about sending or streaming
 - probably less unwrap and more questoin marks
 - encryption? snow crate / noise protocol 
-- try again to move some inbound state stuff to the implementation of inbound state
+- try more to move some inbound state stuff to the implementation of inbound state
+- i think if one file cant be found, the rest wont start
