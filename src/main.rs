@@ -671,33 +671,11 @@ impl Content {
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
         if i.bytes_complete == i.eof {
-            // yes this could sha as it goes, but then its not testing as much as it could, for
-            // little real improvement, so dont do that
-            let mut hasher = Sha256::new();
-            io::copy(i.file.as_mut().unwrap(), &mut hasher).ok();
-            info!("{} starting sha256sum", i.id);
-            let hash = format!("{:x}", hasher.finalize());
-            info!("{} sha256sum", hash);
-            if hash == i.id.to_lowercase() {
-                info!("{0} finished {1} bytes", i.id, i.eof);
-                println!("{0} finished {1} bytes", i.id, i.eof);
-                let path = "./incoming/".to_owned() + &i.id;
-                let new_path = "./".to_owned() + &i.id;
-                fs::rename(path, new_path).unwrap();
-                i.save_transfer_peers();
+            if i.really_finished() {
                 inbound_states.remove(&self.id);
             } else {
-                error!(
-                    "{} hash doesnt match! restarting, after a large delay",
-                    i.id
-                );
-                i.bitmap.fill(false);
-                i.next_block = 0;
-                i.bytes_complete = 0;
-                i.last_activity = Instant::now() + Duration::new(99, 00);
-                i.file = None;
                 return vec![];
-            };
+            }
         }
         if message_out.len() == 0 {
             for (_, i) in inbound_states.iter_mut() {
@@ -869,6 +847,34 @@ impl InboundState {
             id: self.id.clone(),
             peers: self.peers.iter().take(at_most).cloned().collect(),
         })];
+    }
+    fn really_finished(&mut self) -> bool {
+        // yes this could sha as it goes, but then its not testing as much as it could, for
+        // little real improvement, so dont do that
+        let mut hasher = Sha256::new();
+        io::copy(self.file.as_mut().unwrap(), &mut hasher).ok();
+        info!("{} starting sha256sum", self.id);
+        let hash = format!("{:x}", hasher.finalize());
+        info!("{} sha256sum", hash);
+        if hash == self.id.to_lowercase() {
+            info!("{0} finished {1} bytes", self.id, self.eof);
+            println!("{0} finished {1} bytes", self.id, self.eof);
+            let path = "./incoming/".to_owned() + &self.id;
+            let new_path = "./".to_owned() + &self.id;
+            fs::rename(path, new_path).unwrap();
+            self.save_transfer_peers();
+            return true;
+        }
+        error!(
+            "{} hash doesnt match! restarting, after a large delay",
+            self.id
+        );
+        self.bitmap.fill(false);
+        self.next_block = 0;
+        self.bytes_complete = 0;
+        self.last_activity = Instant::now() + Duration::new(99, 00);
+        self.file = None;
+        return false;
     }
 }
 
