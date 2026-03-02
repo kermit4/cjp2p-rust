@@ -127,10 +127,7 @@ impl PeerState {
             let mut message_out: Vec<Message> = Vec::new();
             message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            debug!(
-                "sending message {:?} to {sa}",
-                String::from_utf8_lossy(&message_out_bytes)
-            );
+            debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             self.socket.send_to(&message_out_bytes, sa).ok();
         }
     }
@@ -161,10 +158,7 @@ impl PeerState {
             );
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
 
-            debug!(
-                "sending message {:?} to {sa}",
-                String::from_utf8_lossy(&message_out_bytes)
-            );
+            debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             match self.socket.send_to(&message_out_bytes, sa) {
                 Ok(s) => trace!("sent {s}"),
                 Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
@@ -360,10 +354,7 @@ fn main() -> Result<(), std::io::Error> {
             trace!("ratio: {ratio}");
             message_out.len() > 0 && might_be_ip_spoofing && ratio > 2.5
         } {
-            debug!("{ratio}x ratio: dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?} {:?}",
-                String::from_utf8_lossy(&message_in_bytes),
-                String::from_utf8_lossy(&message_out_bytes)
-                );
+            debug!("{ratio}x ratio: dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?} {:?}", String::from_utf8_lossy(&message_in_bytes), String::from_utf8_lossy(&message_out_bytes));
             message_out.pop();
             if message_out.len() == 0 {
                 warn!("and none none left due to ratio!");
@@ -523,12 +514,7 @@ impl PleaseSendContent {
                 // of who's been looking and send them MaybeTheyHaveSome ..they would really
                 // appreciate it i'm sure, and costs us very little
 
-                debug!(
-                    "going to send {:?} at {:?} to {:?}",
-                    self.id,
-                    self.offset / BLOCK_SIZE!(),
-                    src
-                );
+                debug!( "going to send {:?} at {:?} to {:?}", self.id, self.offset / BLOCK_SIZE!(), src);
 
                 let mut buf = vec![0; length];
                 length = file.read_at(&mut buf, self.offset as u64).unwrap();
@@ -563,8 +549,7 @@ impl Content {
         ps: &mut PeerState,
     ) -> Vec<Message> {
         if !inbound_states.contains_key(&self.id) {
-            debug!(
-                "unwanted content, probably dups -- the tail still in flight after completion, for {0} block {1}",
+            debug!( "unwanted content, probably dups -- the tail still in flight after completion, for {0} block {1}",
                 self.id, self.offset / BLOCK_SIZE!());
             return vec![];
         }
@@ -572,14 +557,7 @@ impl Content {
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
         let block_number = self.offset / BLOCK_SIZE!();
-        debug!(
-            "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m",
-            self.id,
-            block_number,
-            block_number * BLOCK_SIZE!(),
-            src,
-            i.next_block as i64 - block_number as i64
-        );
+        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
         let this_eof = match self.eof {
             Some(n) => n,
             None => self.offset + self.base64.len() + 1,
@@ -715,12 +693,7 @@ impl InboundState {
         } {
             self.next_block += 1;
         }
-        debug!(
-            "\x1b[32;7mPleaseSendContent {} {} {} \x1b[m",
-            self.id,
-            self.next_block,
-            self.next_block * BLOCK_SIZE!()
-        );
+        debug!( "\x1b[32;7mPleaseSendContent {} {} {} \x1b[m", self.id, self.next_block, self.next_block * BLOCK_SIZE!());
         self.last_activity = Instant::now();
         let message_out = vec![Message::PleaseSendContent(PleaseSendContent {
             id: self.id.to_owned(),
@@ -741,9 +714,7 @@ impl InboundState {
             message_out.extend(ps.always_returned(sa));
 
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            debug!(
-                "sending message {:?} to {sa}",
-                String::from_utf8_lossy(&message_out_bytes)
+            debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes)
             );
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
