@@ -40,6 +40,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - how would end users best interact? through a browser? how about sending or streaming
 - probably less unwrap and more questoin marks
 - encryption? snow crate / noise protocol 
-- it could track hosts by public key not host port to get rid of the issuew with these weird rolling port nats
-- send peers when asking for them? why not, be nice, save a RTT?
 - try again to move some inbound state stuff to the implementation of inbound state

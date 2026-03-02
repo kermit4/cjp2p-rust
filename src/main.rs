@@ -709,10 +709,10 @@ impl Content {
                 break;
             }
         }
-        match inbound_states.get_mut(&self.id) {
-            None => (),
-            Some(i) => {
-                if message_out.len() == 0 {
+        if message_out.len() == 0 {
+            match inbound_states.get_mut(&self.id) {
+                None => (),
+                Some(i) => {
                     i.next_block = 0;
                     message_out = i.request_next_block();
                     i.next_block += 1;
