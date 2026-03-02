@@ -221,12 +221,7 @@ impl PeerState {
             }
             let p = &self.peer_vec[i];
             result.insert(*p);
-            trace!(
-                "best peer(q:{quality}) {0} {1} {2}",
-                i,
-                p,
-                self.peer_map[p].delay.as_secs_f64()
-            );
+            trace!( "best peer(q:{quality}) {0} {1} {2}", i, p, self.peer_map[p].delay.as_secs_f64());
         }
         result.clone()
     }
@@ -273,17 +268,12 @@ fn main() -> Result<(), std::io::Error> {
         let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
             Ok(_r) => _r,
             _ => {
-                warn!(
-                    "could not deserialize an incoming message {:?}",
-                    String::from_utf8_lossy(message_in_bytes)
-                );
+                warn!( "could not deserialize an incoming message {:?}",
+                    String::from_utf8_lossy(message_in_bytes));
                 continue;
             }
         };
-        trace!(
-            "incoming message {:?} from {src}",
-            String::from_utf8_lossy(message_in_bytes)
-        );
+        trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
         if !ps.peer_map.contains_key(&src) {
             ps.peer_map.insert(src, PeerInfo::new());
             warn!("new peer spotted {src}");
@@ -383,15 +373,9 @@ fn main() -> Result<(), std::io::Error> {
             continue;
         }
         if !might_be_ip_spoofing {
-            trace!(
-                "sending message {:?} to {src}",
-                String::from_utf8_lossy(&message_out_bytes)
-            );
+            trace!( "sending message {:?} to {src}", String::from_utf8_lossy(&message_out_bytes));
         } else {
-            trace!(
-                "sending message {:?} to {src} \x1b[7mWITHOUT A KEY\x1b[m",
-                String::from_utf8_lossy(&message_out_bytes)
-            );
+            trace!( "sending message {:?} to {src} \x1b[7mWITHOUT A KEY\x1b[m", String::from_utf8_lossy(&message_out_bytes));
         }
         match ps.socket.send_to(&message_out_bytes, src) {
             Ok(s) => trace!("sent {s}"),
@@ -456,13 +440,8 @@ impl PleaseSendPeers {
         src: SocketAddr,
     ) -> Vec<Message> {
         let p = ps.best_peers(2 + 45 * !might_be_ip_spoofing as i32, 6);
-        trace!(
-            "sending {:?}/{:?} peers {:?}",
-            p.len(),
-            ps.peer_map.len(),
-            p
-        );
         debug!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
+        trace!("sending {:?}/{:?} peers {:?}", p.len(), ps.peer_map.len(), p);
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
         if might_be_ip_spoofing {
             message_out.push(PleaseAlwaysReturnThisMessage::send_key(&ps, src));
@@ -520,13 +499,9 @@ impl PleaseSendContent {
         if might_be_ip_spoofing {
             length = 1; // just to show i have some in a search as they'll have the key next request
             if (rand::thread_rng().gen::<u32>() % 31) == 0 {
-                warn!(
-                    "randomly ignoring unverified source {src} request for {} at {}",
-                    self.id, self.offset
-                );
-                return vec![]; // in case its a client that completel doesn't support
-                               // might_be_ip_spoofing so
-                               // it doesn't just loop asking for the same block forever
+                // so a dumb client that never returns the key doesn't get stuck in a loop
+                info!( "randomly ignoring unverified source {src} request for {} at {}", self.id, self.offset);
+                return vec![];
             }
         }
 
@@ -590,8 +565,7 @@ impl Content {
         if !inbound_states.contains_key(&self.id) {
             debug!(
                 "unwanted content, probably dups -- the tail still in flight after completion, for {0} block {1}",
-                self.id,
-                self.offset / BLOCK_SIZE!());
+                self.id, self.offset / BLOCK_SIZE!());
             return vec![];
         }
         let mut message_out;
@@ -727,20 +701,12 @@ impl InboundState {
         while {
             if self.next_block * BLOCK_SIZE!() >= self.eof {
                 // %EOF
-                info!(
-                    "\x1b[36m{} almost done {}/{} blocks done/remaining (eof: {})  \x1b[m",
-                    self.id,
-                    self.bytes_complete / BLOCK_SIZE!(),
-                    (self.eof - self.bytes_complete) / BLOCK_SIZE!(),
-                    self.eof,
-                );
-
+                info!( "\x1b[36m{} almost done {}/{} blocks done/remaining (eof: {})  \x1b[m", self.id, self.bytes_complete / BLOCK_SIZE!(), (self.eof - self.bytes_complete) / BLOCK_SIZE!(), self.eof,);
                 if log_enabled!(Level::Trace) {
-                    // this can cause window loss in debug build
                     for i in self.bitmap.iter_zeros() {
                         trace!("{i}");
                     }
-                }
+                } //this can cause window loss in debug build
 
                 //                self.next_block = 0;
                 return vec![];
