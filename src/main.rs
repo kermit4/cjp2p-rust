@@ -542,12 +542,7 @@ impl PleaseSendContent {
             return message_out;
         }
         match File::open(&self.id) {
-            Err(_) => {
-                if might_be_ip_spoofing {
-                    message_out.push(PleaseAlwaysReturnThisMessage::send_key(&ps, src));
-                }
-                return message_out;
-            }
+            Err(_) => (),
             Ok(file) => {
                 // TODO even if we dont have and arent downloading the file, maybe we should be nice and keep track
                 // of who's been looking and send them MaybeTheyHaveSome ..they would really
