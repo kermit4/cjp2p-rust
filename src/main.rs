@@ -62,6 +62,17 @@ struct PeerState {
     keypair: Keypair,
 }
 impl PeerState {
+    fn new() -> PeerState {
+        return PeerState {
+            peer_map: HashMap::new(),
+            peer_vec: Vec::new(),
+            socket: UdpSocket::bind("0.0.0.0:24254").unwrap(),
+            boot: Instant::now(),
+            keypair: Builder::new("Noise_XK_25519_ChaChaPoly_SHA256".parse().unwrap())
+                .generate_keypair()
+                .unwrap(),
+        };
+    }
     fn always_returned(&self, sa: SocketAddr) -> Vec<Value> {
         debug!("always_returned for {sa}");
         match self.peer_map.get(&sa) {
@@ -225,15 +236,7 @@ fn main() -> Result<(), std::io::Error> {
         .format_timestamp(Some(TimestampPrecision::Millis))
         .init();
     println!("logging level: {}", log::max_level());
-    let mut ps: PeerState = PeerState {
-        peer_map: HashMap::new(),
-        peer_vec: Vec::new(),
-        socket: UdpSocket::bind("0.0.0.0:24254")?,
-        boot: Instant::now(),
-        keypair: Builder::new("Noise_XK_25519_ChaChaPoly_SHA256".parse().unwrap())
-            .generate_keypair()
-            .unwrap(),
-    };
+    let mut ps: PeerState = PeerState::new();
     // ugly    println!("your public ed25519 key for this session is:  {:?}",ps.keypair.public);
 
     ps.socket.set_broadcast(true).ok();
@@ -633,7 +636,9 @@ impl Content {
         if good_block {
             if i.file.is_none() {
                 if i.last_activity > Instant::now() {
-                    // must be a delayed restart due to a failed hash
+                    // must be a delayed restart due to a failed hash, so they dont loop forever if
+                    // the source is giving out corrupt data
+                    // TODO this is confusing, dont overload the variable with other functionality
                     warn!("delaying restart!");
                     return vec![];
                 }
@@ -645,7 +650,7 @@ impl Content {
                         .write(true)
                         .open("./incoming/".to_owned() + &i.id)
                         .unwrap(),
-                )
+                );
             }
             i.file
                 .as_mut()
@@ -888,28 +893,29 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     ps.probe_interfaces();
     ps.probe();
     for (_, i) in inbound_states.iter_mut() {
-        if i.last_activity.elapsed() > Duration::from_secs(1) && i.next_block != 0 {
-            debug!("stalled {}", i.id);
-            i.next_block = 0; // start over to catch any lost packets, as now we know there's
-                              // probably not any still in flight
+        if i.last_activity.elapsed() <= Duration::from_secs(1) {
+            continue;
         }
+        if i.next_block != 0 {
+            debug!("stalled {}", i.id);
+        }
+        i.next_block = 0;
     }
     for (_, i) in inbound_states.iter_mut() {
-        if i.last_activity.elapsed() > Duration::from_secs(1) {
-            debug!("restarting {}", i.id);
-            i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
+        if i.last_activity.elapsed() <= Duration::from_secs(1) {
+            continue;
         }
-        if i.last_activity <= Instant::now() {
-            debug!("searching for {}", i.id);
-            i.request_blocks(ps, ps.best_peers(50, 6));
-            break; // TODO maybe just search one at a time, but not always the same one?
-                   //
-                   // this is to see how slow it would be if it was streaming new 256k created in real
-                   // time.  really this should handle many or all at once, but test how well that
-                   // works with 10000 at once..first issue is open file handles.  2nd is excessive
-                   // paccket loss trying to spark that many at once, so there needs to be some liimt,
-                   // but more than one.
-        }
+        debug!("restarting {}", i.id);
+        i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
+
+        i.request_blocks(ps, ps.best_peers(50, 6));
+        break; // TODO maybe just search one at a time, but not always the same one?
+               //
+               // this is to see how slow it would be if it was streaming new 256k created in real
+               // time.  really this should handle many or all at once, but test how well that
+               // works with 10000 at once..first issue is open file handles.  2nd is excessive
+               // paccket loss trying to spark that many at once, so there needs to be some liimt,
+               // but more than one.
     }
 }
 

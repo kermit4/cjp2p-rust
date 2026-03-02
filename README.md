@@ -41,4 +41,8 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - probably less unwrap and more questoin marks
 - encryption? snow crate / noise protocol 
 - try more to move some inbound state stuff to the implementation of inbound state
-- i think if one file cant be found, the rest wont start
+- if one file cant be found, the rest wont start
+- hash of hashes could need 2 levels for files over 1GB  .. metadata says what it is, they just give  a hash?  or just another field in Content reply "hashLevel" layers to go.  morewlayers even. i get 2^12 each.   metadata extension time.  the hash is of the metadata?  or the hashes?  or no just critical parts of the metadata?  spam will fill rest.  but i want interopable hashes too. hmm.
+- realyl just send EOF with block 0
+- does it still send transfer peers if the download is gone? it should
+- overloadding last activity to delay for corrupt transfer is confusing
