@@ -140,9 +140,8 @@ impl PeerState {
                 .push(serde_json::to_value(Message::PleaseSendPeers(PleaseSendPeers {})).unwrap());
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
-            message_out.push(
-                serde_json::to_value(PleaseAlwaysReturnThisMessage::new(&self, sa)).unwrap(),
-            );
+            message_out
+                .push(serde_json::to_value(PleaseAlwaysReturnThisMessage::new(&self, sa)).unwrap());
             message_out.push(
                 serde_json::to_value(Message::MyPublicKey(MyPublicKey {
                     ed25519: self.keypair.public.clone(),
