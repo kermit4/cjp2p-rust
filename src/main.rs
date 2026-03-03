@@ -45,8 +45,8 @@ struct PeerInfo {
     public_key: Vec<u8>,
 }
 impl PeerInfo {
-    fn new() -> PeerInfo {
-        return PeerInfo {
+    fn new() -> Self {
+        return Self {
             delay: Duration::from_millis(200),
             anti_ip_spoofing_token_they_expect: json!({}),
             anti_ip_spoofing_token_i_expect: rand::thread_rng().gen(),
@@ -62,8 +62,8 @@ struct PeerState {
     keypair: Keypair,
 }
 impl PeerState {
-    fn new() -> PeerState {
-        return PeerState {
+    fn new() -> Self {
+        return Self {
             peer_map: HashMap::new(),
             peer_vec: Vec::new(),
             socket: UdpSocket::bind("0.0.0.0:24254").unwrap(),
@@ -83,8 +83,7 @@ impl PeerState {
                     return vec![];
                 }
                 debug!("always_returned for {sa} found {key}");
-                return vec![
-                    serde_json::json!({"AlwaysReturned": self.peer_map .get(&sa) .unwrap() .anti_ip_spoofing_token_they_expect }),
+                return vec![serde_json::json!({"AlwaysReturned": self.peer_map.get(&sa).unwrap().anti_ip_spoofing_token_they_expect }),
                 ];
             }
         }
@@ -124,9 +123,8 @@ impl PeerState {
         }
         to_probe.insert("224.0.0.1:24254".parse().unwrap());
         for sa in to_probe.iter() {
-            let mut message_out: Vec<Message> = Vec::new();
-            message_out.push(Message::PleaseSendPeers(PleaseSendPeers {})); // let people know im here
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            let message_out_bytes: Vec<u8> =
+                serde_json::to_vec(&vec![Message::PleaseSendPeers(PleaseSendPeers {})]).unwrap();
             debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             self.socket.send_to(&message_out_bytes, sa).ok();
         }
@@ -140,15 +138,17 @@ impl PeerState {
                 .push(serde_json::to_value(Message::PleaseSendPeers(PleaseSendPeers {})).unwrap());
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
-            message_out
-                .push(serde_json::to_value(PleaseAlwaysReturnThisMessage::new(&self, sa)).unwrap());
+            message_out.push(
+                serde_json::to_value(PleaseAlwaysReturnThisMessage::new_message(&self, sa))
+                    .unwrap(),
+            );
             message_out.push(
                 serde_json::to_value(Message::MyPublicKey(MyPublicKey {
                     ed25519: self.keypair.public.clone(),
                 }))
                 .unwrap(),
             );
-            message_out.extend(self.always_returned(sa));
+            message_out.append(&mut self.always_returned(sa));
             message_out.push(
                 serde_json::to_value(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                     sent_at: self.boot.elapsed().as_secs_f64(),
@@ -240,7 +240,7 @@ fn main() -> Result<(), std::io::Error> {
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     for v in args {
         info!("queing inbound file {:?}", v);
-        InboundState::new(&mut inbound_states, v.as_str());
+        inbound_states.insert(v.to_string(), InboundState::new(&v));
     }
     ps.socket.set_read_timeout(Some(Duration::from_secs(1)))?;
     let mut last_maintenance = Instant::now() - Duration::from_secs(9999);
@@ -271,9 +271,6 @@ fn main() -> Result<(), std::io::Error> {
             ps.peer_map.insert(src, PeerInfo::new());
             warn!("new peer spotted {src}");
         };
-        // This isn't an arrray of Messages because of the PleaseReturn that I don't know
-        // always know the structure of,
-        let mut message_out: Vec<Value> = Vec::new();
         debug!("received messages {:?} from {src}", messages.len());
         let mut might_be_ip_spoofing = true;
         for message_in in &messages {
@@ -291,6 +288,9 @@ fn main() -> Result<(), std::io::Error> {
             }
         }
 
+        // This isn't an array of Messages because of the PleaseReturn that I don't know
+        // always know the structure of,
+        let mut message_out: Vec<Value> = Vec::new();
         for message_in in messages {
             if (message_in["PleaseAlwaysReturnThisMessage"]) != Value::Null {
                 PleaseAlwaysReturnThisMessage::save_key(
@@ -342,7 +342,7 @@ fn main() -> Result<(), std::io::Error> {
         if message_out.len() == 0 {
             continue;
         }
-        message_out.extend(ps.always_returned(src));
+        message_out.append(&mut ps.always_returned(src));
         let mut message_out_bytes;
         let mut ratio;
         // 20 is IP header, 8 is UDP header
@@ -377,7 +377,6 @@ fn main() -> Result<(), std::io::Error> {
 #[derive(Serialize, Deserialize)]
 struct Peers {
     peers: HashSet<SocketAddr>,
-    //   how_to_add_new_fields_without_error: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
 struct AlwaysReturned {
@@ -408,15 +407,13 @@ impl PleaseAlwaysReturnThisMessage {
             .anti_ip_spoofing_token_they_expect = cookie;
         debug!("saved key verified {:?}", ps.always_returned(src));
     }
-    fn new(ps: &PeerState, src: SocketAddr) -> Message {
+    fn new_message(ps: &PeerState, src: SocketAddr) -> Message {
         let correct_key = ps
             .peer_map
             .get(&src)
             .unwrap()
             .anti_ip_spoofing_token_i_expect;
-        return Message::PleaseAlwaysReturnThisMessage(PleaseAlwaysReturnThisMessage {
-            key: correct_key,
-        });
+        return Message::PleaseAlwaysReturnThisMessage(Self { key: correct_key });
     }
 }
 
@@ -434,7 +431,7 @@ impl PleaseSendPeers {
         trace!("sending {:?}/{:?} peers {:?}", p.len(), ps.peer_map.len(), p);
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
         if might_be_ip_spoofing {
-            message_out.push(PleaseAlwaysReturnThisMessage::new(&ps, src));
+            message_out.push(PleaseAlwaysReturnThisMessage::new_message(&ps, src));
         }
         return message_out;
     }
@@ -472,6 +469,32 @@ struct Content {
 }
 
 impl PleaseSendContent {
+    fn new_messages(i: &mut InboundState) -> Vec<Message> {
+        while {
+            if i.next_block * BLOCK_SIZE!() >= i.eof {
+                // %EOF
+                info!( "\x1b[36m{} almost done {}/{}/{}  blocks done/remaining/next \x1b[m", i.id, i.bytes_complete / BLOCK_SIZE!(), (i.eof - i.bytes_complete) / BLOCK_SIZE!(), i.next_block);
+                if log_enabled!(Level::Trace) {
+                    for i in i.bitmap.iter_zeros() {
+                        trace!("{i}");
+                    }
+                } //this can cause window loss in debug build
+
+                //                i.next_block = 0;
+                return vec![];
+            }
+            i.bitmap[i.next_block]
+        } {
+            i.next_block += 1;
+        }
+        debug!( "\x1b[32;7mPleaseSendContent {} {} {} \x1b[m", i.id, i.next_block, i.next_block * BLOCK_SIZE!());
+        i.last_activity = Instant::now();
+        return vec![Message::PleaseSendContent(PleaseSendContent {
+            id: i.id.to_owned(),
+            offset: i.next_block * BLOCK_SIZE!(),
+            length: BLOCK_SIZE!(),
+        })];
+    }
     fn send_content(
         &self,
         inbound_states: &mut HashMap<String, InboundState>,
@@ -491,7 +514,7 @@ impl PleaseSendContent {
         // randomly ignore unverified source IPs so a dumb client doesn't get stuck in a loop
             rand::thread_rng().gen::<u32>() % 27 != 0
         {
-            message_out.append(&mut Content::new(&self, might_be_ip_spoofing));
+            message_out.extend(Content::new_messages(&self, might_be_ip_spoofing));
         }
         if !might_be_ip_spoofing || message_out.len() == 0 {
             message_out.append(&mut InboundState::send_transfer_peers_from_disk(
@@ -501,14 +524,14 @@ impl PleaseSendContent {
             ));
         }
         if might_be_ip_spoofing && message_out.len() > 0 {
-            message_out.push(PleaseAlwaysReturnThisMessage::new(&ps, src));
+            message_out.push(PleaseAlwaysReturnThisMessage::new_message(&ps, src));
         }
         return message_out;
     }
 }
 
 impl Content {
-    fn new(req: &PleaseSendContent, might_be_ip_spoofing: bool) -> Vec<Message> {
+    fn new_messages(req: &PleaseSendContent, might_be_ip_spoofing: bool) -> Vec<Message> {
         let length = if might_be_ip_spoofing {
             1
         } else if req.length > 0xa000 {
@@ -523,12 +546,12 @@ impl Content {
                 let mut buf = vec![0; length];
                 let length = file.read_at(&mut buf, req.offset as u64).unwrap();
                 buf.truncate(length);
-                return vec![Message::Content(Content {
-                        id: req.id.clone(),
-                        offset: req.offset,
-                        base64: buf,
-                        eof: Some(file.metadata().unwrap().len() as usize),
-                    })];
+                return vec![Message::Content(Self {
+                    id: req.id.clone(),
+                    offset: req.offset,
+                    base64: buf,
+                    eof: Some(file.metadata().unwrap().len() as usize),
+                })];
             }
         }
     }
@@ -565,7 +588,7 @@ impl Content {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
                 }
-                message_out = i.request_next_block();
+                message_out = PleaseSendContent::new_messages(i);
                 i.next_block += 1;
                 break;
             }
@@ -575,7 +598,7 @@ impl Content {
                 None => (),
                 Some(i) => {
                     i.next_block = 0;
-                    message_out = i.request_next_block();
+                    message_out = PleaseSendContent::new_messages(i);
                     i.next_block += 1;
                 }
             }
@@ -642,16 +665,16 @@ impl InboundState {
             self.bitmap.set(block_number, true);
         }
         self.last_activity = Instant::now();
-        let message_out = self.request_next_block();
+        let message_out = PleaseSendContent::new_messages(self);
         self.next_block += 1;
         return message_out;
     }
-    fn new(inbound_states: &mut HashMap<String, InboundState>, id: &str) -> () {
+    fn new(id: &str) -> Self {
         fs::create_dir("./incoming").ok();
-        let mut i = InboundState {
+        return Self {
             file: None,
             next_block: 0,
-            bitmap: BitVec::new(),
+            bitmap: bitvec![0,(1<<18)/BLOCK_SIZE!()],
             id: id.to_string(),
             eof: 1 << 18,
             bytes_complete: 0,
@@ -660,48 +683,18 @@ impl InboundState {
             hash_failures: 0,
             fpos: 0,
         };
-        i.bitmap
-            .resize((i.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!(), false);
-        inbound_states.insert(id.to_string(), i);
     }
 
-    fn request_next_block(&mut self) -> Vec<Message> {
-        while {
-            if self.next_block * BLOCK_SIZE!() >= self.eof {
-                // %EOF
-                info!( "\x1b[36m{} almost done {}/{}/{}  blocks done/remaining/next \x1b[m", self.id, self.bytes_complete / BLOCK_SIZE!(), (self.eof - self.bytes_complete) / BLOCK_SIZE!(), self.next_block);
-                if log_enabled!(Level::Trace) {
-                    for i in self.bitmap.iter_zeros() {
-                        trace!("{i}");
-                    }
-                } //this can cause window loss in debug build
-
-                //                self.next_block = 0;
-                return vec![];
-            }
-            self.bitmap[self.next_block]
-        } {
-            self.next_block += 1;
-        }
-        debug!( "\x1b[32;7mPleaseSendContent {} {} {} \x1b[m", self.id, self.next_block, self.next_block * BLOCK_SIZE!());
-        self.last_activity = Instant::now();
-        let message_out = vec![Message::PleaseSendContent(PleaseSendContent {
-            id: self.id.to_owned(),
-            offset: self.next_block * BLOCK_SIZE!(),
-            length: BLOCK_SIZE!(),
-        })];
-        return message_out;
-    }
     fn request_blocks(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
         for sa in some_peers {
             let mut message_out: Vec<Value> = Vec::new();
-            for m in self.request_next_block() {
+            for m in PleaseSendContent::new_messages(self) {
                 message_out.push(serde_json::to_value(m).unwrap());
             }
             if message_out.len() < 1 {
                 return;
             }
-            message_out.extend(ps.always_returned(sa));
+            message_out.append(&mut ps.always_returned(sa));
 
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes)
