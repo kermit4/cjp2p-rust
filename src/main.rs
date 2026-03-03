@@ -553,22 +553,22 @@ impl Content {
                 self.id, self.offset / BLOCK_SIZE!());
             return vec![];
         }
-        let i = inbound_states.get_mut(&self.id).unwrap();
-        i.peers.insert(src);
-        let mut message_out = i.receive_content(&self);
-        if i.finished() {
-            inbound_states.remove(&self.id);
-        }
         if (rand::thread_rng().gen::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
                 }
-                debug!("growing window ({}) for {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id);
+                debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
                 i.request_blocks(ps, HashSet::from([src]));
                 i.next_block += 1;
                 break;
             }
+        }
+        let i = inbound_states.get_mut(&self.id).unwrap();
+        i.peers.insert(src);
+        let mut message_out = i.receive_content(&self);
+        if i.finished() {
+            inbound_states.remove(&self.id);
         }
         if message_out.len() == 0 {
             for (_, i) in inbound_states.iter_mut() {
@@ -595,7 +595,7 @@ impl Content {
 }
 //
 struct InboundState {
-    file: Option<File>,
+    file: Option<BufWriter<File>>,
     next_block: usize,
     bitmap: BitVec,
     id: String,
@@ -604,6 +604,7 @@ struct InboundState {
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
     hash_failures: i32,
+    fpos: usize,
 }
 
 impl InboundState {
@@ -628,20 +629,25 @@ impl InboundState {
         {
             if self.file.is_none() {
                 debug!("{}  opening file!", self.id);
-                self.file = Some(
+                self.file = Some(BufWriter::with_capacity(
+                    1 << 18,
                     OpenOptions::new()
                         .create(true)
                         .read(true)
                         .write(true)
                         .open("./incoming/".to_owned() + &self.id)
                         .unwrap(),
-                );
+                ));
             }
-            self.file
-                .as_mut()
-                .unwrap()
-                .write_at(&content.base64, content.offset as u64)
-                .unwrap();
+            if self.fpos != content.offset {
+                self.file
+                    .as_mut()
+                    .unwrap()
+                    .seek(SeekFrom::Start(content.offset as u64))
+                    .unwrap();
+                self.fpos = content.offset;
+            }
+            self.fpos += self.file.as_mut().unwrap().write(&content.base64).unwrap();
             self.bytes_complete += content.base64.len();
             self.bitmap.set(block_number, true);
         }
@@ -662,6 +668,7 @@ impl InboundState {
             peers: HashSet::new(),
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
+            fpos: 0,
         };
         i.bitmap
             .resize((i.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!(), false);
@@ -777,9 +784,16 @@ impl InboundState {
         if self.bytes_complete != self.eof {
             return false;
         }
+        self.file.as_mut().unwrap().flush().unwrap();
+        self.file
+            .as_mut()
+            .unwrap()
+            .seek(SeekFrom::Start(0))
+            .unwrap();
+        self.fpos = 0;
         let mut hasher = Sha256::new();
         info!("{} starting sha256sum", self.id);
-        io::copy(self.file.as_mut().unwrap(), &mut hasher).ok();
+        io::copy(&mut self.file.as_mut().unwrap().get_mut(), &mut hasher).ok();
         let hash = format!("{:x}", hasher.finalize());
         info!("{} sha256sum", hash);
         if hash == self.id.to_lowercase() {
@@ -799,6 +813,8 @@ impl InboundState {
         }
 
         self.bitmap.fill(false);
+        self.fpos = 0;
+        self.file = None;
         self.next_block = 0;
         self.bytes_complete = 0;
         return false;
