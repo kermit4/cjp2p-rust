@@ -553,7 +553,7 @@ impl Content {
                 self.id, self.offset / BLOCK_SIZE!());
             return vec![];
         }
-        if (rand::thread_rng().gen::<u32>() % 101) == 0 {
+        if (rand::thread_rng().gen::<u32>() % 101) == 0 || self.offset == 0 {
             for (_, i) in inbound_states.iter_mut() {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
