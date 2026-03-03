@@ -556,20 +556,19 @@ impl Content {
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
         let mut message_out = i.receive_content(&self);
+        if i.finished() {
+            inbound_states.remove(&self.id);
+        }
         if (rand::thread_rng().gen::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
                 }
-                debug!("growing window for {0}", i.id);
+                debug!("growing window ({}) for {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id);
                 i.request_blocks(ps, HashSet::from([src]));
                 i.next_block += 1;
                 break;
             }
-        }
-        let i = inbound_states.get_mut(&self.id).unwrap();
-        if i.bytes_complete == i.eof && i.really_finished() {
-            inbound_states.remove(&self.id);
         }
         if message_out.len() == 0 {
             for (_, i) in inbound_states.iter_mut() {
@@ -772,9 +771,12 @@ impl InboundState {
             peers: self.peers.iter().take(at_most).cloned().collect(),
         })];
     }
-    fn really_finished(&mut self) -> bool {
+    fn finished(&mut self) -> bool {
         // yes this could sha as it goes, but then its not testing as much as it could, for
         // little real improvement, so dont do that
+        if self.bytes_complete != self.eof {
+            return false;
+        }
         let mut hasher = Sha256::new();
         info!("{} starting sha256sum", self.id);
         io::copy(self.file.as_mut().unwrap(), &mut hasher).ok();
