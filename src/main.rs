@@ -790,10 +790,13 @@ impl InboundState {
             .unwrap()
             .seek(SeekFrom::Start(0))
             .unwrap();
-        self.fpos = 0;
         let mut hasher = Sha256::new();
         info!("{} starting sha256sum", self.id);
-        io::copy(&mut self.file.as_mut().unwrap().get_mut(), &mut hasher).ok();
+        io::copy(
+            &mut BufReader::with_capacity(1 << 18, self.file.as_mut().unwrap().get_mut()),
+            &mut hasher,
+        )
+        .ok();
         let hash = format!("{:x}", hasher.finalize());
         info!("{} sha256sum", hash);
         if hash == self.id.to_lowercase() {
