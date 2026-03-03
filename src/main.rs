@@ -482,13 +482,6 @@ impl PleaseSendContent {
         if self.id.find("/") != None || self.id.find("\\") != None {
             return vec![];
         };
-        let length = if might_be_ip_spoofing {
-            1
-        } else if self.length > 0xa000 {
-            0xa000
-        } else {
-            self.length
-        };
         let mut message_out: Vec<Message> = Vec::new();
         if inbound_states.contains_key(&self.id) {
             let i = inbound_states.get_mut(&self.id).unwrap();
@@ -498,21 +491,7 @@ impl PleaseSendContent {
         // randomly ignore unverified source IPs so a dumb client doesn't get stuck in a loop
             rand::thread_rng().gen::<u32>() % 27 != 0
         {
-            match File::open(&self.id) {
-                Err(_) => (),
-                Ok(file) => {
-                    debug!( "going to send {:?} at {:?} to {:?}", self.id, self.offset / BLOCK_SIZE!(), src);
-                    let mut buf = vec![0; length];
-                    let length = file.read_at(&mut buf, self.offset as u64).unwrap();
-                    buf.truncate(length);
-                    message_out.push(Message::Content(Content {
-                        id: self.id.clone(),
-                        offset: self.offset,
-                        base64: buf,
-                        eof: Some(file.metadata().unwrap().len() as usize),
-                    }));
-                }
-            }
+            message_out.append(&mut Content::new(&self, might_be_ip_spoofing));
         }
         if !might_be_ip_spoofing || message_out.len() == 0 {
             message_out.append(&mut InboundState::send_transfer_peers_from_disk(
@@ -529,6 +508,30 @@ impl PleaseSendContent {
 }
 
 impl Content {
+    fn new(req: &PleaseSendContent, might_be_ip_spoofing: bool) -> Vec<Message> {
+        let length = if might_be_ip_spoofing {
+            1
+        } else if req.length > 0xa000 {
+            0xa000
+        } else {
+            req.length
+        };
+        match File::open(&req.id) {
+            Err(_) => return vec![],
+            Ok(file) => {
+                debug!( "going to send {:?} at {:?}", req.id, req.offset / BLOCK_SIZE!());
+                let mut buf = vec![0; length];
+                let length = file.read_at(&mut buf, req.offset as u64).unwrap();
+                buf.truncate(length);
+                return vec![Message::Content(Content {
+                        id: req.id.clone(),
+                        offset: req.offset,
+                        base64: buf,
+                        eof: Some(file.metadata().unwrap().len() as usize),
+                    })];
+            }
+        }
+    }
     fn receive_content(
         &self,
         inbound_states: &mut HashMap<String, InboundState>,
