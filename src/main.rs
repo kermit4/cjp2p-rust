@@ -243,17 +243,18 @@ fn main() -> Result<(), std::io::Error> {
         inbound_states.insert(v.to_string(), InboundState::new(&v));
     }
     ps.socket.set_read_timeout(Some(Duration::from_secs(1)))?;
-    let mut last_maintenance = Instant::now() - Duration::from_secs(9999);
+    let mut next_maintenance = Instant::now();
+    let mut buf = [0; 0x10000];
     loop {
-        if last_maintenance.elapsed() > Duration::from_secs(1) {
+        if next_maintenance.elapsed() > Duration::ZERO {
             maintenance(&mut inbound_states, &mut ps);
-            last_maintenance = Instant::now();
+            next_maintenance =
+                Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(888..1111));
         }
-        let mut buf = [0; 0x10000];
         let (message_len, src) = match ps.socket.recv_from(&mut buf) {
             Ok(_r) => _r,
             Err(_e) => {
-                debug!("no messages for a second");
+                info!("no messages for a second");
                 continue;
             }
         };
@@ -329,7 +330,6 @@ fn main() -> Result<(), std::io::Error> {
                 }
                 Message::AlwaysReturned(_) => vec![], // handled before htis loop
                 Message::MyPublicKey(t) => t.save_public_key(&mut ps, src),
-                // TODO something to prevent someone from just inserting a different key into a communication path
                 _ => {
                     warn!("unknown message type ");
                     vec![]
