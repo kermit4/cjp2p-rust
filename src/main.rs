@@ -141,7 +141,7 @@ impl PeerState {
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(
-                serde_json::to_value(PleaseAlwaysReturnThisMessage::send_key(&self, sa)).unwrap(),
+                serde_json::to_value(PleaseAlwaysReturnThisMessage::new(&self, sa)).unwrap(),
             );
             message_out.push(
                 serde_json::to_value(Message::MyPublicKey(MyPublicKey {
@@ -409,7 +409,7 @@ impl PleaseAlwaysReturnThisMessage {
             .anti_ip_spoofing_token_they_expect = cookie;
         debug!("saved key verified {:?}", ps.always_returned(src));
     }
-    fn send_key(ps: &PeerState, src: SocketAddr) -> Message {
+    fn new(ps: &PeerState, src: SocketAddr) -> Message {
         let correct_key = ps
             .peer_map
             .get(&src)
@@ -435,7 +435,7 @@ impl PleaseSendPeers {
         trace!("sending {:?}/{:?} peers {:?}", p.len(), ps.peer_map.len(), p);
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
         if might_be_ip_spoofing {
-            message_out.push(PleaseAlwaysReturnThisMessage::send_key(&ps, src));
+            message_out.push(PleaseAlwaysReturnThisMessage::new(&ps, src));
         }
         return message_out;
     }
@@ -505,10 +505,11 @@ impl PleaseSendContent {
                     debug!( "going to send {:?} at {:?} to {:?}", self.id, self.offset / BLOCK_SIZE!(), src);
                     let mut buf = vec![0; length];
                     let length = file.read_at(&mut buf, self.offset as u64).unwrap();
+                    buf.truncate(length);
                     message_out.push(Message::Content(Content {
                         id: self.id.clone(),
                         offset: self.offset,
-                        base64: buf[..length].to_vec(),
+                        base64: buf,
                         eof: Some(file.metadata().unwrap().len() as usize),
                     }));
                 }
@@ -522,7 +523,7 @@ impl PleaseSendContent {
             ));
         }
         if might_be_ip_spoofing && message_out.len() > 0 {
-            message_out.push(PleaseAlwaysReturnThisMessage::send_key(&ps, src));
+            message_out.push(PleaseAlwaysReturnThisMessage::new(&ps, src));
         }
         return message_out;
     }
