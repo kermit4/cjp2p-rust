@@ -674,7 +674,7 @@ impl InboundState {
         return Self {
             file: None,
             next_block: 0,
-            bitmap: bitvec![0,(1<<18)/BLOCK_SIZE!()],
+            bitmap: bitvec![0;(1<<18)/BLOCK_SIZE!()],
             id: id.to_string(),
             eof: 1 << 18,
             bytes_complete: 0,
