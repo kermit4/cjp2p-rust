@@ -277,11 +277,9 @@ impl PeerState {
                 Message::MaybeTheyHaveSome(t) =>
                     t.add_content_peer_suggestions(self, inbound_states),
                 Message::AlwaysReturned(_) => vec![], // handled before htis loop
+                Message::PleaseAlwaysReturnThisMessage(_) => vec![], // handled before htis loop
+                Message::PleaseReturnThisMessage(_) => vec![], // handled before htis loop
                 Message::MyPublicKey(t) => t.save_public_key(self, src),
-                _ => {
-                    warn!("unknown message type ");
-                    vec![]
-                }
             } {
                 message_out.push(serde_json::json!(m));
             }
@@ -335,7 +333,7 @@ fn main() -> Result<(), std::io::Error> {
             warn!("new peer spotted {src}");
         };
         let might_be_ip_spoofing = ps.check_key(&messages, src);
-        // This isn't a Vec<Message> because I don't know the structure of the Please*Returns
+        // This ist a Vec<Value> because I don't know the structure of the Please*Returns
         let mut message_out =
             ps.handle_messages(messages, src, might_be_ip_spoofing, &mut inbound_states);
         if message_out.len() == 0 {
