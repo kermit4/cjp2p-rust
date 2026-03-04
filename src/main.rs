@@ -371,9 +371,8 @@ fn trim_reply(message_out: &mut Vec<Value>, message_in_length: usize) {
         trace!("ratio: {ratio}");
         message_out.len() > 0 && ratio > 2.5
     } {
-        debug!("{ratio}x ratio: dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?}", String::from_utf8_lossy(&message_out_bytes));
         let popped = message_out.pop();
-        debug!("ratio: popping message {:?}",popped);
+        debug!("{ratio}x ratio: dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?}", popped);
     }
 }
 
@@ -585,13 +584,10 @@ impl Content {
             }
         }
         if message_out.len() == 0 {
-            match inbound_states.get_mut(&self.id) {
-                None => (),
-                Some(i) => {
-                    i.next_block = 0;
-                    message_out = PleaseSendContent::new_messages(i);
-                    i.next_block += 1;
-                }
+            if let Some(i) = inbound_states.get_mut(&self.id) {
+                i.next_block = 0;
+                message_out = PleaseSendContent::new_messages(i);
+                i.next_block += 1;
             }
         }
         return message_out;
