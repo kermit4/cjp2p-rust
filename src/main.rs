@@ -479,8 +479,7 @@ impl PleaseSendContent {
             return vec![];
         };
         let mut message_out: Vec<Message> = Vec::new();
-        if inbound_states.contains_key(&self.id) {
-            let i = inbound_states.get_mut(&self.id).unwrap();
+        if let Some(i) = inbound_states.get_mut(&self.id) {
             i.peers.insert(src);
             message_out.append(&mut i.send_content_peers(might_be_ip_spoofing, src));
         } else {
