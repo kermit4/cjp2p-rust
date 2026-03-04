@@ -53,12 +53,17 @@ impl PeerInfo {
         };
     }
 }
+struct OpenFile {
+    file: File,
+    eof: usize,
+}
 struct PeerState {
     peer_map: HashMap<SocketAddr, PeerInfo>,
     peer_vec: Vec<SocketAddr>,
     socket: UdpSocket,
     boot: Instant,
     keypair: Keypair,
+    open_file_cache: HashMap<String, OpenFile>,
 }
 impl PeerState {
     fn new() -> Self {
@@ -70,6 +75,7 @@ impl PeerState {
             keypair: Builder::new("Noise_XK_25519_ChaChaPoly_SHA256".parse().unwrap())
                 .generate_keypair()
                 .unwrap(),
+            open_file_cache: HashMap::new(),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -468,7 +474,7 @@ impl PleaseSendContent {
         inbound_states: &mut HashMap<String, InboundState>,
         src: SocketAddr,
         might_be_ip_spoofing: bool,
-        ps: &PeerState,
+        ps: &mut PeerState,
     ) -> Vec<Message> {
         if self.id.find("/") != None || self.id.find("\\") != None {
             return vec![];
@@ -479,14 +485,18 @@ impl PleaseSendContent {
             i.peers.insert(src);
             message_out.append(&mut i.send_content_peers(might_be_ip_spoofing));
         } else {
-            message_out.extend(Content::new_messages(&self, might_be_ip_spoofing));
-        }
-        if !might_be_ip_spoofing || message_out.len() == 0 {
-            message_out.append(&mut InboundState::send_content_peers_from_disk(
-                &self.id,
-                &src,
-                might_be_ip_spoofing,
-            ));
+            message_out.extend(Content::new_messages(&self, might_be_ip_spoofing, ps));
+            if message_out.len() == 0
+                || (!might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 23 == 0)
+            // if the file is small, they dont need more peers
+            // and if its big they'll hit this random often
+            {
+                message_out.append(&mut InboundState::send_content_peers_from_disk(
+                    &self.id,
+                    &src,
+                    might_be_ip_spoofing,
+                ));
+            }
         }
         if might_be_ip_spoofing && message_out.len() > 0 {
             message_out.push(ps.please_always_return(src));
@@ -496,7 +506,11 @@ impl PleaseSendContent {
 }
 
 impl Content {
-    fn new_messages(req: &PleaseSendContent, might_be_ip_spoofing: bool) -> Vec<Message> {
+    fn new_messages(
+        req: &PleaseSendContent,
+        might_be_ip_spoofing: bool,
+        ps: &mut PeerState,
+    ) -> Vec<Message> {
         if might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 27 == 0 {
             info!("randomly ignoring unverified source IPs so a dumb client doesn't get stuck in a loop");
 
@@ -509,21 +523,28 @@ impl Content {
         } else {
             req.length
         };
-        match File::open(&req.id) {
-            Err(_) => return vec![],
-            Ok(file) => {
-                debug!( "going to send {:?} at {:?}", req.id, req.offset / BLOCK_SIZE!());
-                let mut buf = vec![0; length];
-                let length = file.read_at(&mut buf, req.offset as u64).unwrap();
-                buf.truncate(length);
-                return vec![Message::Content(Self {
-                    id: req.id.clone(),
-                    offset: req.offset,
-                    base64: buf,
-                    eof: Some(file.metadata().unwrap().len() as usize),
-                })];
-            }
-        }
+        let ofr = if let Some(ofr) = ps.open_file_cache.get(&req.id) {
+            ofr
+        } else if let Ok(file) = File::open(&req.id) {
+            let ofr = OpenFile {
+                eof: file.metadata().unwrap().len() as usize,
+                file: file,
+            };
+            ps.open_file_cache.insert(req.id.to_owned(), ofr);
+            &ps.open_file_cache[&req.id]
+        } else {
+            return vec![];
+        };
+        debug!( "going to send {:?} at {:?}", req.id, req.offset / BLOCK_SIZE!());
+        let mut buf = vec![0; length];
+        let length = ofr.file.read_at(&mut buf, req.offset as u64).unwrap();
+        buf.truncate(length);
+        return vec![Message::Content(Self {
+            id: req.id.clone(),
+            offset: req.offset,
+            base64: buf,
+            eof: Some(ofr.eof),
+        })];
     }
     fn receive_content(
         &self,
@@ -786,6 +807,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     }
     ps.probe_interfaces();
     ps.probe();
+    ps.open_file_cache = HashMap::new(); // clear the cache
     for (_, i) in inbound_states.iter_mut() {
         if i.last_activity.elapsed() <= Duration::from_secs(1) {
             continue;
