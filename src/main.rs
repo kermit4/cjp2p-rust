@@ -477,12 +477,12 @@ impl PleaseSendContent {
         if inbound_states.contains_key(&self.id) {
             let i = inbound_states.get_mut(&self.id).unwrap();
             i.peers.insert(src);
-            message_out.append(&mut i.send_transfer_peers(might_be_ip_spoofing));
+            message_out.append(&mut i.send_content_peers(might_be_ip_spoofing));
         } else {
             message_out.extend(Content::new_messages(&self, might_be_ip_spoofing));
         }
         if !might_be_ip_spoofing || message_out.len() == 0 {
-            message_out.append(&mut InboundState::send_transfer_peers_from_disk(
+            message_out.append(&mut InboundState::send_content_peers_from_disk(
                 &self.id,
                 &src,
                 might_be_ip_spoofing,
@@ -673,7 +673,7 @@ impl InboundState {
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
     }
-    fn save_transfer_peers(&self) -> () {
+    fn save_content_peers(&self) -> () {
         debug!("saving inbound state peers");
         let filename = "./metadata/".to_owned() + &self.id + ".json";
         OpenOptions::new()
@@ -689,7 +689,7 @@ impl InboundState {
             )
             .ok();
     }
-    fn send_transfer_peers_from_disk(
+    fn send_content_peers_from_disk(
         id: &String,
         src: &SocketAddr,
         might_be_ip_spoofing: bool,
@@ -725,7 +725,7 @@ impl InboundState {
             peers: peers.iter().take(at_most).cloned().collect(),
         })];
     }
-    fn send_transfer_peers(&self, might_be_ip_spoofing: bool) -> Vec<Message> {
+    fn send_content_peers(&self, might_be_ip_spoofing: bool) -> Vec<Message> {
         debug!("{} sending peers", self.id);
         let at_most = 3 + 45 * !might_be_ip_spoofing as usize;
         return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
@@ -760,7 +760,7 @@ impl InboundState {
             let path = "./incoming/".to_owned() + &self.id;
             let new_path = "./".to_owned() + &self.id;
             fs::rename(path, new_path).unwrap();
-            self.save_transfer_peers();
+            self.save_content_peers();
             return true;
         }
         error!("{} hash doesnt match! restarting", self.id);
