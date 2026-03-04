@@ -340,6 +340,7 @@ fn main() -> Result<(), std::io::Error> {
         if message_out.len() == 0 {
             continue;
         }
+        message_out.append(&mut ps.always_returned(src));
         if might_be_ip_spoofing {
             trim_reply(&mut message_out, message_in_len);
         }
@@ -365,7 +366,7 @@ fn trim_reply(message_out: &mut Vec<Value>, message_in_length: usize) {
         trace!("ratio: {ratio}");
         message_out.len() > 0 && ratio > 2.5
     } {
-        warn!("{ratio}x ratio: this probably shouldn't happen often.  dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?}", String::from_utf8_lossy(&message_out_bytes));
+        debug!("{ratio}x ratio: dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?}", String::from_utf8_lossy(&message_out_bytes));
         message_out.pop();
         if message_out.len() == 0 {
             warn!("ratio: and none left!");
