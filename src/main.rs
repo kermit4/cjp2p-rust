@@ -713,6 +713,7 @@ impl InboundState {
             file.seek(SeekFrom::Start(0)).ok();
             serde_json::to_writer_pretty(BufWriter::new(file), &json!({"Peers":&peers})).unwrap();
         }
+        peers.remove(src);
         if peers.len() == 0 {
             return vec![];
         }
