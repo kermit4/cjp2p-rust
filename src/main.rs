@@ -79,18 +79,23 @@ impl PeerState {
             .get_mut(&src)
             .unwrap()
             .anti_ip_spoofing_token_they_expect = cookie;
-        debug!("saved token verified {:?}", self.always_returned(src));
     }
     fn check_key(&self, messages: &Vec<Value>, src: SocketAddr) -> bool {
         for message_in in messages {
             if let Some(m) = message_in.get("AlwaysReturned") {
-                if let Ok(t) = serde_json::from_value::<u32>(m.clone()) {
+                if let Ok(t) = serde_json::from_value::<AlwaysReturned>(m.clone()) {
                     let correct_key = self.peer_map[&src].anti_ip_spoofing_token_i_expect;
-                    return correct_key != t;
+                    return correct_key != t.token;
                 }
             }
         }
         return true;
+    }
+    fn please_always_return(&self, src: SocketAddr) -> Message {
+        let correct_key = self.peer_map[&src].anti_ip_spoofing_token_i_expect;
+        return Message::PleaseAlwaysReturnThisMessage(PleaseAlwaysReturnThisMessage {
+            token: correct_key,
+        });
     }
 
     fn always_returned(&self, sa: SocketAddr) -> Vec<Value> {
@@ -157,7 +162,7 @@ impl PeerState {
             message_out.push(json!(Message::PleaseSendPeers(PleaseSendPeers {})));
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
-            message_out.push(json!(please_always_return(&self, sa)));
+            message_out.push(json!(self.please_always_return(sa)));
             message_out.push(json!(Message::MyPublicKey(MyPublicKey {
                     ed25519: self.keypair.public.clone(),
                 })));
@@ -372,14 +377,14 @@ fn trim_reply(message_out: &mut Vec<Value>, message_in_length: usize) {
 struct Peers {
     peers: HashSet<SocketAddr>,
 }
+#[derive(Serialize, Deserialize)]
+struct AlwaysReturned {
+    token: u32,
+}
 
-fn please_always_return(ps: &PeerState, src: SocketAddr) -> Message {
-    let correct_key = ps
-        .peer_map
-        .get(&src)
-        .unwrap()
-        .anti_ip_spoofing_token_i_expect;
-    return Message::PleaseAlwaysReturnThisMessage(correct_key);
+#[derive(Serialize, Deserialize)]
+struct PleaseAlwaysReturnThisMessage {
+    token: u32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -396,7 +401,7 @@ impl PleaseSendPeers {
         trace!("sending {:?}/{:?} peers {:?}", p.len(), ps.peer_map.len(), p);
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
         if might_be_ip_spoofing {
-            message_out.push(please_always_return(&ps, src));
+            message_out.push(ps.please_always_return(src));
         }
         return message_out;
     }
@@ -486,7 +491,7 @@ impl PleaseSendContent {
             ));
         }
         if might_be_ip_spoofing && message_out.len() > 0 {
-            message_out.push(please_always_return(&ps, src));
+            message_out.push(ps.please_always_return(src));
         }
         return message_out;
     }
@@ -876,7 +881,7 @@ enum Message {
     PleaseReturnThisMessage(PleaseReturnThisMessage),
     ReturnedMessage(ReturnedMessage),
     MaybeTheyHaveSome(MaybeTheyHaveSome),
-    PleaseAlwaysReturnThisMessage(u32),
-    AlwaysReturned(u32),
+    PleaseAlwaysReturnThisMessage(PleaseAlwaysReturnThisMessage),
+    AlwaysReturned(AlwaysReturned),
     MyPublicKey(MyPublicKey),
 }
