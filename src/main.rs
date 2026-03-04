@@ -72,7 +72,9 @@ impl PeerState {
                 .unwrap(),
         };
         ps.socket.set_broadcast(true).ok();
-        ps.socket.set_read_timeout(Some(Duration::from_secs(1)))?;
+        ps.socket
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
         for p in ["148.71.89.128:24254", "159.69.54.127:24254"] {
             ps.peer_map.insert(p.parse().unwrap(), PeerInfo::new());
         }
@@ -608,7 +610,7 @@ impl InboundState {
             fpos: 0,
         };
     }
-    
+
     fn receive_content(&mut self, content: &Content) -> Vec<Message> {
         let block_number = content.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", content.id, block_number, block_number * BLOCK_SIZE!(), "", self.next_block as i64 - block_number as i64);
