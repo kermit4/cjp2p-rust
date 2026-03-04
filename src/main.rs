@@ -164,21 +164,18 @@ impl PeerState {
             let peer_info = self.peer_map.get_mut(&sa).unwrap();
             peer_info.delay = peer_info.delay.saturating_add(peer_info.delay / 20);
             let mut message_out: Vec<Value> = Vec::new();
-            message_out
-                .push(json!(Message::PleaseSendPeers(PleaseSendPeers {})));
+            message_out.push(json!(Message::PleaseSendPeers(PleaseSendPeers {})));
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(json!(please_always_return(&self, sa)));
-            message_out.push(
-                json!(Message::MyPublicKey(MyPublicKey {
+            message_out.push(json!(Message::MyPublicKey(MyPublicKey {
                     ed25519: self.keypair.public.clone(),
-                }))
-            );
+                })));
             message_out.append(&mut self.always_returned(sa));
             message_out.push(
                 json!(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                     sent_at: self.boot.elapsed().as_secs_f64(),
-                }))
+                })),
             );
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
 
@@ -243,6 +240,51 @@ impl PeerState {
         }
         result.clone()
     }
+    fn handle_messages(
+        &mut self,
+        messages: Vec<Value>,
+        src: SocketAddr,
+        might_be_ip_spoofing: bool,
+        inbound_states: &mut HashMap<String, InboundState>,
+    ) -> Vec<Value> {
+        let mut message_out = vec![];
+        for message_in in messages {
+            if let Some(v) = message_in.get("PleaseAlwaysReturnThisMessage") {
+                self.save_key(src, v.clone());
+                continue;
+            }
+            if let Some(v) = message_in.get("PleaseReturnThisMessage") {
+                message_out.push(serde_json::json!({"ReturnedMessage":v}));
+                continue;
+            }
+            let message_in_enum: Message = match serde_json::from_value(message_in) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("unsupported message {:?}",e);
+                    continue;
+                }
+            };
+            for m in match message_in_enum {
+                Message::PleaseSendPeers(t) => t.send_peers(&self, might_be_ip_spoofing, src),
+                Message::Peers(t) => t.receive_peers(self),
+                Message::PleaseSendContent(t) =>
+                    t.send_content(inbound_states, src, might_be_ip_spoofing, self),
+                Message::Content(t) => t.receive_content(inbound_states, src, self),
+                Message::ReturnedMessage(t) => t.update_round_trip_time(self, src),
+                Message::MaybeTheyHaveSome(t) =>
+                    t.add_content_peer_suggestions(self, inbound_states),
+                Message::AlwaysReturned(_) => vec![], // handled before htis loop
+                Message::MyPublicKey(t) => t.save_public_key(self, src),
+                _ => {
+                    warn!("unknown message type ");
+                    vec![]
+                }
+            } {
+                message_out.push(serde_json::json!(m));
+            }
+        }
+        return message_out;
+    }
 }
 fn main() -> Result<(), std::io::Error> {
     env_logger::builder()
@@ -297,42 +339,8 @@ fn main() -> Result<(), std::io::Error> {
         };
         let might_be_ip_spoofing = ps.check_key(&messages, src);
         // This isn't a Vec<Message> because I don't know the structure of the Please*Returns
-        let mut message_out: Vec<Value> = Vec::new();
-        for message_in in messages {
-            if let Some(v) = message_in.get("PleaseAlwaysReturnThisMessage") {
-                ps.save_key(src, v.clone());
-                continue;
-            }
-            if let Some(v) = message_in.get("PleaseReturnThisMessage") {
-                message_out.push(serde_json::json!({"ReturnedMessage":v}));
-                continue;
-            }
-            let message_in_enum: Message = match serde_json::from_value(message_in) {
-                Ok(r) => r,
-                Err(e) => {
-                    warn!("unsupported message {:?}",e);
-                    continue;
-                }
-            };
-            for m in match message_in_enum {
-                Message::PleaseSendPeers(t) => t.send_peers(&ps, might_be_ip_spoofing, src),
-                Message::Peers(t) => t.receive_peers(&mut ps),
-                Message::PleaseSendContent(t) =>
-                    t.send_content(&mut inbound_states, src, might_be_ip_spoofing, &ps),
-                Message::Content(t) => t.receive_content(&mut inbound_states, src, &mut ps),
-                Message::ReturnedMessage(t) => t.update_round_trip_time(&mut ps, src),
-                Message::MaybeTheyHaveSome(t) =>
-                    t.add_content_peer_suggestions(&mut ps, &mut inbound_states),
-                Message::AlwaysReturned(_) => vec![], // handled before htis loop
-                Message::MyPublicKey(t) => t.save_public_key(&mut ps, src),
-                _ => {
-                    warn!("unknown message type ");
-                    vec![]
-                }
-            } {
-                message_out.push(serde_json::json!(m));
-            }
-        }
+        let mut message_out =
+            ps.handle_messages(messages, src, might_be_ip_spoofing, &mut inbound_states);
         if message_out.len() == 0 {
             continue;
         }
