@@ -83,20 +83,10 @@ impl PeerState {
     }
     fn check_key(&self, messages: &Vec<Value>, src: SocketAddr) -> bool {
         for message_in in messages {
-            if (message_in["AlwaysReturned"]) != Value::Null {
-                match serde_json::from_value(message_in.clone()) {
-                    Ok(t) => match t {
-                        Message::AlwaysReturned(t) => {
-                            let correct_key = self
-                                .peer_map
-                                .get(&src)
-                                .unwrap()
-                                .anti_ip_spoofing_token_i_expect;
-                            return correct_key != t;
-                        }
-                        _ => (),
-                    },
-                    _ => (),
+            if let Some(m) = message_in.get("AlwaysReturned") {
+                if let Ok(t) = serde_json::from_value::<u32>(m.clone()) {
+                    let correct_key = self.peer_map[&src].anti_ip_spoofing_token_i_expect;
+                    return correct_key != t;
                 }
             }
         }
@@ -113,7 +103,7 @@ impl PeerState {
                     return vec![];
                 }
                 debug!("always_returned for {sa} found {token}");
-                return vec![serde_json::json!({"AlwaysReturned": self.peer_map.get(&sa).unwrap().anti_ip_spoofing_token_they_expect }),
+                return vec![serde_json::json!({"AlwaysReturned": token }),
                 ];
             }
         }
@@ -260,7 +250,7 @@ impl PeerState {
             let message_in_enum: Message = match serde_json::from_value(message_in) {
                 Ok(r) => r,
                 Err(e) => {
-                    warn!("unsupported message {:?}",e);
+                    warn!("unsupported message {e}");
                     continue;
                 }
             };
@@ -326,8 +316,8 @@ fn main() -> Result<(), std::io::Error> {
         trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
         let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
             Ok(r) => r,
-            Err(_) => {
-                warn!( "could not deserialize an incoming message {:?}",
+            Err(e) => {
+                warn!( "could not deserialize an incoming message {e}  :  {}",
                     String::from_utf8_lossy(message_in_bytes));
                 continue;
             }
@@ -352,7 +342,7 @@ fn main() -> Result<(), std::io::Error> {
             continue;
         }
         let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-        trace!( "sending message {:?} to {}{src}", if might_be_ip_spoofing {
+        trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
         match ps.socket.send_to(&message_out_bytes, src) {
             Ok(s) => trace!("sent {s}"),
@@ -485,10 +475,7 @@ impl PleaseSendContent {
             let i = inbound_states.get_mut(&self.id).unwrap();
             i.peers.insert(src);
             message_out.append(&mut i.send_transfer_peers(might_be_ip_spoofing));
-        } else if !might_be_ip_spoofing  ||
-        // randomly ignore unverified source IPs so a dumb client doesn't get stuck in a loop
-            rand::thread_rng().gen::<u32>() % 27 != 0
-        {
+        } else {
             message_out.extend(Content::new_messages(&self, might_be_ip_spoofing));
         }
         if !might_be_ip_spoofing || message_out.len() == 0 {
@@ -507,6 +494,11 @@ impl PleaseSendContent {
 
 impl Content {
     fn new_messages(req: &PleaseSendContent, might_be_ip_spoofing: bool) -> Vec<Message> {
+        if might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 27 == 0 {
+            info!("randomly ignoring unverified source IPs so a dumb client doesn't get stuck in a loop");
+
+            return vec![];
+        }
         let length = if might_be_ip_spoofing {
             1
         } else if req.length > 0xa000 {
