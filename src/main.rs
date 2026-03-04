@@ -72,6 +72,7 @@ impl PeerState {
                 .unwrap(),
         };
         ps.socket.set_broadcast(true).ok();
+        ps.socket.set_read_timeout(Some(Duration::from_secs(1)))?;
         for p in ["148.71.89.128:24254", "159.69.54.127:24254"] {
             ps.peer_map.insert(p.parse().unwrap(), PeerInfo::new());
         }
@@ -304,7 +305,6 @@ fn main() -> Result<(), std::io::Error> {
         info!("queing inbound file {:?}", v);
         inbound_states.insert(v.to_string(), InboundState::new(&v));
     }
-    ps.socket.set_read_timeout(Some(Duration::from_secs(1)))?;
     let mut next_maintenance = Instant::now();
     let mut buf = [0; 0x10000];
     loop {
@@ -593,6 +593,22 @@ struct InboundState {
 }
 
 impl InboundState {
+    fn new(id: &str) -> Self {
+        fs::create_dir("./incoming").ok();
+        return Self {
+            file: None,
+            next_block: 0,
+            bitmap: bitvec![0;(1<<18)/BLOCK_SIZE!()],
+            id: id.to_string(),
+            eof: 1 << 18,
+            bytes_complete: 0,
+            peers: HashSet::new(),
+            last_activity: Instant::now() - Duration::from_secs(999),
+            hash_failures: 0,
+            fpos: 0,
+        };
+    }
+    
     fn receive_content(&mut self, content: &Content) -> Vec<Message> {
         let block_number = content.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", content.id, block_number, block_number * BLOCK_SIZE!(), "", self.next_block as i64 - block_number as i64);
@@ -640,21 +656,6 @@ impl InboundState {
         let message_out = PleaseSendContent::new_messages(self);
         self.next_block += 1;
         return message_out;
-    }
-    fn new(id: &str) -> Self {
-        fs::create_dir("./incoming").ok();
-        return Self {
-            file: None,
-            next_block: 0,
-            bitmap: bitvec![0;(1<<18)/BLOCK_SIZE!()],
-            id: id.to_string(),
-            eof: 1 << 18,
-            bytes_complete: 0,
-            peers: HashSet::new(),
-            last_activity: Instant::now() - Duration::from_secs(999),
-            hash_failures: 0,
-            fpos: 0,
-        };
     }
 
     fn request_blocks(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
