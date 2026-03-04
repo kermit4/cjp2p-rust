@@ -366,7 +366,8 @@ fn trim_reply(message_out: &mut Vec<Value>, message_in_length: usize) {
         message_out.len() > 0 && ratio > 2.5
     } {
         debug!("{ratio}x ratio: dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?}", String::from_utf8_lossy(&message_out_bytes));
-        debug!("ratio: popping message {:?}",message_out.pop());
+        let popped = message_out.pop();
+        debug!("ratio: popping message {:?}",popped);
     }
 }
 
