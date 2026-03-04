@@ -276,9 +276,9 @@ impl PeerState {
                 Message::ReturnedMessage(t) => t.update_round_trip_time(self, src),
                 Message::MaybeTheyHaveSome(t) =>
                     t.add_content_peer_suggestions(self, inbound_states),
-                Message::AlwaysReturned(_) => vec![], // handled before htis loop
-                Message::PleaseAlwaysReturnThisMessage(_) => vec![], // handled before htis loop
-                Message::PleaseReturnThisMessage(_) => vec![], // handled before htis loop
+                Message::AlwaysReturned(_) => vec![], // handled before this loop
+                Message::PleaseAlwaysReturnThisMessage(_) => vec![], // handled before this loop
+                Message::PleaseReturnThisMessage(_) => vec![], // handled before this loop
                 Message::MyPublicKey(t) => t.save_public_key(self, src),
             } {
                 message_out.push(serde_json::json!(m));
@@ -327,7 +327,6 @@ fn main() -> Result<(), std::io::Error> {
                 continue;
             }
         };
-        debug!("received messages {:?} from {src}", messages.len());
         if !ps.peer_map.contains_key(&src) {
             ps.peer_map.insert(src, PeerInfo::new());
             warn!("new peer spotted {src}");
@@ -344,6 +343,7 @@ fn main() -> Result<(), std::io::Error> {
             trim_reply(&mut message_out, message_in_len);
         }
         if message_out.len() == 0 {
+            warn!("ratio: none left!");
             continue;
         }
         let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
@@ -366,10 +366,7 @@ fn trim_reply(message_out: &mut Vec<Value>, message_in_length: usize) {
         message_out.len() > 0 && ratio > 2.5
     } {
         debug!("{ratio}x ratio: dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?}", String::from_utf8_lossy(&message_out_bytes));
-        message_out.pop();
-        if message_out.len() == 0 {
-            warn!("ratio: and none left!");
-        }
+        debug!("ratio: popping message {:?}",message_out.pop());
     }
 }
 
