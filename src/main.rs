@@ -165,22 +165,20 @@ impl PeerState {
             peer_info.delay = peer_info.delay.saturating_add(peer_info.delay / 20);
             let mut message_out: Vec<Value> = Vec::new();
             message_out
-                .push(serde_json::to_value(Message::PleaseSendPeers(PleaseSendPeers {})).unwrap());
+                .push(json!(Message::PleaseSendPeers(PleaseSendPeers {})));
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
-            message_out.push(serde_json::to_value(please_always_return(&self, sa)).unwrap());
+            message_out.push(json!(please_always_return(&self, sa)));
             message_out.push(
-                serde_json::to_value(Message::MyPublicKey(MyPublicKey {
+                json!(Message::MyPublicKey(MyPublicKey {
                     ed25519: self.keypair.public.clone(),
                 }))
-                .unwrap(),
             );
             message_out.append(&mut self.always_returned(sa));
             message_out.push(
-                serde_json::to_value(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
+                json!(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
                     sent_at: self.boot.elapsed().as_secs_f64(),
                 }))
-                .unwrap(),
             );
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
 
@@ -319,14 +317,12 @@ fn main() -> Result<(), std::io::Error> {
             for m in match message_in_enum {
                 Message::PleaseSendPeers(t) => t.send_peers(&ps, might_be_ip_spoofing, src),
                 Message::Peers(t) => t.receive_peers(&mut ps),
-                Message::PleaseSendContent(t) => {
-                    t.send_content(&mut inbound_states, src, might_be_ip_spoofing, &ps)
-                }
+                Message::PleaseSendContent(t) =>
+                    t.send_content(&mut inbound_states, src, might_be_ip_spoofing, &ps),
                 Message::Content(t) => t.receive_content(&mut inbound_states, src, &mut ps),
                 Message::ReturnedMessage(t) => t.update_round_trip_time(&mut ps, src),
-                Message::MaybeTheyHaveSome(t) => {
-                    t.add_content_peer_suggestions(&mut ps, &mut inbound_states)
-                }
+                Message::MaybeTheyHaveSome(t) =>
+                    t.add_content_peer_suggestions(&mut ps, &mut inbound_states),
                 Message::AlwaysReturned(_) => vec![], // handled before htis loop
                 Message::MyPublicKey(t) => t.save_public_key(&mut ps, src),
                 _ => {
@@ -660,7 +656,7 @@ impl InboundState {
         for sa in some_peers {
             let mut message_out: Vec<Value> = Vec::new();
             for m in PleaseSendContent::new_messages(self) {
-                message_out.push(serde_json::to_value(m).unwrap());
+                message_out.push(json!(m));
             }
             if message_out.len() < 1 {
                 return;

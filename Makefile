@@ -14,7 +14,7 @@ demo: release
 	./target/release/libcjp $$(cat                                                shared/562b168a64967fd64687664b987dd1c50c36d1532449bb4c385d683538c0bf03 )
 
 pretty: check
-	cargo fmt --  --config skip_macro_invocations='["*"]'
+	cargo fmt --  --config skip_macro_invocations='["*"]' --config match_arm_blocks=false
 
 all: check release debug
 
