@@ -483,7 +483,7 @@ impl PleaseSendContent {
         if inbound_states.contains_key(&self.id) {
             let i = inbound_states.get_mut(&self.id).unwrap();
             i.peers.insert(src);
-            message_out.append(&mut i.send_content_peers(might_be_ip_spoofing));
+            message_out.append(&mut i.send_content_peers(might_be_ip_spoofing, src));
         } else {
             message_out.extend(Content::new_messages(&self, might_be_ip_spoofing, ps));
             if message_out.len() == 0
@@ -493,8 +493,8 @@ impl PleaseSendContent {
             {
                 message_out.append(&mut InboundState::send_content_peers_from_disk(
                     &self.id,
-                    &src,
                     might_be_ip_spoofing,
+                    &src,
                 ));
             }
         }
@@ -712,8 +712,8 @@ impl InboundState {
     }
     fn send_content_peers_from_disk(
         id: &String,
-        src: &SocketAddr,
         might_be_ip_spoofing: bool,
+        src: &SocketAddr,
     ) -> Vec<Message> {
         let filename = "./metadata/".to_owned() + &id + ".json";
         let mut file = OpenOptions::new()
@@ -735,7 +735,7 @@ impl InboundState {
             file.seek(SeekFrom::Start(0)).ok();
             serde_json::to_writer_pretty(BufWriter::new(file), &json!({"Peers":&peers})).unwrap();
         }
-        peers.remove(src);
+        peers.remove(&src);
         if peers.len() == 0 {
             return vec![];
         }
@@ -746,12 +746,14 @@ impl InboundState {
             peers: peers.iter().take(at_most).cloned().collect(),
         })];
     }
-    fn send_content_peers(&self, might_be_ip_spoofing: bool) -> Vec<Message> {
+    fn send_content_peers(&self, might_be_ip_spoofing: bool, src: SocketAddr) -> Vec<Message> {
         debug!("{} sending peers", self.id);
         let at_most = 3 + 45 * !might_be_ip_spoofing as usize;
+        let mut peers: HashSet<SocketAddr> = self.peers.iter().take(at_most).cloned().collect();
+        peers.remove(&src);
         return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
             id: self.id.clone(),
-            peers: self.peers.iter().take(at_most).cloned().collect(),
+            peers: peers,
         })];
     }
     fn finished(&mut self) -> bool {
