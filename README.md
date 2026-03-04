@@ -44,3 +44,5 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - if one file cant be found, the rest wont start
 - hash of hashes could need 2 levels for files over 1GB  .. metadata says what it is, they just give  a hash?  or just another field in Content reply "hashLevel" layers to go.  morewlayers even. i get 2^12 each.   metadata extension time.  the hash is of the metadata?  or the hashes?  or no just critical parts of the metadata?  spam will fill rest.  but i want interopable hashes too. hmm.
 - maybetheyhave some should also add to general peers set
+- maybetheyhave some should also add to general peers set
+- maybetheyhave some should also add to general peers set

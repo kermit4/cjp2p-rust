@@ -746,6 +746,9 @@ impl InboundState {
         let at_most = 3 + 45 * !might_be_ip_spoofing as usize;
         let mut peers: HashSet<SocketAddr> = self.peers.iter().take(at_most).cloned().collect();
         peers.remove(&src);
+        if peers.len() == 0 {
+            return vec![];
+        }
         return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
             id: self.id.clone(),
             peers: peers,
