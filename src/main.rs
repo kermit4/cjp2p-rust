@@ -73,16 +73,46 @@ impl PeerState {
                 .unwrap(),
         };
     }
+    fn save_key(&mut self, src: SocketAddr, cookie: Value) {
+        debug!("saving token {cookie} for {src}");
+        self.peer_map
+            .get_mut(&src)
+            .unwrap()
+            .anti_ip_spoofing_token_they_expect = cookie;
+        debug!("saved token verified {:?}", self.always_returned(src));
+    }
+    fn check_key(&self, messages: &Vec<Value>, src: SocketAddr) -> bool {
+        for message_in in messages {
+            if (message_in["AlwaysReturned"]) != Value::Null {
+                match serde_json::from_value(message_in.clone()) {
+                    Ok(t) => match t {
+                        Message::AlwaysReturned(t) => {
+                            let correct_key = self
+                                .peer_map
+                                .get(&src)
+                                .unwrap()
+                                .anti_ip_spoofing_token_i_expect;
+                            return correct_key != t;
+                        }
+                        _ => (),
+                    },
+                    _ => (),
+                }
+            }
+        }
+        return true;
+    }
+
     fn always_returned(&self, sa: SocketAddr) -> Vec<Value> {
         debug!("always_returned for {sa}");
         match self.peer_map.get(&sa) {
             None => return vec![],
             Some(p) => {
-                let key = p.anti_ip_spoofing_token_they_expect.to_owned();
-                if key == json!({}) {
+                let token = p.anti_ip_spoofing_token_they_expect.to_owned();
+                if token == json!({}) {
                     return vec![];
                 }
-                debug!("always_returned for {sa} found {key}");
+                debug!("always_returned for {sa} found {token}");
                 return vec![serde_json::json!({"AlwaysReturned": self.peer_map.get(&sa).unwrap().anti_ip_spoofing_token_they_expect }),
                 ];
             }
@@ -138,10 +168,7 @@ impl PeerState {
                 .push(serde_json::to_value(Message::PleaseSendPeers(PleaseSendPeers {})).unwrap());
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
-            message_out.push(
-                serde_json::to_value(PleaseAlwaysReturnThisMessage::new_message(&self, sa))
-                    .unwrap(),
-            );
+            message_out.push(serde_json::to_value(please_always_return(&self, sa)).unwrap());
             message_out.push(
                 serde_json::to_value(Message::MyPublicKey(MyPublicKey {
                     ed25519: self.keypair.public.clone(),
@@ -225,7 +252,7 @@ fn main() -> Result<(), std::io::Error> {
         .init();
     println!("logging level: {}", log::max_level());
     let mut ps: PeerState = PeerState::new();
-    // ugly    println!("your public ed25519 key for this session is:  {:?}",ps.keypair.public);
+    // ugly    println!("your public ed25519 token for this session is:  {:?}",ps.keypair.public);
 
     ps.socket.set_broadcast(true).ok();
     for p in ["148.71.89.128:24254", "159.69.54.127:24254"] {
@@ -251,73 +278,45 @@ fn main() -> Result<(), std::io::Error> {
             next_maintenance =
                 Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(888..1111));
         }
-        let (message_len, src) = match ps.socket.recv_from(&mut buf) {
-            Ok(_r) => _r,
-            Err(_e) => {
-                info!("no messages for a second");
-                continue;
-            }
+        let (message_in_len, src) = match ps.socket.recv_from(&mut buf) {
+            Ok(r) => r,
+            Err(_) => continue,
         };
-        let message_in_bytes = &buf[0..message_len];
+        let message_in_bytes = &buf[0..message_in_len];
+        trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
         let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
-            Ok(_r) => _r,
-            _ => {
+            Ok(r) => r,
+            Err(_) => {
                 warn!( "could not deserialize an incoming message {:?}",
                     String::from_utf8_lossy(message_in_bytes));
                 continue;
             }
         };
-        trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
+        debug!("received messages {:?} from {src}", messages.len());
         if !ps.peer_map.contains_key(&src) {
             ps.peer_map.insert(src, PeerInfo::new());
             warn!("new peer spotted {src}");
         };
-        debug!("received messages {:?} from {src}", messages.len());
-        let mut might_be_ip_spoofing = true;
-        for message_in in &messages {
-            if (message_in["AlwaysReturned"]) != Value::Null {
-                match serde_json::from_value(message_in.clone()) {
-                    Ok(t) => match t {
-                        Message::AlwaysReturned(t) => {
-                            might_be_ip_spoofing = t.check_key(&mut ps, src);
-                            trace!("might_be_ip_spoofing? {might_be_ip_spoofing}");
-                        }
-                        _ => (),
-                    },
-                    _ => (),
-                }
-            }
-        }
-
-        // This isn't an array of Messages because of the PleaseReturn that I don't know
-        // always know the structure of,
+        let might_be_ip_spoofing = ps.check_key(&messages, src);
+        // This isn't a Vec<Message> because I don't know the structure of the Please*Returns
         let mut message_out: Vec<Value> = Vec::new();
         for message_in in messages {
-            if (message_in["PleaseAlwaysReturnThisMessage"]) != Value::Null {
-                PleaseAlwaysReturnThisMessage::save_key(
-                    &mut ps,
-                    src,
-                    message_in["PleaseAlwaysReturnThisMessage"].clone(),
-                );
+            if let Some(v) = message_in.get("PleaseAlwaysReturnThisMessage") {
+                ps.save_key(src, v.clone());
                 continue;
             }
-            if (message_in["PleaseReturnThisMessage"]) != Value::Null {
-                // this isn't checked below
-                // because we don't know it
-                // structure so it may error
-                message_out.push(
-                    serde_json::json!({"ReturnedMessage":message_in["PleaseReturnThisMessage"]}),
-                );
+            if let Some(v) = message_in.get("PleaseReturnThisMessage") {
+                message_out.push(serde_json::json!({"ReturnedMessage":v}));
                 continue;
             }
             let message_in_enum: Message = match serde_json::from_value(message_in) {
-                Ok(_r) => _r,
-                _ => {
-                    warn!("could not deserialize an incoming message (maybe its one not supported by this implementation).");
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("unsupported message {:?}",e);
                     continue;
                 }
             };
-            let reply = match message_in_enum {
+            for m in match message_in_enum {
                 Message::PleaseSendPeers(t) => t.send_peers(&ps, might_be_ip_spoofing, src),
                 Message::Peers(t) => t.receive_peers(&mut ps),
                 Message::PleaseSendContent(t) => {
@@ -334,42 +333,42 @@ fn main() -> Result<(), std::io::Error> {
                     warn!("unknown message type ");
                     vec![]
                 }
-            };
-            for m in reply {
-                message_out.push(serde_json::to_value(m).unwrap());
+            } {
+                message_out.push(serde_json::json!(m));
             }
         }
         if message_out.len() == 0 {
             continue;
         }
-        message_out.append(&mut ps.always_returned(src));
-        let mut message_out_bytes;
-        let mut ratio;
-        // 20 is IP header, 8 is UDP header
-        while {
-            message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-            ratio = // 20 is IP header, 8 is UDP header
-            (message_out_bytes.len() as f64 + 20.0 + 8.0) / (message_len as f64 + 20.0 + 8.0);
-            trace!("ratio: {ratio}");
-            message_out.len() > 0 && might_be_ip_spoofing && ratio > 2.5
-        } {
-            debug!("{ratio}x ratio: dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?} {:?}", String::from_utf8_lossy(&message_in_bytes), String::from_utf8_lossy(&message_out_bytes));
-            message_out.pop();
-            if message_out.len() == 0 {
-                warn!("and none none left due to ratio!");
-            }
+        if might_be_ip_spoofing {
+            trim_reply(&mut message_out, message_in_len);
         }
         if message_out.len() == 0 {
             continue;
         }
-        if !might_be_ip_spoofing {
-            trace!( "sending message {:?} to {src}", String::from_utf8_lossy(&message_out_bytes));
-        } else {
-            trace!( "sending message {:?} to {src} \x1b[7mWITHOUT A KEY\x1b[m", String::from_utf8_lossy(&message_out_bytes));
-        }
+        let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
+        trace!( "sending message {:?} to {}{src}", if might_be_ip_spoofing {
+               "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
         match ps.socket.send_to(&message_out_bytes, src) {
             Ok(s) => trace!("sent {s}"),
             Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
+        }
+    }
+}
+fn trim_reply(message_out: &mut Vec<Value>, message_in_length: usize) {
+    let mut ratio;
+    let mut message_out_bytes;
+    while {
+        message_out_bytes = serde_json::to_vec(&message_out).unwrap();
+        ratio = // 20 is IP header, 8 is UDP header
+            (message_out_bytes.len() as f64 + 20.0 + 8.0) / (message_in_length  as f64 + 20.0 + 8.0);
+        trace!("ratio: {ratio}");
+        message_out.len() > 0 && ratio > 2.5
+    } {
+        warn!("{ratio}x ratio: this probably shouldn't happen often.  dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?}", String::from_utf8_lossy(&message_out_bytes));
+        message_out.pop();
+        if message_out.len() == 0 {
+            warn!("ratio: and none left!");
         }
     }
 }
@@ -378,43 +377,14 @@ fn main() -> Result<(), std::io::Error> {
 struct Peers {
     peers: HashSet<SocketAddr>,
 }
-#[derive(Serialize, Deserialize)]
-struct AlwaysReturned {
-    key: u32,
-}
-impl AlwaysReturned {
-    fn check_key(&self, ps: &PeerState, src: SocketAddr) -> bool {
-        let correct_key = ps
-            .peer_map
-            .get(&src)
-            .unwrap()
-            .anti_ip_spoofing_token_i_expect;
-        debug!("verified key for {src} is {correct_key}");
-        return correct_key != self.key;
-    }
-}
 
-#[derive(Serialize, Deserialize)]
-struct PleaseAlwaysReturnThisMessage {
-    key: u32,
-}
-impl PleaseAlwaysReturnThisMessage {
-    fn save_key(ps: &mut PeerState, src: SocketAddr, cookie: Value) {
-        debug!("saving key {cookie} for {src}");
-        ps.peer_map
-            .get_mut(&src)
-            .unwrap()
-            .anti_ip_spoofing_token_they_expect = cookie;
-        debug!("saved key verified {:?}", ps.always_returned(src));
-    }
-    fn new_message(ps: &PeerState, src: SocketAddr) -> Message {
-        let correct_key = ps
-            .peer_map
-            .get(&src)
-            .unwrap()
-            .anti_ip_spoofing_token_i_expect;
-        return Message::PleaseAlwaysReturnThisMessage(Self { key: correct_key });
-    }
+fn please_always_return(ps: &PeerState, src: SocketAddr) -> Message {
+    let correct_key = ps
+        .peer_map
+        .get(&src)
+        .unwrap()
+        .anti_ip_spoofing_token_i_expect;
+    return Message::PleaseAlwaysReturnThisMessage(correct_key);
 }
 
 #[derive(Serialize, Deserialize)]
@@ -426,12 +396,12 @@ impl PleaseSendPeers {
         might_be_ip_spoofing: bool,
         src: SocketAddr,
     ) -> Vec<Message> {
-        let p = ps.best_peers(2 + 45 * !might_be_ip_spoofing as i32, 6);
+        let p = ps.best_peers(1 + 45 * !might_be_ip_spoofing as i32, 6);
         debug!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
         trace!("sending {:?}/{:?} peers {:?}", p.len(), ps.peer_map.len(), p);
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
         if might_be_ip_spoofing {
-            message_out.push(PleaseAlwaysReturnThisMessage::new_message(&ps, src));
+            message_out.push(please_always_return(&ps, src));
         }
         return message_out;
     }
@@ -524,7 +494,7 @@ impl PleaseSendContent {
             ));
         }
         if might_be_ip_spoofing && message_out.len() > 0 {
-            message_out.push(PleaseAlwaysReturnThisMessage::new_message(&ps, src));
+            message_out.push(please_always_return(&ps, src));
         }
         return message_out;
     }
@@ -909,7 +879,7 @@ enum Message {
     PleaseReturnThisMessage(PleaseReturnThisMessage),
     ReturnedMessage(ReturnedMessage),
     MaybeTheyHaveSome(MaybeTheyHaveSome),
-    PleaseAlwaysReturnThisMessage(PleaseAlwaysReturnThisMessage),
-    AlwaysReturned(AlwaysReturned),
+    PleaseAlwaysReturnThisMessage(u32),
+    AlwaysReturned(u32),
     MyPublicKey(MyPublicKey),
 }

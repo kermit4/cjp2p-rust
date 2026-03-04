@@ -45,3 +45,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - hash of hashes could need 2 levels for files over 1GB  .. metadata says what it is, they just give  a hash?  or just another field in Content reply "hashLevel" layers to go.  morewlayers even. i get 2^12 each.   metadata extension time.  the hash is of the metadata?  or the hashes?  or no just critical parts of the metadata?  spam will fill rest.  but i want interopable hashes too. hmm.
 - buf reader and open file cache on sender side
 - break apart long functions, like in send_content..can have try_from_disk, and main() is too big
+- dont send back maybetheyhavesome of just the requesterrs ip
