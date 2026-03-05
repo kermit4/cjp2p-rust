@@ -483,7 +483,7 @@ impl PleaseSendContent {
             i.peers.insert(src);
             message_out.append(&mut i.send_content_peers(might_be_ip_spoofing, src));
         } else {
-            message_out.extend(Content::new_messages(&self, might_be_ip_spoofing, ps));
+            message_out.append(&mut Content::new_messages(&self, might_be_ip_spoofing, ps));
             if message_out.len() == 0
                 || (!might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 23 == 0)
             // if the file is small, they dont need more peers
