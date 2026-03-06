@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use snow::{Builder, Keypair};
 use std::cmp;
 use std::collections::{HashMap, HashSet};
-use std::io::{self, BufReader, BufWriter, Seek, SeekFrom, Write};
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 //use std::convert::TryInto;
 use std::env;
 //use std::fmt;
@@ -19,10 +19,14 @@ use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 //use std::io::copy;
+use nix::sys::select::{select, FdSet};
 use std::net::{SocketAddr, UdpSocket};
+use std::os::fd::AsFd;
 use std::os::unix::fs::FileExt;
 //use std::path::Path;
 use rand::Rng;
+use scanf::sscanf;
+use std::net::{TcpListener, TcpStream};
 use std::str;
 use std::time::{Duration, Instant};
 use std::vec;
@@ -293,6 +297,42 @@ impl PeerState {
         return message_out;
     }
 }
+
+struct HttpRequest {
+    method: String,
+    path: String,
+    headers: HashMap<String, String>,
+}
+
+fn parse_request(stream: &mut TcpStream) -> Option<HttpRequest> {
+    let mut buffer = [0; 4096];
+    let bytes_read = stream.read(&mut buffer).ok()?;
+    let request_str = String::from_utf8_lossy(&buffer[..bytes_read]);
+
+    let mut lines = request_str.lines();
+    let request_line = lines.next()?;
+    let mut parts = request_line.split_whitespace();
+
+    let method = parts.next()?.to_string();
+    let path = parts.next()?.to_string();
+
+    let mut headers = HashMap::new();
+    for line in lines {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((key, value)) = line.split_once(": ") {
+            headers.insert(key.to_lowercase(), value.to_string());
+        }
+    }
+
+    Some(HttpRequest {
+        method,
+        path,
+        headers,
+    })
+}
+
 fn main() -> Result<(), std::io::Error> {
     fs::create_dir("./shared").ok();
     std::env::set_current_dir("./shared").unwrap();
@@ -303,6 +343,7 @@ fn main() -> Result<(), std::io::Error> {
         .init();
     println!("logging level: {}", log::max_level());
     let mut ps: PeerState = PeerState::new();
+    let web_server = TcpListener::bind("0.0.0.0:24254").unwrap();
     // ugly    println!("your public ed25519 token for this session is:  {:?}",ps.keypair.public);
     let mut args = env::args();
     args.next();
@@ -313,51 +354,142 @@ fn main() -> Result<(), std::io::Error> {
     }
     let mut next_maintenance = Instant::now();
     let mut buf = [0; 0x10000];
+
     loop {
-        if next_maintenance.elapsed() > Duration::ZERO {
-            maintenance(&mut inbound_states, &mut ps);
-            next_maintenance =
-                Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(888..1111));
-        }
-        let (message_in_len, src) = match ps.socket.recv_from(&mut buf) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        let message_in_bytes = &buf[0..message_in_len];
-        trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
-        let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
-            Ok(r) => r,
+        let mut read_fds = FdSet::new();
+        read_fds.insert(ps.socket.as_fd());
+        read_fds.insert(web_server.as_fd());
+
+        match select(
+            None,
+            &mut read_fds,
+            None,
+            None,
+            &mut (nix::sys::time::TimeVal::new(1, 0)),
+        ) {
+            Ok(n) => {
+                debug!("select: {n}");
+            }
             Err(e) => {
-                warn!( "could not deserialize an incoming message {e}  :  {}",
-                    String::from_utf8_lossy(message_in_bytes));
+                warn!("select {:?}",e);
                 continue;
             }
-        };
-        if !ps.peer_map.contains_key(&src) {
-            ps.peer_map.insert(src, PeerInfo::new());
-            warn!("new peer spotted {src}");
-        };
-        let might_be_ip_spoofing = ps.check_key(&messages, src);
-        // This ist a Vec<Value> because I don't know the structure of the Please*Returns
-        let mut message_out =
-            ps.handle_messages(messages, src, might_be_ip_spoofing, &mut inbound_states);
-        if message_out.len() == 0 {
-            continue;
         }
-        message_out.append(&mut ps.always_returned(src));
-        if might_be_ip_spoofing {
-            trim_reply(&mut message_out, message_in_len);
+
+        if read_fds.contains(web_server.as_fd()) {
+            if let Ok((mut stream, _)) = web_server.accept() {
+                if let Some(req) = parse_request(&mut stream) {
+                    let mut start: usize = 0;
+                    let mut end: usize = 0;
+                    if let Some(range) = req.headers.get("range") {
+                        info!("got ranged req {} {} range {:?}",req.method,req.path,range);
+                        sscanf!(range, "bytes={}-{}",start,end).ok();
+                    } else {
+                        info!("got unranged http req {} {} {:?} ",req.method,req.path,req.headers);
+                    }
+
+                    let id = &req.path[1..];
+                    if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
+                        continue;
+                    }
+                    // abstractino layer between use and requests
+                    debug!(" start end {start} {end}");
+                    if end == 0 {
+                        end = start + 0x40000;
+                    }
+
+                    if let Ok(file) = File::open(&id) {
+                        let mut buf = vec![0; end-start ];
+                        let length = file.read_at(&mut buf, start as u64).unwrap();
+                        let response = format!(
+                            "HTTP/1.1 206 Partial Content\r\n\
+                             Content-Length: {}\r\n\
+                             Content-Type: video/mp4\r\n\
+                            Content-Range: bytes {}-{}/{}\r\n\
+                            \r\n"
+                            ,length,start,start+length-1,
+                            file.metadata().unwrap().len());
+                        debug!("http response {}",response);
+                        //stream.set_write_timeout(Some(Duration::new(1, 0)))?
+                        // it should fit in the buffer though
+                        stream.write_all(response.as_bytes()).ok();
+                        stream.write_all(&buf).ok();
+                    } else {
+                        let i = match inbound_states.get_mut(id) {
+                            Some(i) => i,
+                            _ => {
+                                let new_i = InboundState::new(id);
+                                info!("queing inbound file {:?}", id);
+                                inbound_states.insert(id.to_string(), new_i);
+                                inbound_states.get_mut(id).unwrap()
+                            }
+                        };
+                        i.http_time = Instant::now();
+                        i.http_start = start;
+                        i.http_end = end;
+                        i.http_socket = Some(stream);
+                        if !i.serve_http_if_any_is_ready() {
+                            info!("scheduling  inbound file {:?}", id);
+                            i.next_block = start as usize / BLOCK_SIZE!();
+                        }
+
+                        //but now we have to block but not block until content is hree if its not
+                        // but why if  im doing 256k blocks anyway, or b locks of 256k blocks
+                        //bit its still sorta the same, the bits are just 256k not 4k
+                        //so write it and add the layer in after
+                        //if each seek needs 256k though and the window is 0.. thats like 1.5s
+                        //seek.ok display before done, just dont RELAY before done.
+                        //but if its in motion, no, our window is huge
+                    }
+                }
+            }
         }
-        if message_out.len() == 0 {
-            warn!("ratio: none left!");
-            continue;
-        }
-        let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-        trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
+        if read_fds.contains(ps.socket.as_fd()) {
+            if next_maintenance.elapsed() > Duration::ZERO {
+                maintenance(&mut inbound_states, &mut ps);
+                next_maintenance = Instant::now()
+                    + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
+            }
+            let (message_in_len, src) = match ps.socket.recv_from(&mut buf) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let message_in_bytes = &buf[0..message_in_len];
+            trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
+            let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!( "could not deserialize an incoming message {e}  :  {}",
+                    String::from_utf8_lossy(message_in_bytes));
+                    continue;
+                }
+            };
+            if !ps.peer_map.contains_key(&src) {
+                ps.peer_map.insert(src, PeerInfo::new());
+                warn!("new peer spotted {src}");
+            };
+            let might_be_ip_spoofing = ps.check_key(&messages, src);
+            // This ist a Vec<Value> because I don't know the structure of the Please*Returns
+            let mut message_out =
+                ps.handle_messages(messages, src, might_be_ip_spoofing, &mut inbound_states);
+            if message_out.len() == 0 {
+                continue;
+            }
+            message_out.append(&mut ps.always_returned(src));
+            if might_be_ip_spoofing {
+                trim_reply(&mut message_out, message_in_len);
+            }
+            if message_out.len() == 0 {
+                warn!("ratio: none left!");
+                continue;
+            }
+            let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
+            trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
-        match ps.socket.send_to(&message_out_bytes, src) {
-            Ok(s) => trace!("sent {s}"),
-            Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
+            match ps.socket.send_to(&message_out_bytes, src) {
+                Ok(s) => trace!("sent {s}"),
+                Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
+            }
         }
     }
 }
@@ -484,17 +616,17 @@ impl PleaseSendContent {
             message_out.append(&mut i.send_content_peers(might_be_ip_spoofing, src));
         } else {
             message_out.append(&mut Content::new_messages(&self, might_be_ip_spoofing, ps));
-            if message_out.len() == 0
-                || (!might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 23 == 0)
-            // if the file is small, they dont need more peers
-            // and if its big they'll hit this random often
-            {
-                message_out.append(&mut InboundState::send_content_peers_from_disk(
-                    &self.id,
-                    might_be_ip_spoofing,
-                    &src,
-                ));
-            }
+        }
+        if message_out.len() == 0
+            || (!might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 23 == 0)
+        // if the file is small, they dont need more peers
+        // and if its big they'll hit this random often
+        {
+            message_out.append(&mut InboundState::send_content_peers_from_disk(
+                &self.id,
+                might_be_ip_spoofing,
+                &src,
+            ));
         }
         if might_be_ip_spoofing && message_out.len() > 0 {
             message_out.push(ps.please_always_return(src));
@@ -570,6 +702,7 @@ impl Content {
         i.peers.insert(src);
         let mut message_out = i.receive_content(&self);
         if i.finished() {
+            i.serve_http_if_any_is_ready(); // TODO force this to not care how much is left
             inbound_states.remove(&self.id);
         }
         if message_out.len() == 0 {
@@ -604,6 +737,10 @@ struct InboundState {
     last_activity: Instant,
     hash_failures: i32,
     fpos: usize,
+    http_time: Instant,
+    http_start: usize,
+    http_end: usize,
+    http_socket: Option<TcpStream>,
 }
 
 impl InboundState {
@@ -620,6 +757,10 @@ impl InboundState {
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
             fpos: 0,
+            http_time: Instant::now(),
+            http_start: 0,
+            http_end: 0,
+            http_socket: None,
         };
     }
 
@@ -637,6 +778,7 @@ impl InboundState {
             self.bitmap.resize(blocks, false);
         }
 
+        self.serve_http_if_any_is_ready();
         if self.bitmap[block_number] {
             info!("dup {block_number}");
         } else if content.base64.len() == BLOCK_SIZE!()
@@ -797,6 +939,65 @@ impl InboundState {
         self.next_block = 0;
         self.bytes_complete = 0;
         return false;
+    }
+    fn serve_http_if_any_is_ready(&mut self) -> bool {
+        debug!("trying to http serve {}",self.id);
+        if self.http_socket.is_none() {
+            return true;
+        }
+        if self.eof < self.http_end {
+            self.http_end = self.eof;
+        }
+        if self.bitmap[(self.http_start / BLOCK_SIZE!())..((self.http_end + 4095) / BLOCK_SIZE!())]
+            .first_zero()
+            .is_some()
+        {
+            return false;
+        }
+        let waited = self.http_time.elapsed();
+        if waited > Duration::from_millis(120) {
+            warn!("
+    \x1b[7;31m
+            {} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
+        } else if waited > Duration::from_millis(60) {
+            info!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
+        } else if waited > Duration::from_millis(2) {
+            debug!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
+        }
+
+        let mut buf = vec![0; self.http_end-self.http_start ];
+        self.file.as_mut().unwrap().flush().unwrap();
+        let length = self
+            .file
+            .as_mut()
+            .unwrap()
+            .get_mut()
+            .read_at(&mut buf, self.http_start as u64)
+            .unwrap();
+        self.fpos = self
+            .file
+            .as_mut()
+            .unwrap()
+            .get_mut()
+            .stream_position()
+            .unwrap() as usize;
+        let response = format!(
+            "HTTP/1.1 206 Partial Content\r\n\
+             Content-Length: {}\r\n\
+             Content-Type: video/mp4\r\n\
+            Content-Range: bytes {}-{}/{}\r\n\
+            \r\n"
+            ,length,self.http_start,self.http_start+length-1,
+            self.eof);
+        debug!("http response {}",response);
+        self.http_socket
+            .as_mut()
+            .unwrap()
+            .write_all(response.as_bytes())
+            .ok();
+        self.http_socket.as_mut().unwrap().write_all(&buf).ok();
+        self.http_socket = None;
+        return true;
     }
 }
 

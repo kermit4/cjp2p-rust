@@ -26,7 +26,8 @@ log =   ">=0.0.0"
 rand =   ">=0.0.0"
 chrono =   ">=0.0.0"
 getifaddrs =   ">=0.0.0"
-nix =   { version = ">=0.0.0" , features = ["net"] }
+scanf =   "=1.2.3"
+nix =   { version = ">=0.0.0" , features = ["net","poll"] }
 #blake3 = "=1.8.2"
 snow =   "=0.9.3"
 serde_with = { version = "3.0", features = ["base64"] }
