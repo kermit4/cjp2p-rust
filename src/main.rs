@@ -438,7 +438,7 @@ fn handle_web_request(
                 i.http_start = start;
                 i.http_end = end;
                 i.http_socket = Some(stream);
-                if !i.serve_http_if_any_is_ready() {
+        if i.eof >= i.http_end + BLOCK_SIZE!() && !i.serve_http_if_any_is_ready() {
                     info!("http scheduling inbound file {:?}", id);
                     i.next_block = start as usize / BLOCK_SIZE!();
                     for _ in 1..9 {
@@ -583,7 +583,7 @@ struct Content {
 
 impl PleaseSendContent {
     fn new_messages(i: &mut InboundState) -> Vec<Message> {
-        if i.http_socket.is_some() && i.next_block *BLOCK_SIZE!() > i.http_end 
+        if i.http_socket.is_some() && i.next_block * BLOCK_SIZE!() > i.http_end
         // try harder if user is waiting
         {
             debug!("http trying harder!");
