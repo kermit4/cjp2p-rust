@@ -438,7 +438,7 @@ fn handle_web_request(
                 i.http_start = start;
                 i.http_end = end;
                 i.http_socket = Some(stream);
-        if i.eof >= i.http_end + BLOCK_SIZE!() && !i.serve_http_if_any_is_ready() {
+                if i.eof >= i.http_end + BLOCK_SIZE!() && !i.serve_http_if_any_is_ready() {
                     info!("http scheduling inbound file {:?}", id);
                     i.next_block = start as usize / BLOCK_SIZE!();
                     for _ in 1..9 {
