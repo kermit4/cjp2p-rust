@@ -371,7 +371,7 @@ fn main() -> Result<(), std::io::Error> {
         }
 
         if read_fds.contains(web_server.as_fd()) {
-            handle_web_request(&web_server, &mut inbound_states);
+            handle_web_request(&web_server, &mut inbound_states, &ps);
         }
         if read_fds.contains(ps.socket.as_fd()) {
             handle_network(&mut ps, &mut inbound_states);
@@ -386,13 +386,14 @@ fn main() -> Result<(), std::io::Error> {
 fn handle_web_request(
     web_server: &TcpListener,
     inbound_states: &mut HashMap<String, InboundState>,
+    ps: &PeerState,
 ) {
     if let Ok((mut stream, _)) = web_server.accept() {
         if let Some(req) = parse_header(&mut stream) {
             let mut start: usize = 0;
             let mut end: usize = 0;
             if let Some(range) = req.headers.get("range") {
-                info!("got ranged req {} range {:?}",req.path,range);
+                info!("got ranged http req {} range {:?}",req.path,range);
                 sscanf!(range, "bytes={}-{}",start,end).ok();
             } else {
                 info!("got unranged http req {} {:?} ",req.path,req.headers);
@@ -402,7 +403,7 @@ fn handle_web_request(
             if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
                 return;
             }
-            debug!(" start end {start} {end}");
+            debug!("http start end {start} {end}");
             if end == 0 {
                 end = start + 0x40000;
             }
@@ -428,7 +429,7 @@ fn handle_web_request(
                     Some(i) => i,
                     _ => {
                         let new_i = InboundState::new(id);
-                        info!("queing inbound file {:?}", id);
+                        info!("http queing inbound file {:?}", id);
                         inbound_states.insert(id.to_string(), new_i);
                         inbound_states.get_mut(id).unwrap()
                     }
@@ -438,8 +439,11 @@ fn handle_web_request(
                 i.http_end = end;
                 i.http_socket = Some(stream);
                 if !i.serve_http_if_any_is_ready() {
-                    info!("scheduling  inbound file {:?}", id);
+                    info!("http scheduling inbound file {:?}", id);
                     i.next_block = start as usize / BLOCK_SIZE!();
+                    for _ in 1..9 {
+                        i.request_blocks(ps, i.peers.clone());
+                    }
                 }
 
                 //but now we have to block but not block until content is hree if its not
@@ -579,6 +583,12 @@ struct Content {
 
 impl PleaseSendContent {
     fn new_messages(i: &mut InboundState) -> Vec<Message> {
+        if i.http_socket.is_some() && i.next_block *BLOCK_SIZE!() > i.http_end 
+        // try harder if user is waiting
+        {
+            debug!("http trying harder!");
+            i.next_block = i.http_start as usize / BLOCK_SIZE!();
+        }
         while {
             if i.next_block * BLOCK_SIZE!() >= i.eof {
                 // %EOF
@@ -691,7 +701,10 @@ impl Content {
                 self.id, self.offset / BLOCK_SIZE!());
             return vec![];
         }
-        if (rand::thread_rng().gen::<u32>() % 101) == 0 || self.offset == 0 {
+        let i = inbound_states.get_mut(&self.id).unwrap();
+        if (rand::thread_rng().gen::<u32>() % (if i.http_socket.is_some() { 7 } else { 101 })) == 0
+            || self.offset == 0
+        {
             for (_, i) in inbound_states.iter_mut() {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
@@ -818,7 +831,7 @@ impl InboundState {
         return message_out;
     }
 
-    fn request_blocks(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
+    fn request_blocks(&mut self, ps: &PeerState, some_peers: HashSet<SocketAddr>) {
         for sa in some_peers {
             let mut message_out: Vec<Value> = Vec::new();
             for m in PleaseSendContent::new_messages(self) {
@@ -945,7 +958,6 @@ impl InboundState {
         return false;
     }
     fn serve_http_if_any_is_ready(&mut self) -> bool {
-        debug!("trying to http serve {}",self.id);
         if self.http_socket.is_none() {
             return true;
         }
