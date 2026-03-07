@@ -445,11 +445,6 @@ fn main() -> Result<(), std::io::Error> {
             }
         }
         if read_fds.contains(ps.socket.as_fd()) {
-            if next_maintenance.elapsed() > Duration::ZERO {
-                maintenance(&mut inbound_states, &mut ps);
-                next_maintenance = Instant::now()
-                    + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
-            }
             let (message_in_len, src) = match ps.socket.recv_from(&mut buf) {
                 Ok(r) => r,
                 Err(_) => continue,
@@ -490,6 +485,11 @@ fn main() -> Result<(), std::io::Error> {
                 Ok(s) => trace!("sent {s}"),
                 Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
             }
+        }
+        if next_maintenance.elapsed() > Duration::ZERO {
+            maintenance(&mut inbound_states, &mut ps);
+            next_maintenance =
+                Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
         }
     }
 }
