@@ -299,21 +299,20 @@ impl PeerState {
 }
 
 struct HttpRequest {
-    method: String,
     path: String,
     headers: HashMap<String, String>,
 }
 
-fn parse_request(stream: &mut TcpStream) -> Option<HttpRequest> {
-    let mut buffer = [0; 4096];
-    let bytes_read = stream.read(&mut buffer).ok()?;
-    let request_str = String::from_utf8_lossy(&buffer[..bytes_read]);
+fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
+    let mut buf = [0; 4096];
+    let len = stream.read(&mut buf).ok()?;
+    let request_str = String::from_utf8_lossy(&buf[..len]);
 
     let mut lines = request_str.lines();
     let request_line = lines.next()?;
     let mut parts = request_line.split_whitespace();
 
-    let method = parts.next()?.to_string();
+    let _ = parts.next()?.to_string();
     let path = parts.next()?.to_string();
 
     let mut headers = HashMap::new();
@@ -326,11 +325,7 @@ fn parse_request(stream: &mut TcpStream) -> Option<HttpRequest> {
         }
     }
 
-    Some(HttpRequest {
-        method,
-        path,
-        headers,
-    })
+    Some(HttpRequest { path, headers })
 }
 
 fn main() -> Result<(), std::io::Error> {
@@ -353,7 +348,6 @@ fn main() -> Result<(), std::io::Error> {
         inbound_states.insert(v.to_string(), InboundState::new(&v));
     }
     let mut next_maintenance = Instant::now();
-    let mut buf = [0; 0x10000];
 
     loop {
         let mut read_fds = FdSet::new();
@@ -377,31 +371,46 @@ fn main() -> Result<(), std::io::Error> {
         }
 
         if read_fds.contains(web_server.as_fd()) {
-            if let Ok((mut stream, _)) = web_server.accept() {
-                if let Some(req) = parse_request(&mut stream) {
-                    let mut start: usize = 0;
-                    let mut end: usize = 0;
-                    if let Some(range) = req.headers.get("range") {
-                        info!("got ranged req {} {} range {:?}",req.method,req.path,range);
-                        sscanf!(range, "bytes={}-{}",start,end).ok();
-                    } else {
-                        info!("got unranged http req {} {} {:?} ",req.method,req.path,req.headers);
-                    }
+            handle_web_request(&web_server, &mut inbound_states);
+        }
+        if read_fds.contains(ps.socket.as_fd()) {
+            handle_network(&mut ps, &mut inbound_states);
+        }
+        if next_maintenance.elapsed() > Duration::ZERO {
+            maintenance(&mut inbound_states, &mut ps);
+            next_maintenance =
+                Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
+        }
+    }
+}
+fn handle_web_request(
+    web_server: &TcpListener,
+    inbound_states: &mut HashMap<String, InboundState>,
+) {
+    if let Ok((mut stream, _)) = web_server.accept() {
+        if let Some(req) = parse_header(&mut stream) {
+            let mut start: usize = 0;
+            let mut end: usize = 0;
+            if let Some(range) = req.headers.get("range") {
+                info!("got ranged req {} range {:?}",req.path,range);
+                sscanf!(range, "bytes={}-{}",start,end).ok();
+            } else {
+                info!("got unranged http req {} {:?} ",req.path,req.headers);
+            }
 
-                    let id = &req.path[1..];
-                    if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
-                        continue;
-                    }
-                    // abstractino layer between use and requests
-                    debug!(" start end {start} {end}");
-                    if end == 0 {
-                        end = start + 0x40000;
-                    }
+            let id = &req.path[1..];
+            if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
+                return;
+            }
+            debug!(" start end {start} {end}");
+            if end == 0 {
+                end = start + 0x40000;
+            }
 
-                    if let Ok(file) = File::open(&id) {
-                        let mut buf = vec![0; end-start ];
-                        let length = file.read_at(&mut buf, start as u64).unwrap();
-                        let response = format!(
+            if let Ok(file) = File::open(&id) {
+                let mut buf = vec![0; end-start ];
+                let length = file.read_at(&mut buf, start as u64).unwrap();
+                let response = format!(
                             "HTTP/1.1 206 Partial Content\r\n\
                              Content-Length: {}\r\n\
                              Content-Type: video/mp4\r\n\
@@ -409,88 +418,83 @@ fn main() -> Result<(), std::io::Error> {
                             \r\n"
                             ,length,start,start+length-1,
                             file.metadata().unwrap().len());
-                        debug!("http response {}",response);
-                        //stream.set_write_timeout(Some(Duration::new(1, 0)))?
-                        // it should fit in the buffer though
-                        stream.write_all(response.as_bytes()).ok();
-                        stream.write_all(&buf).ok();
-                    } else {
-                        let i = match inbound_states.get_mut(id) {
-                            Some(i) => i,
-                            _ => {
-                                let new_i = InboundState::new(id);
-                                info!("queing inbound file {:?}", id);
-                                inbound_states.insert(id.to_string(), new_i);
-                                inbound_states.get_mut(id).unwrap()
-                            }
-                        };
-                        i.http_time = Instant::now();
-                        i.http_start = start;
-                        i.http_end = end;
-                        i.http_socket = Some(stream);
-                        if !i.serve_http_if_any_is_ready() {
-                            info!("scheduling  inbound file {:?}", id);
-                            i.next_block = start as usize / BLOCK_SIZE!();
-                        }
-
-                        //but now we have to block but not block until content is hree if its not
-                        // but why if  im doing 256k blocks anyway, or b locks of 256k blocks
-                        //bit its still sorta the same, the bits are just 256k not 4k
-                        //so write it and add the layer in after
-                        //if each seek needs 256k though and the window is 0.. thats like 1.5s
-                        //seek.ok display before done, just dont RELAY before done.
-                        //but if its in motion, no, our window is huge
+                debug!("http response {}",response);
+                //stream.set_write_timeout(Some(Duration::new(1, 0)))?
+                // it should fit in the buffer though
+                stream.write_all(response.as_bytes()).ok();
+                stream.write_all(&buf).ok();
+            } else {
+                let i = match inbound_states.get_mut(id) {
+                    Some(i) => i,
+                    _ => {
+                        let new_i = InboundState::new(id);
+                        info!("queing inbound file {:?}", id);
+                        inbound_states.insert(id.to_string(), new_i);
+                        inbound_states.get_mut(id).unwrap()
                     }
+                };
+                i.http_time = Instant::now();
+                i.http_start = start;
+                i.http_end = end;
+                i.http_socket = Some(stream);
+                if !i.serve_http_if_any_is_ready() {
+                    info!("scheduling  inbound file {:?}", id);
+                    i.next_block = start as usize / BLOCK_SIZE!();
                 }
+
+                //but now we have to block but not block until content is hree if its not
+                // but why if  im doing 256k blocks anyway, or b locks of 256k blocks
+                //bit its still sorta the same, the bits are just 256k not 4k
+                //so write it and add the layer in after
+                //if each seek needs 256k though and the window is 0.. thats like 1.5s
+                //seek.ok display before done, just dont RELAY before done.
+                //but if its in motion, no, our window is huge
             }
         }
-        if read_fds.contains(ps.socket.as_fd()) {
-            let (message_in_len, src) = match ps.socket.recv_from(&mut buf) {
-                Ok(r) => r,
-                Err(_) => continue,
-            };
-            let message_in_bytes = &buf[0..message_in_len];
-            trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
-            let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
-                Ok(r) => r,
-                Err(e) => {
-                    warn!( "could not deserialize an incoming message {e}  :  {}",
+    }
+}
+
+fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
+    let mut buf = [0; 0x10000];
+
+    let (message_in_len, src) = match ps.socket.recv_from(&mut buf) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let message_in_bytes = &buf[0..message_in_len];
+    trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
+    let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!( "could not deserialize an incoming message {e}  :  {}",
                     String::from_utf8_lossy(message_in_bytes));
-                    continue;
-                }
-            };
-            if !ps.peer_map.contains_key(&src) {
-                ps.peer_map.insert(src, PeerInfo::new());
-                warn!("new peer spotted {src}");
-            };
-            let might_be_ip_spoofing = ps.check_key(&messages, src);
-            // This ist a Vec<Value> because I don't know the structure of the Please*Returns
-            let mut message_out =
-                ps.handle_messages(messages, src, might_be_ip_spoofing, &mut inbound_states);
-            if message_out.len() == 0 {
-                continue;
-            }
-            message_out.append(&mut ps.always_returned(src));
-            if might_be_ip_spoofing {
-                trim_reply(&mut message_out, message_in_len);
-            }
-            if message_out.len() == 0 {
-                warn!("ratio: none left!");
-                continue;
-            }
-            let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-            trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
+            return;
+        }
+    };
+    if !ps.peer_map.contains_key(&src) {
+        ps.peer_map.insert(src, PeerInfo::new());
+        warn!("new peer spotted {src}");
+    };
+    let might_be_ip_spoofing = ps.check_key(&messages, src);
+    // This ist a Vec<Value> because I don't know the structure of the Please*Returns
+    let mut message_out = ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
+    if message_out.len() == 0 {
+        return;
+    }
+    message_out.append(&mut ps.always_returned(src));
+    if might_be_ip_spoofing {
+        trim_reply(&mut message_out, message_in_len);
+    }
+    if message_out.len() == 0 {
+        warn!("ratio: none left!");
+        return;
+    }
+    let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
+    trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
-            match ps.socket.send_to(&message_out_bytes, src) {
-                Ok(s) => trace!("sent {s}"),
-                Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
-            }
-        }
-        if next_maintenance.elapsed() > Duration::ZERO {
-            maintenance(&mut inbound_states, &mut ps);
-            next_maintenance =
-                Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
-        }
+    match ps.socket.send_to(&message_out_bytes, src) {
+        Ok(s) => trace!("sent {s}"),
+        Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
     }
 }
 fn trim_reply(message_out: &mut Vec<Value>, message_in_length: usize) {
