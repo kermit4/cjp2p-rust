@@ -463,42 +463,50 @@ fn handle_web_request(
 fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
     let mut buf = [0; 0x10000];
 
-    while let Ok((message_in_len, src)) = ps.socket.recv_from(&mut buf) {
-        let message_in_bytes = &buf[0..message_in_len];
-        trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
-        let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
-            Ok(r) => r,
-            Err(e) => {
-                warn!( "could not deserialize an incoming message {e}  :  {}",
+    let mut max_pselect_bypass = 11;
+    while {
+        max_pselect_bypass -= 1;
+        max_pselect_bypass > 0
+    } {
+        if let Ok((message_in_len, src)) = ps.socket.recv_from(&mut buf) {
+            let message_in_bytes = &buf[0..message_in_len];
+            trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
+            let messages: Vec<Value> = match serde_json::from_slice(message_in_bytes) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!( "could not deserialize an incoming message {e}  :  {}",
                     String::from_utf8_lossy(message_in_bytes));
-                return;
+                    continue;
+                }
+            };
+            if !ps.peer_map.contains_key(&src) {
+                ps.peer_map.insert(src, PeerInfo::new());
+                warn!("new peer spotted {src}");
+            };
+            let might_be_ip_spoofing = ps.check_key(&messages, src);
+            // This ist a Vec<Value> because I don't know the structure of the Please*Returns
+            let mut message_out =
+                ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
+            if message_out.len() == 0 {
+                continue;
             }
-        };
-        if !ps.peer_map.contains_key(&src) {
-            ps.peer_map.insert(src, PeerInfo::new());
-            warn!("new peer spotted {src}");
-        };
-        let might_be_ip_spoofing = ps.check_key(&messages, src);
-        // This ist a Vec<Value> because I don't know the structure of the Please*Returns
-        let mut message_out =
-            ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
-        if message_out.len() == 0 {
-            return;
-        }
-        message_out.append(&mut ps.always_returned(src));
-        if might_be_ip_spoofing {
-            trim_reply(&mut message_out, message_in_len);
-        }
-        if message_out.len() == 0 {
-            warn!("ratio: none left!");
-            return;
-        }
-        let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-        trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
+            message_out.append(&mut ps.always_returned(src));
+            if might_be_ip_spoofing {
+                trim_reply(&mut message_out, message_in_len);
+            }
+            if message_out.len() == 0 {
+                warn!("ratio: none left!");
+                continue;
+            }
+            let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
+            trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
-        match ps.socket.send_to(&message_out_bytes, src) {
-            Ok(s) => trace!("sent {s}"),
-            Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
+            match ps.socket.send_to(&message_out_bytes, src) {
+                Ok(s) => trace!("sent {s}"),
+                Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
+            }
+        } else {
+            return;
         }
     }
 }
