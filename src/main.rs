@@ -592,7 +592,9 @@ struct Content {
 
 impl PleaseSendContent {
     fn new_messages(i: &mut InboundState) -> Vec<Message> {
-        if i.http_socket.is_some() && i.next_block * BLOCK_SIZE!() > i.http_end
+        if i.http_socket.is_some()
+            && (i.next_block * BLOCK_SIZE!() > i.http_end
+                || i.next_block * BLOCK_SIZE!() < i.http_start)
         // try harder if user is waiting
         {
             debug!("http trying harder!");
