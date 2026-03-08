@@ -957,9 +957,7 @@ impl InboundState {
         }
         let waited = self.http_time.elapsed();
         if waited > Duration::from_millis(120) {
-            warn!("
-    \x1b[7;31m
-            {} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
+            warn!("\x1b[7;31m {} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
         } else if waited > Duration::from_millis(60) {
             info!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
         } else if waited > Duration::from_millis(2) {
