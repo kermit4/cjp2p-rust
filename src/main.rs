@@ -964,7 +964,7 @@ impl InboundState {
              Content-Type: video/mp4\r\n\
             Content-Range: bytes {}-{}/{}\r\n\
             \r\n"
-            ,self.http_start-self.http_end,self.http_start,self.http_start+self.http_end-1,
+            ,self.http_end-self.http_start,self.http_start,self.http_end-1,
             self.eof);
         debug!("http response {}",response);
         self.http_socket
