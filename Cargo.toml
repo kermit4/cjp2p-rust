@@ -32,3 +32,4 @@ nix =   { version = ">=0.0.0" , features = ["net","poll"] }
 snow =   "=0.9.3"
 serde_with = { version = "3.0", features = ["base64"] }
 time-core = "=0.1.0"
+memmap2 = ">=0.0.0"

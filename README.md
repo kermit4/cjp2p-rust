@@ -44,7 +44,7 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - encryption? snow crate / noise protocol 
 - if one file cant be found, the rest wont start
 - hash of hashes could need 2 levels for files over 1GB  .. metadata says what it is, they just give  a hash?  or just another field in Content reply "hashLevel" layers to go.  morewlayers even. i get 2^12 each.   metadata extension time.  the hash is of the metadata?  or the hashes?  or no just critical parts of the metadata?  spam will fill rest.  but i want interopable hashes too. hmm.
-- http localhost service, with random access ability
 - library - poll with timeout parameter, or provide the fd to let the app use in its own select loop?
 - trust
 -- this should be just using mmap instead of bufreadwrite stuff..let the kernel handle it...too much seeking and buffering and flushing code 
+so are the 256k blocks like files or just some metadata or what, how do i scale this up.

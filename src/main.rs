@@ -3,6 +3,7 @@ use bitvec::prelude::*;
 use chrono::{Timelike, Utc};
 use env_logger::fmt::TimestampPrecision;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
+use memmap2::MmapMut;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use serde_with::{base64::Base64, serde_as};
@@ -10,7 +11,7 @@ use sha2::{Digest, Sha256};
 use snow::{Builder, Keypair};
 use std::cmp;
 use std::collections::{HashMap, HashSet};
-use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 //use std::convert::TryInto;
 use std::env;
 //use std::fmt;
@@ -438,7 +439,7 @@ fn handle_web_request(
                 i.http_start = start;
                 i.http_end = end;
                 i.http_socket = Some(stream);
-                if i.eof >= i.http_end + BLOCK_SIZE!() && !i.serve_http_if_any_is_ready() {
+                if i.eof >= i.http_end && !i.serve_http_if_any_is_ready() {
                     info!("http scheduling inbound file {:?}", id);
                     i.next_block = start as usize / BLOCK_SIZE!();
                     for _ in 1..9 {
@@ -744,7 +745,7 @@ impl Content {
 }
 //
 struct InboundState {
-    file: Option<BufWriter<File>>,
+    mmap: Option<MmapMut>,
     next_block: usize,
     bitmap: BitVec,
     id: String,
@@ -753,7 +754,6 @@ struct InboundState {
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
     hash_failures: i32,
-    fpos: usize,
     http_time: Instant,
     http_start: usize,
     http_end: usize,
@@ -764,7 +764,7 @@ impl InboundState {
     fn new(id: &str) -> Self {
         fs::create_dir("./incoming").ok();
         return Self {
-            file: None,
+            mmap: None,
             next_block: 0,
             bitmap: bitvec![0;(1<<18)/BLOCK_SIZE!()],
             id: id.to_string(),
@@ -773,7 +773,6 @@ impl InboundState {
             peers: HashSet::new(),
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
-            fpos: 0,
             http_time: Instant::now(),
             http_start: 0,
             http_end: 0,
@@ -789,41 +788,30 @@ impl InboundState {
             None => content.offset + content.base64.len() + 1,
         };
 
-        if this_eof != self.eof {
+        if this_eof != self.eof || self.mmap.is_none() {
             self.eof = this_eof;
             let blocks = (self.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
             self.bitmap.resize(blocks, false);
+            let file = OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .open("./incoming/".to_owned() + &self.id)
+                .unwrap();
+            file.set_len(self.eof as u64).unwrap();
+            self.mmap = Some(unsafe { MmapMut::map_mut(&file).unwrap() });
         }
 
-        self.serve_http_if_any_is_ready();
         if self.bitmap[block_number] {
             info!("dup {block_number}");
         } else if content.base64.len() == BLOCK_SIZE!()
             || content.base64.len() + content.offset == self.eof
         {
-            if self.file.is_none() {
-                debug!("{}  opening file!", self.id);
-                self.file = Some(BufWriter::with_capacity(
-                    1 << 18,
-                    OpenOptions::new()
-                        .create(true)
-                        .read(true)
-                        .write(true)
-                        .open("./incoming/".to_owned() + &self.id)
-                        .unwrap(),
-                ));
-            }
-            if self.fpos != content.offset {
-                self.file
-                    .as_mut()
-                    .unwrap()
-                    .seek(SeekFrom::Start(content.offset as u64))
-                    .unwrap();
-                self.fpos = content.offset;
-            }
-            self.fpos += self.file.as_mut().unwrap().write(&content.base64).unwrap();
+            self.mmap.as_mut().unwrap()[content.offset..content.base64.len() + content.offset]
+                .copy_from_slice(content.base64.as_ref());
             self.bytes_complete += content.base64.len();
             self.bitmap.set(block_number, true);
+            self.serve_http_if_any_is_ready();
         }
         self.last_activity = Instant::now();
         let message_out = PleaseSendContent::new_messages(self);
@@ -919,19 +907,9 @@ impl InboundState {
         if self.bytes_complete != self.eof {
             return false;
         }
-        self.file.as_mut().unwrap().flush().unwrap();
-        self.file
-            .as_mut()
-            .unwrap()
-            .seek(SeekFrom::Start(0))
-            .unwrap();
         let mut hasher = Sha256::new();
         info!("{} starting sha256sum", self.id);
-        io::copy(
-            &mut BufReader::with_capacity(1 << 18, self.file.as_mut().unwrap().get_mut()),
-            &mut hasher,
-        )
-        .ok();
+        hasher.update(self.mmap.as_mut().unwrap());
         let hash = format!("{:x}", hasher.finalize());
         info!("{} sha256sum", hash);
         if hash == self.id.to_lowercase() {
@@ -951,8 +929,7 @@ impl InboundState {
         }
 
         self.bitmap.fill(false);
-        self.fpos = 0;
-        self.file = None;
+        self.mmap = None;
         self.next_block = 0;
         self.bytes_complete = 0;
         return false;
@@ -981,29 +958,13 @@ impl InboundState {
             debug!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
         }
 
-        let mut buf = vec![0; self.http_end-self.http_start ];
-        self.file.as_mut().unwrap().flush().unwrap();
-        let length = self
-            .file
-            .as_mut()
-            .unwrap()
-            .get_mut()
-            .read_at(&mut buf, self.http_start as u64)
-            .unwrap();
-        self.fpos = self
-            .file
-            .as_mut()
-            .unwrap()
-            .get_mut()
-            .stream_position()
-            .unwrap() as usize;
         let response = format!(
             "HTTP/1.1 206 Partial Content\r\n\
              Content-Length: {}\r\n\
              Content-Type: video/mp4\r\n\
             Content-Range: bytes {}-{}/{}\r\n\
             \r\n"
-            ,length,self.http_start,self.http_start+length-1,
+            ,self.http_start-self.http_end,self.http_start,self.http_start+self.http_end-1,
             self.eof);
         debug!("http response {}",response);
         self.http_socket
@@ -1011,7 +972,11 @@ impl InboundState {
             .unwrap()
             .write_all(response.as_bytes())
             .ok();
-        self.http_socket.as_mut().unwrap().write_all(&buf).ok();
+        self.http_socket
+            .as_mut()
+            .unwrap()
+            .write_all(&self.mmap.as_mut().unwrap()[self.http_start..self.http_end])
+            .ok();
         self.http_socket = None;
         return true;
     }
