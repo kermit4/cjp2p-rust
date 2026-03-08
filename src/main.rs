@@ -1012,13 +1012,9 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         debug!("restarting {}", i.id);
         i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
         i.request_blocks(ps, ps.best_peers(50, 6));
-        break; // TODO maybe just search one at a time, but not always the same one?
-               //
-               // this is to see how slow it would be if it was streaming new 256k created in real
-               // time.  really this should handle many or all at once, but test how well that
-               // works with 10000 at once..first issue is open file handles.  2nd is excessive
-               // paccket loss trying to spark that many at once, so there needs to be some liimt,
-               // but more than one.
+        if rand::thread_rng().gen::<u32>() % 2 == 0 {
+            break;
+        }
     }
 }
 
