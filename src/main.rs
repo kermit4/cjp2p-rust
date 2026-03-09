@@ -717,6 +717,8 @@ impl Content {
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
+        let block_number = self.offset / BLOCK_SIZE!();
+        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
         let mut message_out = i.receive_content(&self);
         if i.finished() {
             i.serve_http_if_any_is_ready(); // TODO force this to not care how much is left
@@ -781,7 +783,6 @@ impl InboundState {
 
     fn receive_content(&mut self, content: &Content) -> Vec<Message> {
         let block_number = content.offset / BLOCK_SIZE!();
-        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", content.id, block_number, block_number * BLOCK_SIZE!(), "", self.next_block as i64 - block_number as i64);
         let this_eof = match content.eof {
             Some(n) => n,
             None => content.offset + content.base64.len() + 1,
