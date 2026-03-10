@@ -291,6 +291,7 @@ impl PeerState {
                 Message::PleaseAlwaysReturnThisMessage(_) => vec![], // handled before this loop
                 Message::PleaseReturnThisMessage(_) => vec![], // handled before this loop
                 Message::MyPublicKey(t) => t.save_public_key(self, src),
+                Message::ChatMessage(t) => t.receive(self, src),
             } {
                 message_out.push(serde_json::json!(m));
             }
@@ -1071,6 +1072,21 @@ impl MyPublicKey {
 }
 
 #[derive(Serialize, Deserialize)]
+struct ChatMessage {
+    message: String,
+}
+impl ChatMessage {
+    fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+        println!(
+            "{src} from {:?} away said {}",
+            ps.peer_map[&src].delay,
+            self.message
+        );
+        return vec![];
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 enum Message {
     PleaseSendPeers(PleaseSendPeers),
     Peers(Peers),
@@ -1082,4 +1098,5 @@ enum Message {
     PleaseAlwaysReturnThisMessage(PleaseAlwaysReturnThisMessage),
     AlwaysReturned(AlwaysReturned),
     MyPublicKey(MyPublicKey),
+    ChatMessage(ChatMessage),
 }
