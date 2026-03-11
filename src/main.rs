@@ -1116,7 +1116,7 @@ impl ChatMessage {
     }
     fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
         println!(
-            "{src} 0x({}) from {:?} away said {}",
+            "{src} 0x({}) from {:?} away said \x07\x1b[7;33m{}\x1b[m",
             hex::encode(&ps.peer_map[&src].ed25519),
             ps.peer_map[&src].delay,
             self.message
