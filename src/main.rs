@@ -94,7 +94,7 @@ impl PeerState {
         return ps;
     }
     fn save_key(&mut self, src: SocketAddr, cookie: Value) {
-        debug!("saving token {cookie} for {src}");
+        trace!("saving token {cookie} for {src}");
         self.peer_map
             .get_mut(&src)
             .unwrap()
@@ -119,7 +119,7 @@ impl PeerState {
     }
 
     fn always_returned(&self, sa: SocketAddr) -> Vec<Value> {
-        debug!("always_returned for {sa}");
+        trace!("always_returned for {sa}");
         match self.peer_map.get(&sa) {
             None => return vec![],
             Some(p) => {
@@ -127,7 +127,7 @@ impl PeerState {
                 if token == json!({}) {
                     return vec![];
                 }
-                debug!("always_returned for {sa} found {token}");
+                trace!("always_returned for {sa} found {token}");
                 return vec![serde_json::json!({"AlwaysReturned": token }),
                 ];
             }
@@ -170,7 +170,7 @@ impl PeerState {
         for sa in to_probe.iter() {
             let message_out_bytes: Vec<u8> =
                 serde_json::to_vec(&vec![Message::PleaseSendPeers(PleaseSendPeers {})]).unwrap();
-            debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+            trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             self.socket.send_to(&message_out_bytes, sa).ok();
         }
     }
@@ -194,7 +194,7 @@ impl PeerState {
             );
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
 
-            debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+            trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             match self.socket.send_to(&message_out_bytes, sa) {
                 Ok(s) => trace!("sent {s}"),
                 Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
@@ -383,7 +383,7 @@ fn main() -> Result<(), std::io::Error> {
             &mut (nix::sys::time::TimeVal::new(1, 0)),
         ) {
             Ok(n) => {
-                debug!("select: {n}");
+                trace!("select: {n}");
             }
             Err(e) => {
                 warn!("select {:?}",e);
@@ -569,8 +569,7 @@ impl PleaseSendPeers {
         src: SocketAddr,
     ) -> Vec<Message> {
         let p = ps.best_peers(1 + 45 * !might_be_ip_spoofing as i32, 6);
-        debug!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
-        trace!("sending {:?}/{:?} peers {:?}", p.len(), ps.peer_map.len(), p);
+        trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
         if might_be_ip_spoofing {
             message_out.push(ps.please_always_return(src));
