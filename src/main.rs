@@ -187,11 +187,7 @@ impl PeerState {
                     ed25519: self.keypair.public.clone(),
                 })));
             message_out.append(&mut self.always_returned(sa));
-            message_out.push(
-                json!(Message::PleaseReturnThisMessage(PleaseReturnThisMessage {
-                    sent_at: self.boot.elapsed().as_secs_f64(),
-                })),
-            );
+            message_out.push(json!(PleaseReturnThisMessage::new(self)));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
 
             trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
@@ -396,7 +392,7 @@ fn main() -> Result<(), std::io::Error> {
             io::stdin().read_line(&mut line).unwrap();
             if line.len() > 1 {
                 for sa in ps.best_peers(100, 5) {
-                    let message_out = vec![ChatMessage::new(&ps,sa,line.clone())];
+                    let message_out = ChatMessage::new(&ps, sa, line.clone());
                     let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                     debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
                     ps.socket.send_to(&message_out_bytes, sa).ok();
@@ -1071,6 +1067,13 @@ impl MaybeTheyHaveSome {
 struct PleaseReturnThisMessage {
     sent_at: f64,
 }
+impl PleaseReturnThisMessage {
+    fn new(ps: &PeerState) -> Message {
+        Message::PleaseReturnThisMessage(Self {
+            sent_at: ps.boot.elapsed().as_secs_f64(),
+        })
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 struct ReturnedMessage {
@@ -1107,12 +1110,15 @@ struct ChatMessage {
     message: String,
 }
 impl ChatMessage {
-    fn new(ps: &PeerState, src: SocketAddr, message: String) -> Message {
+    fn new(ps: &PeerState, src: SocketAddr, message: String) -> Vec<Message> {
         let their_pub = &ps.peer_map[&src].ed25519;
-        let mut message_out = Message::ChatMessage(Self { message: message });
+        let mut message_out = vec![
+            PleaseReturnThisMessage::new(ps),
+            Message::ChatMessage(Self { message: message }),
+        ];
         if their_pub.len() > 0 {
             message_out =
-                EncryptedMessages::new(ps, src, serde_json::to_vec(&vec![message_out]).unwrap());
+                vec![EncryptedMessages::new(ps, src, serde_json::to_vec(&message_out).unwrap())];
         }
         return message_out;
     }
@@ -1124,7 +1130,7 @@ impl ChatMessage {
             self.message
         );
         if self.message == "/ping\n" {
-            return vec![ ChatMessage::new(ps,src,"PONG\n".to_string()) ];
+            return ChatMessage::new(ps, src, "PONG\n".to_string());
         }
         return vec![];
     }
