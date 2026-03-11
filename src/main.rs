@@ -394,11 +394,13 @@ fn main() -> Result<(), std::io::Error> {
         if read_fds.contains(stdin.as_fd()) {
             let mut line = String::new();
             io::stdin().read_line(&mut line).unwrap();
-            for sa in ps.best_peers(100, 5) {
-                let message_out = vec![ChatMessage::new(&ps,sa,line.clone())];
-                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
-                ps.socket.send_to(&message_out_bytes, sa).ok();
+            if line.len() > 1 {
+                for sa in ps.best_peers(100, 5) {
+                    let message_out = vec![ChatMessage::new(&ps,sa,line.clone())];
+                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                    debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+                    ps.socket.send_to(&message_out_bytes, sa).ok();
+                }
             }
         }
         if read_fds.contains(web_server.as_fd()) {
@@ -1115,14 +1117,14 @@ impl ChatMessage {
         return message_out;
     }
     fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
-        println!(
-            "{src} 0x({}) from {:?} away said \x07\x1b[7;33m{}\x1b[m",
+        println!("\x1b[7m{} {src} 0x({}) from {:?} away said \x07\x1b[33m{}\x1b[m",
+            Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519),
             ps.peer_map[&src].delay,
             self.message
         );
-        if self.message == "ping" {
-            return vec![ ChatMessage::new(ps,src,"pong".to_string()) ];
+        if self.message == "ping\n" {
+            return vec![ ChatMessage::new(ps,src,"pong\n".to_string()) ];
         }
         return vec![];
     }
@@ -1160,7 +1162,7 @@ impl EncryptedMessages {
             .unwrap();
         let mut buf = [0u8; 99999];
         if let Ok(len) = noise.read_message(&self.message, &mut buf) {
-            debug!("handling decrypted message from {src}: {}",
+            info!("handling decrypted message from {src}: {}",
              String::from_utf8_lossy(&buf[..len]));
             let messages = serde_json::from_slice(&buf[..len]).unwrap();
             might_be_ip_spoofing &= ps.check_key(&messages, src);
