@@ -32,6 +32,7 @@ use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
 use std::vec;
 use std::{io, str};
+const NOISE_PARAMS: &str = "Noise_NK_25519_ChaChaPoly_SHA256";
 
 macro_rules! BLOCK_SIZE {
     () => {
@@ -1145,18 +1146,20 @@ impl ChatMessage {
 #[derive(Serialize, Deserialize)]
 struct EncryptedMessages {
     #[serde_as(as = "Base64")]
-    message: Vec<u8>,
+    base64: Vec<u8>,
+    noise_params: String,
 }
 impl EncryptedMessages {
     fn new(ps: &PeerState, src: SocketAddr, message: Vec<u8>) -> Message {
-        let mut noise = Builder::new("Noise_NK_25519_ChaChaPoly_SHA256".parse().unwrap())
+        let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
             .remote_public_key(&ps.peer_map[&src].ed25519)
             .build_initiator()
             .unwrap();
         let mut buf = [0u8; 99999];
         let len = noise.write_message(&message, &mut buf).unwrap();
         let message_out = Message::EncryptedMessages(Self {
-            message: buf[..len].to_vec(),
+            base64: buf[..len].to_vec(),
+            noise_params: NOISE_PARAMS.to_string(),
         });
         debug!("sending encrypted msg to {src}");
         return message_out;
@@ -1168,12 +1171,12 @@ impl EncryptedMessages {
         mut might_be_ip_spoofing: bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Value> {
-        let mut noise = Builder::new("Noise_NK_25519_ChaChaPoly_SHA256".parse().unwrap())
+        let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
             .local_private_key(&ps.keypair.private)
             .build_responder()
             .unwrap();
         let mut buf = [0u8; 99999];
-        if let Ok(len) = noise.read_message(&self.message, &mut buf) {
+        if let Ok(len) = noise.read_message(&self.base64, &mut buf) {
             info!("handling decrypted message from {src}: {}",
              String::from_utf8_lossy(&buf[..len]));
             let messages = serde_json::from_slice(&buf[..len]).unwrap();
