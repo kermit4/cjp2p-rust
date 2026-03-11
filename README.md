@@ -27,6 +27,8 @@ sha256sum
 
 or http://127.0.0.1:24254/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
+typing stdin sends a chat message to a mostly random set of peers, but say "/ping" for fun. 
+
 This is also at https://crates.io/crates/libcjp but probably isn't useful as a crate yet.
 
 # TODO
@@ -46,4 +48,5 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - http quickstart and acceleration need work, maybe just request the whole thing as soon as it knows a peer  .. user waiting is much more important than maintaining some low packet loss
 - cjp2p crate too? or instead? or just cjp? is lib redundant?
 - split lib and use cases, but need one or two more use cases
-valuable numbers
+- valuable numbers
+- / commands

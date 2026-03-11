@@ -1123,8 +1123,8 @@ impl ChatMessage {
             ps.peer_map[&src].delay,
             self.message
         );
-        if self.message == "ping\n" {
-            return vec![ ChatMessage::new(ps,src,"pong\n".to_string()) ];
+        if self.message == "/ping\n" {
+            return vec![ ChatMessage::new(ps,src,"PONG\n".to_string()) ];
         }
         return vec![];
     }
