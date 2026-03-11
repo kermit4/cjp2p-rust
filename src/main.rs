@@ -391,11 +391,17 @@ fn main() -> Result<(), std::io::Error> {
             let mut line = String::new();
             io::stdin().read_line(&mut line).unwrap();
             if line.len() > 1 {
-                for sa in ps.best_peers(100, 5) {
-                    let message_out = ChatMessage::new(&ps, sa, line.clone());
-                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                    debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
-                    ps.socket.send_to(&message_out_bytes, sa).ok();
+                let mut arg: String = "".to_string();
+                if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
+                    println!("QUEING FILE {arg}");
+                    inbound_states.insert(arg.clone(), InboundState::new(&arg));
+                } else {
+                    for sa in ps.best_peers(100, 5) {
+                        let message_out = ChatMessage::new(&ps, sa, line.clone());
+                        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                        debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+                        ps.socket.send_to(&message_out_bytes, sa).ok();
+                    }
                 }
             }
         }

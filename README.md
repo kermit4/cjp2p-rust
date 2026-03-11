@@ -49,4 +49,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - cjp2p crate too? or instead? or just cjp? is lib redundant?
 - split lib and use cases, but need one or two more use cases
 - valuable numbers
-- / commands
+- more / commands
