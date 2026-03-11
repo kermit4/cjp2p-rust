@@ -47,3 +47,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 cjp2p crate too? or instead? or just cjp? is lib redundant?
 - split lib and use cases, but need one or two more use cases
 - use serde json to save peerstate, just chop the peer_map first, maybe even inbound states too..why are these two things. or should it be two states, persistent and ehphemeral explicitly and save only one, vs serde dont save tags and load time defaluts?
+valuable numbers

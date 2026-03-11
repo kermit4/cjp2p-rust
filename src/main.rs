@@ -213,7 +213,7 @@ impl PeerState {
     }
 
     fn load_peers(&mut self) -> () {
-        let file = OpenOptions::new().read(true).open("state/peers.v3.json");
+        let file = OpenOptions::new().read(true).open("state/peers.v4.json");
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
             let json: Vec<(SocketAddr, PeerInfo)> =
                 serde_json::from_reader(&file.unwrap()).unwrap();
@@ -234,7 +234,7 @@ impl PeerState {
             .create(true)
             .write(true)
             .truncate(true)
-            .open("state/peers.v3.json")
+            .open("state/peers.v4.json")
             .unwrap()
             .write_all(&serde_json::to_vec_pretty(&peers_to_save).unwrap())
             .ok();
@@ -279,6 +279,15 @@ impl PeerState {
                     continue;
                 }
             };
+            if let Message::EncryptedMessages(encrypted_messages) = message_in_enum {
+                message_out.append(&mut encrypted_messages.receive(
+                    self,
+                    src,
+                    might_be_ip_spoofing,
+                    inbound_states,
+                ));
+                continue;
+            }
             for m in match message_in_enum {
                 Message::PleaseSendPeers(t) => t.send_peers(&self, might_be_ip_spoofing, src),
                 Message::Peers(t) => t.receive_peers(self),
@@ -288,12 +297,18 @@ impl PeerState {
                 Message::ReturnedMessage(t) => t.update_round_trip_time(self, src),
                 Message::MaybeTheyHaveSome(t) =>
                     t.add_content_peer_suggestions(self, inbound_states),
-                Message::AlwaysReturned(_) => vec![], // handled before this loop
-                Message::PleaseAlwaysReturnThisMessage(_) => vec![], // handled before this loop
-                Message::PleaseReturnThisMessage(_) => vec![], // handled before this loop
                 Message::MyPublicKey(t) => t.save_public_key(self, src),
                 Message::ChatMessage(t) => t.receive(self, src),
-                Message::EncryptedMessage(t) => t.receive(self, src),
+
+                // handled before this loop because we want to know first if the source IP is honest
+                Message::AlwaysReturned(_) => vec![],
+
+                // handled before this loop because we  don't know the structure
+                Message::PleaseAlwaysReturnThisMessage(_) => vec![],
+                Message::PleaseReturnThisMessage(_) => vec![],
+
+                // handled before this loop due to returning Vec<Value>
+                Message::EncryptedMessages(_) => vec![],
             } {
                 message_out.push(serde_json::json!(m));
             }
@@ -479,9 +494,9 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     if !ps.peer_map.contains_key(&src) {
         ps.peer_map.insert(src, PeerInfo::new());
         warn!("new peer spotted {src}");
-    };
-    let might_be_ip_spoofing = ps.check_key(&messages, src);
+    }
     // This ist a Vec<Value> because I don't know the structure of the Please*Returns
+    let might_be_ip_spoofing = ps.check_key(&messages, src);
     let mut message_out = ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
     if message_out.len() == 0 {
         return;
@@ -497,6 +512,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
     trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
+
     match ps.socket.send_to(&message_out_bytes, src) {
         Ok(s) => trace!("sent {s}"),
         Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
@@ -659,7 +675,7 @@ impl Content {
         ps: &mut PeerState,
     ) -> Vec<Message> {
         if might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 27 == 0 {
-            info!("randomly ignoring unverified source IPs so a dumb client doesn't get stuck in a loop");
+            info!("randomly ignoring unverified source IPs for {} so ba dumb client doesn't get stuck in a loop",req.id);
 
             return vec![];
         }
@@ -1083,7 +1099,7 @@ impl ChatMessage {
         let mut message_out = Message::ChatMessage(Self { message: message });
         if their_pub.len() > 0 {
             message_out =
-                EncryptedMessage::new(&ps, src, serde_json::to_vec(&message_out).unwrap());
+                EncryptedMessages::new(ps, src, serde_json::to_vec(&vec![message_out]).unwrap());
         }
         return message_out;
     }
@@ -1095,43 +1111,50 @@ impl ChatMessage {
             self.message
         );
         if self.message == "ping" {
-            return vec![
-ChatMessage::new(ps,src,"pong".to_string())];
+            return vec![ ChatMessage::new(ps,src,"pong".to_string()) ];
         }
         return vec![];
     }
 }
 #[serde_as]
 #[derive(Serialize, Deserialize)]
-struct EncryptedMessage {
+struct EncryptedMessages {
     #[serde_as(as = "Base64")]
     message: Vec<u8>,
 }
-impl EncryptedMessage {
-    fn new(ps: &PeerState, src: SocketAddr, message: Vec<u8>) -> Message {
-        let mut noise = Builder::new("Noise_IK_25519_ChaChaPoly_SHA256".parse().unwrap())
-            .local_private_key(&ps.keypair.private)
+impl EncryptedMessages {
+    fn new(ps: &mut PeerState, src: SocketAddr, message: Vec<u8>) -> Message {
+        let mut noise = Builder::new("Noise_NK_25519_ChaChaPoly_SHA256".parse().unwrap())
             .remote_public_key(&ps.peer_map[&src].ed25519)
-            //.remote_public_key(&ps.peer_map[&src].ed25519)
             .build_initiator()
             .unwrap();
         let mut buf = [0u8; 99999];
         let len = noise.write_message(&message, &mut buf).unwrap();
-        let message_out = Message::EncryptedMessage(Self {
+        let message_out = Message::EncryptedMessages(Self {
             message: buf[..len].to_vec(),
         });
+        debug!("sending encrypted msg to {src}");
         return message_out;
     }
-    fn receive(&self, ps: &PeerState, src: SocketAddr) -> Vec<Message> {
-        let mut noise = Builder::new("Noise_IK_25519_ChaChaPoly_SHA256".parse().unwrap())
+    fn receive(
+        &self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        mut might_be_ip_spoofing: bool,
+        inbound_states: &mut HashMap<String, InboundState>,
+    ) -> Vec<Value> {
+        let mut noise = Builder::new("Noise_NK_25519_ChaChaPoly_SHA256".parse().unwrap())
             .local_private_key(&ps.keypair.private)
             .build_responder()
             .unwrap();
         let mut buf = [0u8; 99999];
-        let len = noise.read_message(&self.message, &mut buf).unwrap();
-        info!("ready to handle decrypted message from {src}: {}",
+        if let Ok(len) = noise.read_message(&self.message, &mut buf) {
+            debug!("handling decrypted message from {src}: {}",
              String::from_utf8_lossy(&buf[..len]));
-        // TODO handle_network or somtehing here on buf[..len]
+            let messages = serde_json::from_slice(&buf[..len]).unwrap();
+            might_be_ip_spoofing &= ps.check_key(&messages, src);
+            return ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
+        }
         return vec![];
     }
 }
@@ -1149,5 +1172,5 @@ enum Message {
     AlwaysReturned(AlwaysReturned),
     MyPublicKey(MyPublicKey),
     ChatMessage(ChatMessage),
-    EncryptedMessage(EncryptedMessage),
+    EncryptedMessages(EncryptedMessages),
 }
