@@ -29,9 +29,9 @@ use std::os::unix::fs::FileExt;
 use rand::Rng;
 use scanf::sscanf;
 use std::net::{TcpListener, TcpStream};
-use std::str;
 use std::time::{Duration, Instant};
 use std::vec;
+use std::{io, str};
 
 macro_rules! BLOCK_SIZE {
     () => {
@@ -372,6 +372,8 @@ fn main() -> Result<(), std::io::Error> {
         let mut read_fds = FdSet::new();
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
+        let stdin = std::io::stdin();
+        read_fds.insert(stdin.as_fd());
 
         match select(
             None,
@@ -389,6 +391,16 @@ fn main() -> Result<(), std::io::Error> {
             }
         }
 
+        if read_fds.contains(stdin.as_fd()) {
+            let mut line = String::new();
+            io::stdin().read_line(&mut line).unwrap();
+            for sa in ps.best_peers(100, 5) {
+                let message_out = vec![ChatMessage::new(&ps,sa,line.clone())];
+                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+                ps.socket.send_to(&message_out_bytes, sa).ok();
+            }
+        }
         if read_fds.contains(web_server.as_fd()) {
             handle_web_request(&web_server, &mut inbound_states, &ps);
         }
@@ -1094,7 +1106,7 @@ struct ChatMessage {
     message: String,
 }
 impl ChatMessage {
-    fn new(ps: &mut PeerState, src: SocketAddr, message: String) -> Message {
+    fn new(ps: &PeerState, src: SocketAddr, message: String) -> Message {
         let their_pub = &ps.peer_map[&src].ed25519;
         let mut message_out = Message::ChatMessage(Self { message: message });
         if their_pub.len() > 0 {
@@ -1123,7 +1135,7 @@ struct EncryptedMessages {
     message: Vec<u8>,
 }
 impl EncryptedMessages {
-    fn new(ps: &mut PeerState, src: SocketAddr, message: Vec<u8>) -> Message {
+    fn new(ps: &PeerState, src: SocketAddr, message: Vec<u8>) -> Message {
         let mut noise = Builder::new("Noise_NK_25519_ChaChaPoly_SHA256".parse().unwrap())
             .remote_public_key(&ps.peer_map[&src].ed25519)
             .build_initiator()

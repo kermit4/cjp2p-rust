@@ -39,12 +39,11 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - search?
 - make this crate more proper   https://rust-lang.github.io/api-guidelines/checklist.html  poll with timeout parameter, or provide the fd to let the app use in its own select loop?  callbacks?
 - how would end users best interact? through a browser? how about sending or streaming
-- encryption? snow crate / noise protocol 
-- trust
+- more encryption? by default? the asymmetric encryption i have is 10x as much CPU as none.  symmetric might be  fast
+- trust 
 - news
 - once there is economics, sell services
 - http quickstart and acceleration need work, maybe just request the whole thing as soon as it knows a peer  .. user waiting is much more important than maintaining some low packet loss
-cjp2p crate too? or instead? or just cjp? is lib redundant?
+- cjp2p crate too? or instead? or just cjp? is lib redundant?
 - split lib and use cases, but need one or two more use cases
-- use serde json to save peerstate, just chop the peer_map first, maybe even inbound states too..why are these two things. or should it be two states, persistent and ehphemeral explicitly and save only one, vs serde dont save tags and load time defaluts?
 valuable numbers
