@@ -187,7 +187,7 @@ impl PeerState {
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(json!(self.please_always_return(sa)));
-            //            message_out.push(json!(Message::MyPublicKey(MyPublicKey { ed25519: self.keypair.public.clone(), })));
+            message_out.push(json!(Message::MyPublicKey(MyPublicKey { ed25519: self.keypair.public.clone(), })));
             message_out.append(&mut self.always_returned(sa));
             message_out.push(json!(PleaseReturnThisMessage::new(self)));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -1136,10 +1136,10 @@ impl ChatMessage {
         let their_pub = &ps.peer_map[&src].ed25519;
         let mut message_out = vec![
             PleaseReturnThisMessage::new(ps),
-//            Message::MyPublicKey(MyPublicKey { ed25519: ps.keypair.public.clone(), }),
+            Message::MyPublicKey(MyPublicKey { ed25519: ps.keypair.public.clone(), }),
             Message::ChatMessage(Self { message: message }),
         ];
-        if false && their_pub.len() > 0 {
+        if their_pub.len() > 0 {
             message_out = vec![
                 EncryptedMessages::new(ps, src, serde_json::to_vec(&message_out).unwrap()),
                 ];
@@ -1168,7 +1168,7 @@ impl Search {
             PleaseReturnThisMessage::new(ps),
             Message::Search(Self {}),
         ];
-        if false && their_pub.len() > 0 {
+        if their_pub.len() > 0 {
             message_out =
                 vec![EncryptedMessages::new(ps, src, serde_json::to_vec(&message_out).unwrap())];
         }
@@ -1214,7 +1214,7 @@ impl SearchResult {
         ];
         // this should be a if let Some(...)
         let their_pub = &ps.peer_map[&src].ed25519;
-        if false && their_pub.len() > 0 {
+        if their_pub.len() > 0 {
             message_out =
                 vec![EncryptedMessages::new(ps, src, serde_json::to_vec(&message_out).unwrap())];
         }
