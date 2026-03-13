@@ -72,6 +72,7 @@ struct PeerState {
     boot: Instant,
     keypair: Keypair,
     open_file_cache: HashMap<String, OpenFile>,
+    search_results: HashMap<String, i32>,
 }
 impl PeerState {
     fn new() -> Self {
@@ -84,6 +85,7 @@ impl PeerState {
                 .generate_keypair()
                 .unwrap(),
             open_file_cache: HashMap::new(),
+            search_results: HashMap::new(),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -397,12 +399,11 @@ fn main() -> Result<(), std::io::Error> {
                 if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
                     println!("QUEING FILE {arg}");
                     inbound_states.insert(arg.clone(), InboundState::new(&arg));
-                } else if sscanf!(line.as_str(), "/search {}",arg).is_ok() {
-                    println!("searching for {}",arg);
-                    for sa in ps.best_peers(100, 5) {
-                        dbg!();
-                        let mut message_out = &mut ps.always_returned(sa);
-                        for v in Search::new(&ps, sa, arg.to_string()) {
+                } else if line == "/search\n" {
+                    println!("searching");
+                    for sa in &ps.peer_vec {
+                        let mut message_out = ps.always_returned(*sa);
+                        for v in Search::new(&ps, *sa) {
                             message_out.push(json!(v));
                         }
                         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -1158,15 +1159,13 @@ impl ChatMessage {
     }
 }
 #[derive(Serialize, Deserialize)]
-struct Search {
-    query: String,
-}
+struct Search {}
 impl Search {
-    fn new(ps: &PeerState, src: SocketAddr, query: String) -> Vec<Message> {
+    fn new(ps: &PeerState, src: SocketAddr) -> Vec<Message> {
         let their_pub = &ps.peer_map[&src].ed25519;
         let mut message_out = vec![
             PleaseReturnThisMessage::new(ps),
-            Message::Search(Self { query: query }),
+            Message::Search(Self {}),
         ];
         if false && their_pub.len() > 0 {
             message_out =
@@ -1180,28 +1179,21 @@ impl Search {
         src: SocketAddr,
         might_be_ip_spoofing: bool,
     ) -> Vec<Message> {
-        println!("\x1b[7m{} {src} 0x({}) from {:?} away searched for \x07\x1b[32m{}\x1b[m",
+        println!("\x1b[7m{} {src} 0x({}) from {:?} away searched[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519),
             ps.peer_map[&src].delay,
-            self.query
         );
         dbg!();
-        return SearchResult::new(ps, src, self, might_be_ip_spoofing);
+        return SearchResult::new(ps, src, might_be_ip_spoofing);
     }
 }
 #[derive(Serialize, Deserialize)]
 struct SearchResult {
-    query: String,
     results: Vec<String>,
 }
 impl SearchResult {
-    fn new(
-        ps: &PeerState,
-        src: SocketAddr,
-        search: &Search,
-        might_be_ip_spoofing: bool,
-    ) -> Vec<Message> {
+    fn new(ps: &PeerState, src: SocketAddr, might_be_ip_spoofing: bool) -> Vec<Message> {
         let mut results: Vec<String> = vec![];
         for path in fs::read_dir("./").unwrap() {
             let p = path.unwrap().path();
@@ -1209,7 +1201,7 @@ impl SearchResult {
             if p.len() == 66 {
                 results.push(p.to_string_lossy()[3..].to_string());
             }
-            if results.len() *80 > 5000  {
+            if results.len() * 80 > 5000 {
                 break;
             }
         }
@@ -1219,7 +1211,7 @@ impl SearchResult {
         dbg!();
         let mut message_out = vec![
             PleaseReturnThisMessage::new(ps),
-            Message::SearchResult(Self { query: search.query.to_owned() ,results:
+            Message::SearchResult(Self { results:
 results
 
             }),
@@ -1235,12 +1227,23 @@ results
     }
     fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
         dbg!();
-        println!("\x1b[7m{} {src} 0x({}) from {:?} has \x07\x1b[32m{:?}\x1b[m",
+        // TODO call maybetheyhavesome
+        for r in &self.results {
+            trace!("\x1b[7m{} {src} 0x({}) from {:?} has \x07\x1b[32m{:?}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519),
             ps.peer_map[&src].delay,
             self.results
         );
+            if let Some(h) = ps.search_results.get_mut(&r.to_owned()) {
+                *h += 1;
+            } else {
+                ps.search_results.insert(r.to_owned(), 1);
+            }
+        }
+        for (k, v) in &ps.search_results {
+            println!("{} {}",v,k);
+        }
         return vec![];
     }
 }
