@@ -1209,7 +1209,7 @@ impl SearchResult {
             if p.len() == 66 {
                 results.push(p.to_string_lossy()[3..].to_string());
             }
-            if results.len() > 4 {
+            if results.len() *80 > 5000  {
                 break;
             }
         }
