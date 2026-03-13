@@ -50,3 +50,6 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - split lib and use cases, but need one or two more use cases
 - valuable numbers
 - more / commands
+rt tg fb
+save pub key
+i think i want NK noise protocol actually, then i can send data faster? a 0 write or sommething then the data?
