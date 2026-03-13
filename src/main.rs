@@ -33,7 +33,7 @@ use std::net::{TcpListener, TcpStream};
 use std::time::{Duration, Instant};
 use std::vec;
 use std::{io, str};
-const NOISE_PARAMS: &str = "Noise_NK_25519_ChaChaPoly_SHA256";
+const NOISE_PARAMS: &str = "Noise_NK_25519_AESGCM_BLAKE2b";
 
 macro_rules! BLOCK_SIZE {
     () => {
@@ -81,7 +81,7 @@ impl PeerState {
             peer_vec: Vec::new(),
             socket: UdpSocket::bind("0.0.0.0:24254").unwrap(),
             boot: Instant::now(),
-            keypair: Builder::new("Noise_IK_25519_ChaChaPoly_SHA256".parse().unwrap())
+            keypair: Builder::new(NOISE_PARAMS.parse().unwrap())
                 .generate_keypair()
                 .unwrap(),
             open_file_cache: HashMap::new(),
@@ -187,7 +187,9 @@ impl PeerState {
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(json!(self.please_always_return(sa)));
-            message_out.push(json!(Message::MyPublicKey(MyPublicKey { ed25519: self.keypair.public.clone(), })));
+            message_out.push(
+                json!(Message::MyPublicKey(MyPublicKey { ed25519: self.keypair.public.clone(), })),
+            );
             message_out.append(&mut self.always_returned(sa));
             message_out.push(json!(PleaseReturnThisMessage::new(self)));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -544,7 +546,20 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
     trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
-
+    /* slow, even big blocks is 4x slower user time, with sys time 3x
+        let their_pub = &ps.peer_map[&src].ed25519;
+        if their_pub.len() > 0 {
+            message_out_bytes = serde_json::to_vec(
+                &(vec![
+                    EncryptedMessages::new(ps, src, message_out_bytes),
+                    ]),
+            )
+            .unwrap();
+        } else {
+            info!("no pub, skipping");
+            return;
+        }
+    */
     match ps.socket.send_to(&message_out_bytes, src) {
         Ok(s) => trace!("sent {s}"),
         Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),

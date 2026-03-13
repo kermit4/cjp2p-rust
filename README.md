@@ -52,4 +52,5 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - more / commands
 rt tg fb
 save pub key
-i think i want NK noise protocol actually, then i can send data faster? a 0 write or sommething then the data?
+should be if..some.their_pub
+do i realyl want _ik_ in thhat spot

@@ -29,7 +29,7 @@ getifaddrs =   ">=0.0.0"
 scanf =   "=1.2.3"
 nix =   { version = ">=0.0.0" , features = ["net","poll"] }
 #blake3 = "=1.8.2"
-snow =   "=0.9.3"
+snow =   { version = "0.9.3", features = ["ring-accelerated"]} 
 serde_with = { version = "3.0", features = ["base64"] }
 time-core = "=0.1.0"
 memmap2 = ">=0.0.0"
