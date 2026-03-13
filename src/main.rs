@@ -185,9 +185,7 @@ impl PeerState {
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(json!(self.please_always_return(sa)));
-            message_out.push(json!(Message::MyPublicKey(MyPublicKey {
-                    ed25519: self.keypair.public.clone(),
-                })));
+//            message_out.push(json!(Message::MyPublicKey(MyPublicKey { ed25519: self.keypair.public.clone(), })));
             message_out.append(&mut self.always_returned(sa));
             message_out.push(json!(PleaseReturnThisMessage::new(self)));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -297,7 +295,7 @@ impl PeerState {
                     t.add_content_peer_suggestions(self, inbound_states),
                 Message::MyPublicKey(t) => t.save_public_key(self, src),
                 Message::ChatMessage(t) => t.receive(self, src),
-                Message::Search(t) => t.receive(self, src),
+                Message::Search(t) => t.receive(self, src, might_be_ip_spoofing),
                 Message::SearchResult(t) => t.receive(self, src),
 
                 // handled before this loop because we want to know first if the source IP is honest
@@ -400,9 +398,13 @@ fn main() -> Result<(), std::io::Error> {
                     println!("QUEING FILE {arg}");
                     inbound_states.insert(arg.clone(), InboundState::new(&arg));
                 } else if sscanf!(line.as_str(), "/search {}",arg).is_ok() {
-                    println!("searching for *");
+                    println!("searching for {}",arg);
                     for sa in ps.best_peers(100, 5) {
-                        let message_out = Search::new(&ps, sa, "*".to_string());
+                        dbg!();
+                        let mut message_out = &mut ps.always_returned(sa);
+                        for v in Search::new(&ps, sa, arg.to_string()){
+                            message_out.push(json!(v));
+                        }
                         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                         debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
                         ps.socket.send_to(&message_out_bytes, sa).ok();
@@ -1132,11 +1134,14 @@ impl ChatMessage {
         let their_pub = &ps.peer_map[&src].ed25519;
         let mut message_out = vec![
             PleaseReturnThisMessage::new(ps),
+//            Message::MyPublicKey(MyPublicKey { ed25519: ps.keypair.public.clone(), }),
             Message::ChatMessage(Self { message: message }),
         ];
-        if their_pub.len() > 0 {
+        if false && their_pub.len() > 0 {
             message_out =
-                vec![EncryptedMessages::new(ps, src, serde_json::to_vec(&message_out).unwrap())];
+               vec![
+                EncryptedMessages::new(ps, src, serde_json::to_vec(&message_out).unwrap()),
+                ];
         }
         return message_out;
     }
@@ -1164,20 +1169,21 @@ impl Search {
             PleaseReturnThisMessage::new(ps),
             Message::Search(Self { query: query }),
         ];
-        if their_pub.len() > 0 {
+        if false && their_pub.len() > 0 {
             message_out =
                 vec![EncryptedMessages::new(ps, src, serde_json::to_vec(&message_out).unwrap())];
         }
         return message_out;
     }
-    fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+    fn receive(&self, ps: &mut PeerState, src: SocketAddr, might_be_ip_spoofing: bool) -> Vec<Message> {
         println!("\x1b[7m{} {src} 0x({}) from {:?} away searched for \x07\x1b[32m{}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519),
             ps.peer_map[&src].delay,
             self.query
         );
-        return SearchResult::new(ps, src, self);
+        dbg!();
+        return SearchResult::new(ps, src, self, might_be_ip_spoofing);
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -1186,7 +1192,7 @@ struct SearchResult {
     results: Vec<String>,
 }
 impl SearchResult {
-    fn new(ps: &PeerState, src: SocketAddr, search: &Search) -> Vec<Message> {
+    fn new(ps: &PeerState, src: SocketAddr, search: &Search, might_be_ip_spoofing: bool) -> Vec<Message> {
         let mut results: Vec<String> = vec![];
         for path in fs::read_dir("./").unwrap() {
             let p = path.unwrap().path();
@@ -1194,10 +1200,12 @@ impl SearchResult {
             if p.len() == 66 {
                 results.push(p.to_string_lossy()[3..].to_string());
             }
+            if results.len()>4{break;}
         }
         if results.len() == 0 {
             return vec![];
         }
+        dbg!();
         let mut message_out = vec![
             PleaseReturnThisMessage::new(ps),
             Message::SearchResult(Self { query: search.query.to_owned() ,results:
@@ -1207,13 +1215,15 @@ results
         ];
         // this should be a if let Some(...)
         let their_pub = &ps.peer_map[&src].ed25519;
-        if their_pub.len() > 0 {
+        if false && their_pub.len() > 0 {
+        dbg!();
             message_out =
                 vec![EncryptedMessages::new(ps, src, serde_json::to_vec(&message_out).unwrap())];
         }
         return message_out;
     }
     fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+        dbg!();
         println!("\x1b[7m{} {src} 0x({}) from {:?} has \x07\x1b[32m{:?}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519),
