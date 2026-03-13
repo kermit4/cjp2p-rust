@@ -1155,6 +1155,47 @@ impl ChatMessage {
     }
 }
 #[derive(Serialize, Deserialize)]
+struct SearchResult {
+    query: String,
+    results: Vec<String>,
+}
+impl SearchResult {
+    fn new(ps: &PeerState, src: SocketAddr, query: String, results: Vec<String>) -> Vec<Message> {
+        let their_pub = &ps.peer_map[&src].ed25519;
+
+        let resuts = vec[];
+        for path in fs::read_dir("./").unwrap() {
+            let p = path.unwrap().path();
+
+            if p.len() == 66 {
+                results.push(p[3..]);
+            }
+            }
+        let mut message_out = vec![
+            PleaseReturnThisMessage::new(ps),
+            Message::SearchResult(Self { query: query ,results:
+        return vec![];
+
+
+            }),
+        ];
+        if their_pub.len() > 0 {
+            message_out =
+                vec![EncryptedMessages::new(ps, src, serde_json::to_vec(&message_out).unwrap())];
+        }
+        return message_out;
+    }
+    fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+        println!("\x1b[7m{} {src} 0x({}) from {:?} has \x07\x1b[32m{}\x1b[m",
+            Utc::now().to_rfc3339(),
+            hex::encode(&ps.peer_map[&src].ed25519),
+            ps.peer_map[&src].delay,
+            self.results
+        );
+        return vec![];
+    }
+}
+#[derive(Serialize, Deserialize)]
 struct Search {
     query: String,
 }
@@ -1178,16 +1219,7 @@ impl Search {
             ps.peer_map[&src].delay,
             self.query
         );
-        for path in fs::read_dir("./").unwrap() {
-            let p = path.unwrap().path();
-
-            if p.len() > 63{
-
-                info!("search result {:?}",p);
-
-            }
-            }
-        return vec![];
+        return SearchResult::new(query);
     }
 }
 #[serde_as]
@@ -1249,5 +1281,6 @@ enum Message {
     MyPublicKey(MyPublicKey),
     ChatMessage(ChatMessage),
     Search(Search),
+    SearchResult(SearchResult),
     EncryptedMessages(EncryptedMessages),
 }
