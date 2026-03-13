@@ -51,3 +51,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - valuable numbers
 - more / commands
 rt tg fb
+save pub key
