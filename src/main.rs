@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_with::{base64::Base64, serde_as};
 use sha2::{Digest, Sha256};
-use snow::{Builder, Keypair};
+use snow::Builder;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
@@ -66,6 +66,44 @@ struct OpenFile {
     file: File,
     eof: usize,
 }
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug)]
+struct Keypair {
+    #[serde_as(as = "Base64")]
+    public: Vec<u8>,
+    #[serde_as(as = "Base64")]
+    private: Vec<u8>,
+}
+impl Keypair {
+    fn load_key() -> Keypair {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open("state/key.json");
+        if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
+            let saved: Keypair = serde_json::from_reader(&file.unwrap()).unwrap();
+            return Keypair {
+                public: saved.public,
+                private: saved.private,
+            };
+        } else {
+            let keypair_ = Builder::new(NOISE_PARAMS.parse().unwrap())
+                .generate_keypair()
+                .unwrap();
+            let keypair = Keypair {
+                public: keypair_.public,
+                private: keypair_.private,
+            };
+            file.as_ref()
+                .unwrap()
+                .write_all(&serde_json::to_vec_pretty(&keypair).unwrap())
+                .ok();
+            return keypair;
+        }
+    }
+}
+
 struct PeerState {
     peer_map: HashMap<SocketAddr, PeerInfo>,
     peer_vec: Vec<SocketAddr>,
@@ -82,9 +120,7 @@ impl PeerState {
             peer_vec: Vec::new(),
             socket: UdpSocket::bind("0.0.0.0:24254").unwrap(),
             boot: Instant::now(),
-            keypair: Builder::new(NOISE_PARAMS.parse().unwrap())
-                .generate_keypair()
-                .unwrap(),
+            keypair: Keypair::load_key(),
             open_file_cache: HashMap::new(),
             search_results: HashMap::new(),
         };
@@ -1244,7 +1280,7 @@ impl EncryptedMessages {
             base64: buf[..len].to_vec(),
             noise_params: NOISE_PARAMS.to_string(),
         });
-        debug!("sending encrypted msg to {src}");
+        info!("sending encrypted msg to {src}");
         return message_out;
     }
     fn receive(
@@ -1267,7 +1303,7 @@ impl EncryptedMessages {
             return ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
         } else {
             info!("failed to decrypt a message from {src}");
-            }
+        }
         return vec![];
     }
 }
