@@ -546,19 +546,16 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
     trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
-    /* slow, even big blocks is 4x slower user time, with sys time 3x
-        let their_pub = &ps.peer_map[&src].ed25519;
-        if their_pub.len() > 0 {
-            message_out_bytes = serde_json::to_vec(
-                &(vec![
-                    EncryptedMessages::new(ps, src, message_out_bytes),
-                    ]),
-            )
-            .unwrap();
-        } else {
-            info!("no pub, skipping");
-            return;
-        }
+    // slow, even big blocks is 4x slower user time, with sys time 3x
+    // 4k blocks 8x slower user, 5x net
+    /*        let their_pub = &ps.peer_map[&src].ed25519;
+            if their_pub.len() > 0 {
+                message_out_bytes = serde_json::to_vec(
+                    &(vec![
+                        EncryptedMessages::new(ps, src, message_out_bytes),
+                        ]),
+                ).unwrap();
+            }
     */
     match ps.socket.send_to(&message_out_bytes, src) {
         Ok(s) => trace!("sent {s}"),
