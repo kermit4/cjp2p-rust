@@ -213,7 +213,7 @@ impl PeerState {
     }
 
     fn load_peers(&mut self) -> () {
-        let file = OpenOptions::new().read(true).open("state/peers.v5.json");
+        let file = OpenOptions::new().read(true).open("state/peers.v6.json");
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
             let json: Vec<(SocketAddr, PeerInfo)> =
                 serde_json::from_reader(&file.unwrap()).unwrap();
@@ -234,7 +234,7 @@ impl PeerState {
             .create(true)
             .write(true)
             .truncate(true)
-            .open("state/peers.v5.json")
+            .open("state/peers.v6.json")
             .unwrap()
             .write_all(&serde_json::to_vec_pretty(&peers_to_save).unwrap())
             .ok();
