@@ -50,7 +50,8 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - split lib and use cases, but need one or two more use cases
 - valuable numbers
 - more / commands
-rt tg fb
-save pub key
-should be if..some.their_pub
-do i realyl want _ik_ in thhat spot
+- rt tg fb
+- save key
+- should be if..some.their_pub
+- code would be easior if returned things were a string of json i think?..use Option on token to handle current clients
+- how can users easily and excitedly use decentralized software in place of centralized...easy plus a draw..whats hot and trending, what peers respect, an algorithm but that they control
