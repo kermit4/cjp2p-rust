@@ -112,6 +112,7 @@ struct PeerState {
     keypair: Keypair,
     open_file_cache: HashMap<String, OpenFile>,
     search_results: HashMap<String, i32>,
+    search_time: Instant,
 }
 impl PeerState {
     fn new() -> Self {
@@ -123,6 +124,7 @@ impl PeerState {
             keypair: Keypair::load_key(),
             open_file_cache: HashMap::new(),
             search_results: HashMap::new(),
+            search_time: Instant::now(),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -413,6 +415,7 @@ fn main() -> Result<(), std::io::Error> {
                     inbound_states.insert(arg.clone(), InboundState::new(&arg));
                 } else if line == "/search\n" {
                     ps.search_results = HashMap::new();
+                    ps.search_time = Instant::now();
                     println!("searching");
                     for sa in &ps.peer_vec {
                         let mut message_out = ps.always_returned(*sa);
@@ -420,14 +423,14 @@ fn main() -> Result<(), std::io::Error> {
                             message_out.push(v);
                         }
                         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                        debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+                        trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
                         ps.socket.send_to(&message_out_bytes, sa).ok();
                     }
                 } else {
                     for sa in ps.best_peers(100, 5) {
                         let message_out = ChatMessage::new(&ps, sa, line.clone());
                         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                        debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+                        trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
                         ps.socket.send_to(&message_out_bytes, sa).ok();
                     }
                 }
@@ -1080,6 +1083,12 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
             break;
         }
     }
+    if ps.search_time + Duration::from_secs(1) < Instant::now() {
+        for (k, v) in &ps.search_results {
+            println!("{} {}",v,k);
+        }
+        ps.search_time += Duration::from_secs(60 * 60 * 24 * 365 * 99);
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -1255,9 +1264,6 @@ impl SearchResult {
                 ps.search_results.insert(r.to_owned(), 1);
             }
         }
-        for (k, v) in &ps.search_results {
-            println!("{} {}",v,k);
-        }
         return vec![];
     }
 }
@@ -1280,7 +1286,7 @@ impl EncryptedMessages {
             base64: buf[..len].to_vec(),
             noise_params: NOISE_PARAMS.to_string(),
         });
-        info!("sending encrypted msg to {src}");
+        trace!("sending encrypted msg to {src}");
         return message_out;
     }
     fn receive(
@@ -1296,7 +1302,7 @@ impl EncryptedMessages {
             .unwrap();
         let mut buf = [0u8; 99999];
         if let Ok(len) = noise.read_message(&self.base64, &mut buf) {
-            info!("handling decrypted message from {src}: {}",
+            trace!("handling decrypted message from {src}: {}",
              String::from_utf8_lossy(&buf[..len]));
             let messages = serde_json::from_slice(&buf[..len]).unwrap();
             might_be_ip_spoofing &= ps.check_key(&messages, src);

@@ -47,7 +47,7 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - once there is economics, sell services
 - http quickstart and acceleration need work, maybe just request the whole thing as soon as it knows a peer  .. user waiting is much more important than maintaining some low packet loss
 - cjp2p crate too? or instead? or just cjp? is lib redundant?
-- split lib and use cases, but need one or two more use cases
+- split lib and use cases, but need one or two more use cases?  but functionality builds on other functionality, where''s he cut?   the UI i guess
 - valuable numbers
 - more / commands
 - rt tg fb
