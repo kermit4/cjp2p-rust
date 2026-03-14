@@ -1265,7 +1265,9 @@ impl EncryptedMessages {
             let messages = serde_json::from_slice(&buf[..len]).unwrap();
             might_be_ip_spoofing &= ps.check_key(&messages, src);
             return ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
-        }
+        } else {
+            info!("failed to decrypt a message from {src}");
+            }
         return vec![];
     }
 }
