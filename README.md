@@ -51,5 +51,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - valuable numbers
 - more / commands
 - rt tg fb
-- save key
 - how can users easily and excitedly use decentralized software in place of centralized...easy plus a draw..whats hot and trending, what peers respect, an algorithm but that they control
