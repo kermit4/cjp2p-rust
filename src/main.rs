@@ -543,7 +543,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
         warn!("ratio: none left!");
         return;
     }
-    let mut message_out_bytes = serde_json::to_vec(&message_out).unwrap();
+    let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
     trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
     // slow, even big blocks is 4x slower user time, with sys time 3x
