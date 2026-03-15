@@ -429,6 +429,35 @@ fn main() -> Result<(), std::io::Error> {
                     });
                     println!("QUEING FILE {arg}");
                     inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
+                } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
+                    let to = hex::decode(&arg).unwrap();
+                    let mut who: HashSet<SocketAddr> = HashSet::new();
+                    for (k, v) in &ps.peer_map {
+                        if let Some(key) = &v.ed25519 {
+                            if *key == to {
+                                who.insert(*k);
+                            }
+                        }
+                    }
+                    if who.len() > 0 {
+                        let message_out = ChatMessage::new(
+                            &ps,
+                            who.clone().into_iter().next().unwrap(),
+                            arg2.clone(),
+                        );
+                        if let Message::EncryptedMessages(_) = message_out[0] {
+                            let message_out_bytes: Vec<u8> =
+                                serde_json::to_vec(&message_out).unwrap();
+                            trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
+                            for sa in who {
+                                ps.socket.send_to(&message_out_bytes, sa).ok();
+                            }
+                        } else {
+                            println!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+                        }
+                    } else {
+                        println!("not found");
+                    }
                 } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
                     let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
                     if let Message::EncryptedMessages(_) = message_out[0] {
@@ -1265,7 +1294,7 @@ impl ChatMessage {
         return message_out;
     }
     fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
-        println!("\x1b[7m{} {src} 0x({}) from {:?} away said \x07\x1b[33m{}\x1b[m",
+        println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
             ps.peer_map[&src].delay,
@@ -1293,7 +1322,7 @@ impl Search {
         src: SocketAddr,
         might_be_ip_spoofing: bool,
     ) -> Vec<Message> {
-        println!("\x1b[7m{} {src} 0x({}) from {:?} away searched\x1b[m",
+        println!("\x1b[7m{} {src} 0x{} from {:?} away searched\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
             ps.peer_map[&src].delay,
@@ -1329,7 +1358,7 @@ impl SearchResult {
     fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
         // TODO call maybetheyhavesome?
         for r in &self.results {
-            trace!("\x1b[7m{} {src} 0x({}) from {:?} has \x07\x1b[32m{:?}\x1b[m",
+            trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
             ps.peer_map[&src].delay,
