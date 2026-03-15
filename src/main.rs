@@ -316,13 +316,15 @@ impl PeerState {
                     t.add_content_peer_suggestions(self, inbound_states),
                 Message::MyPublicKey(t) => t.save_public_key(self, src),
                 Message::LastViewed(t) => {
-                    if !might_be_ip_spoofing && src.port() == 24252 {
+                    if !might_be_ip_spoofing && src.port() == 24254 {
                         self.peer_map.get_mut(&src).unwrap().last_viewed = Some(t);
                     }
                     vec![]
                 }
                 Message::PromotedContent(t) => {
-                    if !might_be_ip_spoofing && src.port() == 24252 {
+                    info!("promoted spoofing:{}",might_be_ip_spoofing);
+                    if !might_be_ip_spoofing && src.port() == 24254 {
+                    info!("promoted spoofing:{}",might_be_ip_spoofing);
                         self.peer_map.get_mut(&src).unwrap().promoted_content = Some(t);
                     }
                     vec![]
