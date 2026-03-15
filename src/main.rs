@@ -419,7 +419,7 @@ fn main() -> Result<(), std::io::Error> {
                     println!("searching");
                     for sa in &ps.peer_vec {
                         let mut message_out = ps.always_returned(*sa);
-                        for v in Search::new(&ps, *sa) {
+                        for v in Search::new(&ps) {
                             message_out.push(v);
                         }
                         let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -1193,7 +1193,7 @@ impl ChatMessage {
 #[derive(Serialize, Deserialize, Debug)]
 struct Search {}
 impl Search {
-    fn new(ps: &PeerState, src: SocketAddr) -> Vec<Message> {
+    fn new(ps: &PeerState) -> Vec<Message> {
         let message_out = vec![
             PleaseReturnThisMessage::new(ps),
             Message::Search(Self {}),
