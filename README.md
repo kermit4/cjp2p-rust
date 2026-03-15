@@ -55,12 +55,8 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - DM
 - group chats
 ## public collaboration
-- ipv4 scacity, like search for static content but also for timely content..pushed even possibly
+- ipv4 scarcity, like search for static content but also for timely content..pushed even possibly
 - /promote for things you really want others to see and /popular to see whats most promoted since you last ran it  (which you can then /get) .. you only get one at a time, and only for the main port, and only not ip spoofed
 - reviews of content
 - count promoted and sort low to high, filter for only primary port..obviuos0y get should scan those too.
-- count promoted and sort low to high, filter for only primary port..obviuos0y get should scan those too.
-call maybetheyhavesome on last viewed and promotoed
-check local maybetheyhavesome on get
-or just search peer list and dont store separately..yeah
-add /trending to read last_viewed
+only record last viewed and promoted if not spoofing, limit to the main port, set const for main port

@@ -385,7 +385,7 @@ fn main() -> Result<(), std::io::Error> {
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     for v in args {
         info!("queing inbound file {:?}", v);
-        inbound_states.insert(v.to_string(), InboundState::new(&v));
+        inbound_states.insert(v.to_string(), InboundState::new(&v, &ps));
     }
     let mut next_maintenance = Instant::now();
 
@@ -423,7 +423,7 @@ fn main() -> Result<(), std::io::Error> {
                         length: File::open(&arg).unwrap().metadata().unwrap().len(),
                     });
                     println!("QUEING FILE {arg}");
-                    inbound_states.insert(arg.clone(), InboundState::new(&arg));
+                    inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
                 } else if sscanf!(line.as_str(), "/promote {}",arg).is_ok() {
                     ps.promoted_content = Some(PromotedContent {
                         id: arg.to_owned(),
@@ -542,7 +542,7 @@ fn handle_web_request(
                 let i = match inbound_states.get_mut(id) {
                     Some(i) => i,
                     _ => {
-                        let new_i = InboundState::new(id);
+                        let new_i = InboundState::new(id, &ps);
                         info!("http queing inbound file {:?}", id);
                         inbound_states.insert(id.to_string(), new_i);
                         inbound_states.get_mut(id).unwrap()
@@ -895,8 +895,21 @@ struct InboundState {
 }
 
 impl InboundState {
-    fn new(id: &str) -> Self {
+    fn new(id: &str, ps: &PeerState) -> Self {
         fs::create_dir("./incoming").ok();
+        let mut peers = HashSet::new();
+        for (k, v) in &ps.peer_map {
+            if let Some(p) = &v.promoted_content {
+                if p.id == id {
+                    peers.insert(*k);
+                }
+            }
+            if let Some(p) = &v.last_viewed {
+                if p.id == id {
+                    peers.insert(*k);
+                }
+            }
+        }
         return Self {
             mmap: None,
             next_block: 0,
@@ -904,7 +917,7 @@ impl InboundState {
             id: id.to_string(),
             eof: 1 << 18,
             bytes_complete: 0,
-            peers: HashSet::new(),
+            peers: peers,
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
             http_time: Instant::now(),
@@ -1016,6 +1029,7 @@ impl InboundState {
         }
         let at_most = 3 + 45 * !might_be_ip_spoofing as usize;
 
+        // TODO check peer_map, unless im already saving those to disk
         return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
             id: id.to_owned(),
             peers: peers.iter().take(at_most).cloned().collect(),
@@ -1298,7 +1312,7 @@ impl SearchResult {
         return message_out;
     }
     fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
-        // TODO call maybetheyhavesome
+        // TODO call maybetheyhavesome?
         for r in &self.results {
             trace!("\x1b[7m{} {src} 0x({}) from {:?} has \x07\x1b[32m{:?}\x1b[m",
             Utc::now().to_rfc3339(),
