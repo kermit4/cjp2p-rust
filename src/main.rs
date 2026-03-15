@@ -1215,7 +1215,7 @@ impl Search {
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
             ps.peer_map[&src].delay,
         );
-        return SearchResult::new(ps, src, might_be_ip_spoofing);
+        return SearchResult::new(might_be_ip_spoofing);
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
@@ -1223,7 +1223,7 @@ struct SearchResult {
     results: Vec<String>,
 }
 impl SearchResult {
-    fn new(ps: &PeerState, src: SocketAddr, might_be_ip_spoofing: bool) -> Vec<Message> {
+    fn new(might_be_ip_spoofing: bool) -> Vec<Message> {
         let mut results: Vec<String> = vec![];
         for path in fs::read_dir("./").unwrap() {
             let p = path.unwrap().path();
@@ -1238,15 +1238,9 @@ impl SearchResult {
         if results.len() == 0 {
             return vec![];
         }
-        let mut message_out = vec![
-            PleaseReturnThisMessage::new(ps),
+        let message_out = vec![
             Message::SearchResult(Self { results: results }),
         ];
-        // this should be a if let Some(...)
-        if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
-            message_out =
-                vec![EncryptedMessages::new(their_pub, src, serde_json::to_vec(&message_out).unwrap())];
-        }
         return message_out;
     }
     fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {

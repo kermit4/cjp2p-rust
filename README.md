@@ -27,28 +27,33 @@ sha256sum
 
 or http://127.0.0.1:24254/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
-typing stdin sends a chat message to a mostly random set of peers, but say "/ping" for fun. 
+typing stdin sends a chat message to a mostly random set of peers, but say "/ping" for fun, or "/search"
 
-This is also at https://crates.io/crates/libcjp but probably isn't useful as a crate yet.
+This is also at https://crates.io/crates/libcjp but probably isn't useful as a crate yet.  
 
 # TODO
-- streaming (files that grow after they're started.. with a goal that someone streaming video to millions only needs enough bandwidth to send out one copy, live, with little delay.  Multicast, as real multicast never caught on on the internet sadly.).. i think the code is there, it just needs to say to not stop, infinite EOF, or just make eof optional..as all fields should be
+## general 
 - remember to talk like people not a computer (naming, especially on the wire)
+## lib
 - daemon or library?  library with daemon as one implementation
-- streaming live cam of something is a good test case.. the sky .. ffmpeg -i /dev/video2 o.mkv .. 
-- lossy real time streams? it would require knowing the media's container block boundaries
-- CLI commands  / API?  or just as curl//REST examples, not CLI
-- search?
 - make this crate more proper   https://rust-lang.github.io/api-guidelines/checklist.html  poll with timeout parameter, or provide the fd to let the app use in its own select loop?  callbacks?
+## UI
+- CLI commands  / API?  or just as curl//REST examples, not CLI
 - how would end users best interact? through a browser? how about sending or streaming
-- more encryption? by default? the asymmetric encryption i have is 10x as much CPU as none.  symmetric might be  fast
-- trust 
-- news
-- once there is economics, sell services
-- http quickstart and acceleration need work, maybe just request the whole thing as soon as it knows a peer  .. user waiting is much more important than maintaining some low packet loss
 - cjp2p crate too? or instead? or just cjp? is lib redundant?
 - split lib and use cases, but need one or two more use cases?  but functionality builds on other functionality, where''s he cut?   the UI i guess
-- valuable numbers
-- more / commands
-- rt tg fb
 - how can users easily and excitedly use decentralized software in place of centralized...easy plus a draw..whats hot and trending, what peers respect, an algorithm but that they control
+- more / commands
+- http quickstart and acceleration need work, maybe just request the whole thing as soon as it knows a peer  .. user waiting is much more important than maintaining some low packet loss
+## cryptography related
+- more encryption? by default? the asymmetric encryption i have is 10x as much CPU as none.  symmetric might be  fast
+- trust 
+- valuable numbers
+## near-real time things - may overlap 
+- news feed
+- once there is economics, sell services
+- DM
+- group chats
+## public collaboration
+- ipv4 scacity, like search for static content but also for timely content..pushed even possibly
+- reviews of content
