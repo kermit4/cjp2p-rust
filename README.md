@@ -1,4 +1,4 @@
-This implements everything in spotted and listed in the https://github.com/kermit4/cjp2p protocol repo, plus some other things.   The primary purpose of this and the protocol are to demonstrate how you can A) use JSON as your base protocol to maintain future compatibility and be easily approachable to new implementations, and B) how you can send messages directly without relays or connections, rather than messages relayed around a web of connections that are abstracted on top of messages, as is oddly commonplace in p2p networking, probably out of habbit from 1:1 server/clientt application design.  However this code is functional, at various things, just not the best at any 1 of them, but interoperability instead of lots of siloed p2p apps is the benefit.
+This implements everything in spotted and listed in the https://github.com/kermit4/cjp2p protocol repo, plus some other things.   The primary purpose of this repo, and the protocol are to demonstrate how you can A) use JSON as your base protocol to maintain future compatibility and be easily approachable to new implementations, and B) how you can send messages directly without relays or connections, rather than messages relayed around a web of connections that are abstracted on top of messages, as is oddly commonplace in p2p networking, probably out of habbit from 1:1 server/clientt application design.  However this code is functional, at various things, just not the best at any 1 of them, but interoperability instead of lots of siloed p2p apps is the benefit.
 
 This will make available any files in the directory ./shared  It will ignore any requests for anything that has a / or \ in it.
 
@@ -36,7 +36,7 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - remember to talk like people not a computer (naming, especially on the wire)
 ## lib
 - daemon or library?  library with daemon as one implementation
-- make this crate more proper   https://rust-lang.github.io/api-guidelines/checklist.html  poll with timeout parameter, or provide the fd to let the app use in its own select loop?  callbacks?
+- make this crate more useful and proper   https://rust-lang.github.io/api-guidelines/checklist.html  poll with timeout parameter, or provide the fd to let the app use in its own select loop?  callbacks?
 ## UI
 - CLI commands  / API?  or just as curl//REST examples, not CLI
 - how would end users best interact? through a browser? how about sending or streaming
@@ -49,6 +49,7 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - more encryption? by default? the asymmetric encryption i have is 10x as much CPU as none.  symmetric might be  fast
 - trust 
 - valuable numbers
+- reputation
 ## near-real time things - may overlap 
 - news feed
 - once there is economics, sell services
