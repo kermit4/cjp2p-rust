@@ -8,7 +8,7 @@ use memmap2::MmapMut;
 use nix::NixPath;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serde_with::{base64::Base64, serde_as};
+use serde_with::{base64::Base64, serde_as, InspectError, VecSkipError};
 use sha2::{Digest, Sha256};
 use snow::Builder;
 use std::cmp;
@@ -582,14 +582,15 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let (message_in_len, src) = ps.socket.recv_from(&mut buf).unwrap();
     let message_in_bytes = &buf[0..message_in_len];
     trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
-    let messages: Vec<Message> = match serde_json::from_slice(message_in_bytes) {
+    let messages: Messages = match serde_json::from_slice(message_in_bytes) {
         Ok(r) => r,
         Err(e) => {
-            warn!( "could not deserialize an incoming message {e}  :  {}",
+            warn!( "could not deserialize incoming messages  {e}  :  {}",
                     String::from_utf8_lossy(message_in_bytes));
             return;
         }
     };
+    let messages = messages.0;
     if !ps.peer_map.contains_key(&src) {
         ps.peer_map.insert(src, PeerInfo::new());
         warn!("new peer spotted {src}");
@@ -1400,4 +1401,16 @@ enum Message {
     EncryptedMessages(EncryptedMessages),
     PromotedContent(PromotedContent),
     LastViewed(LastViewed),
+}
+
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug)]
+struct Messages(#[serde_as(as = "VecSkipError<_,ErrorInspector>")] Vec<Message>);
+
+struct ErrorInspector;
+
+impl InspectError for ErrorInspector {
+    fn inspect_error(error: impl serde::de::Error) {
+        warn!( "could not deserialize an incoming message {error}");
+    }
 }

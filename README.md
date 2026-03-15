@@ -49,6 +49,7 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - more encryption? by default? the asymmetric encryption i have is 10x as much CPU as none.  symmetric might be  fast
 - trust 
 - valuable numbers
+- proof of latency? signature chain of somewhat verifiable latency?
 - reputation
 ## near-real time things - may overlap 
 - news feed
