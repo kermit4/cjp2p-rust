@@ -1350,7 +1350,7 @@ impl ContentList {
         for path in fs::read_dir("./").unwrap() {
             let p = path.unwrap().path();
             let length = File::open(&p).unwrap().metadata().unwrap().len();
-            if p.len() != 66 || length == 2 ^ 18 {
+            if p.len() != 66 || length == 1 << 18 {
                 continue;
             }
             results.push(p.to_string_lossy()[2..].to_string());
