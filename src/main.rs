@@ -118,7 +118,7 @@ struct PeerState {
     boot: Instant,
     keypair: Keypair,
     open_file_cache: HashMap<String, OpenFile>,
-    list_results: HashMap<String, i32>,
+    list_results: HashMap<String, (i32, u64)>,
     list_time: Instant,
     you_should_see_this: Option<YouSouldSeeThis>,
     i_just_saw_this: Option<IJustSawThis>,
@@ -476,31 +476,33 @@ fn main() -> Result<(), std::io::Error> {
                         length: File::open(&arg).unwrap().metadata().unwrap().len(),
                     });
                 } else if line == "/trending\n" {
-                    let mut trending: HashMap<String, i32> = HashMap::new();
+                    let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
                     for (_, v) in &ps.peer_map {
                         if let Some(p) = &v.i_just_saw_this {
                             match trending.get_mut(&p.id) {
-                                Some(h) => *h += 1,
+                                Some(h) => h.0 += 1,
                                 None => {
-                                    trending.insert(p.id.to_owned(), 1);
+                                    trending.insert(p.id.to_owned(), (1, p.length));
                                     ()
                                 }
                             }
                         }
                     }
                     let mut sorted_list_results: Vec<_> = trending.iter().collect();
-                    sorted_list_results.sort_by_key(|&(_, b)| b);
+                    sorted_list_results.sort_by_key(|&(_, b)| b.0);
                     for (k, v) in &sorted_list_results {
-                        println!("{} {}",v,k);
+                        println!("{} {} {}",v.0,k,v.1);
                     }
                 } else if line == "/recommended\n" {
-                    let mut highly_recommended_content: HashMap<String, i32> = HashMap::new();
+                    let mut highly_recommended_content: HashMap<String, (i32, u64)> =
+                        HashMap::new();
                     for (_, v) in &ps.peer_map {
                         if let Some(p) = &v.you_should_see_this {
                             match highly_recommended_content.get_mut(&p.id) {
-                                Some(h) => *h += 1,
+                                Some(h) => h.0 += 1,
                                 None => {
-                                    highly_recommended_content.insert(p.id.to_owned(), 1);
+                                    highly_recommended_content
+                                        .insert(p.id.to_owned(), (1, p.length));
                                     ()
                                 }
                             }
@@ -508,9 +510,9 @@ fn main() -> Result<(), std::io::Error> {
                     }
                     let mut sorted_list_results: Vec<_> =
                         highly_recommended_content.iter().collect();
-                    sorted_list_results.sort_by_key(|&(_, b)| b);
+                    sorted_list_results.sort_by_key(|&(_, b)| b.0);
                     for (k, v) in &sorted_list_results {
-                        println!("{} {}",v,k);
+                        println!("{} {} {}",v.0,k,v.1);
                     }
                 } else if line == "/list\n" {
                     ps.list_results = HashMap::new();
@@ -1209,9 +1211,9 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     }
     if ps.list_time + Duration::from_secs(1) < Instant::now() {
         let mut sorted_list_results: Vec<_> = ps.list_results.iter().collect();
-        sorted_list_results.sort_by_key(|&(_, b)| b);
+        sorted_list_results.sort_by_key(|&(_, b)| b.0);
         for (k, v) in &sorted_list_results {
-            println!("{} {}",v,k);
+            println!("{} {} {}",v.0,k,v.1);
         }
         ps.list_time += Duration::from_secs(60 * 60 * 24 * 365 * 99);
     }
@@ -1342,18 +1344,18 @@ impl PleaseListContent {
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct ContentList {
-    results: Vec<String>,
+    results: Vec<(String, u64)>,
 }
 impl ContentList {
     fn new(might_be_ip_spoofing: bool) -> Vec<Message> {
-        let mut results: Vec<String> = vec![];
+        let mut results: Vec<(String, u64)> = vec![];
         for path in fs::read_dir("./").unwrap() {
             let p = path.unwrap().path();
             let length = File::open(&p).unwrap().metadata().unwrap().len();
             if p.len() != 66 || length == 1 << 18 {
                 continue;
             }
-            results.push(p.to_string_lossy()[2..].to_string());
+            results.push((p.to_string_lossy()[2..].to_string(), length));
             if results.len() > 70 * !might_be_ip_spoofing as usize + 1 {
                 break;
             }
@@ -1368,17 +1370,17 @@ impl ContentList {
     }
     fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
         // TODO call maybetheyhavesome?
-        for r in &self.results {
+        for (id, size) in &self.results {
             trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
             ps.peer_map[&src].delay,
             self.results
         );
-            match ps.list_results.get_mut(&r.to_owned()) {
-                Some(h) => *h += 1,
+            match ps.list_results.get_mut(&id.to_owned()) {
+                Some(h) => h.0 += 1,
                 None => {
-                    ps.list_results.insert(r.to_owned(), 1);
+                    ps.list_results.insert(id.to_owned(), (1, *size));
                     ()
                 }
             }
@@ -1453,6 +1455,7 @@ enum Message {
     IJustSawThis(IJustSawThis),
 }
 
+// this struct only exists to be able to get that VecSkipError in there.
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct Messages(#[serde_as(as = "VecSkipError<_,ErrorInspector>")] Vec<Message>);
