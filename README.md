@@ -54,7 +54,7 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 ## near-real time things - may overlap 
 - news feed
 - once there is economics, sell services
-- DM
+- 1:1 messaging
 - group chats
 ## public collaboration
 - reviews of content

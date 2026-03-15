@@ -421,6 +421,7 @@ fn main() -> Result<(), std::io::Error> {
             io::stdin().read_line(&mut line).unwrap();
             if line.len() > 1 {
                 let mut arg: String = "".to_string();
+                let mut arg2: String = "".to_string();
                 if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
                     ps.last_viewed = Some(LastViewed {
                         id: arg.to_owned(),
@@ -428,6 +429,11 @@ fn main() -> Result<(), std::io::Error> {
                     });
                     println!("QUEING FILE {arg}");
                     inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
+                } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
+                    let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
+                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                    trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
+                    ps.socket.send_to(&message_out_bytes, arg).ok();
                 } else if sscanf!(line.as_str(), "/promote {}",arg).is_ok() {
                     ps.promoted_content = Some(PromotedContent {
                         id: arg.to_owned(),
@@ -1261,7 +1267,7 @@ impl ChatMessage {
             ps.peer_map[&src].delay,
             self.message
         );
-        if self.message == "/ping\n" {
+        if self.message.starts_with("/ping") {
             return Self::new(ps, src, "PONG\n".to_string());
         }
         return vec![];
