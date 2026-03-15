@@ -60,7 +60,10 @@ impl PeerInfo {
             anti_ip_spoofing_cookie_they_expect: None,
             anti_ip_spoofing_cookie_i_expect: (rand::thread_rng().gen::<u32>()).to_string(),
             ed25519: None,
-            you_should_see_this: None,
+            you_should_see_this: Some(YouSouldSeeThis {
+                id: "43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1".to_owned(),
+                length: 105277987,
+            }),
             i_just_saw_this: None,
         };
     }
@@ -1347,9 +1350,15 @@ impl ContentList {
         for path in fs::read_dir("./").unwrap() {
             let p = path.unwrap().path();
 
-            if p.len() == 66 {
-                results.push(p.to_string_lossy()[2..].to_string());
+            if p.len() != 66 {
+                continue;
             }
+            results.push(p.to_string_lossy()[2..].to_string());
+            let length = File::open(&p).unwrap().metadata().unwrap().len();
+            if length == 2 ^ 18 {
+                continue;
+            }
+
             if results.len() > 70 * !might_be_ip_spoofing as usize + 1 {
                 break;
             }
