@@ -322,9 +322,7 @@ impl PeerState {
                     vec![]
                 }
                 Message::PromotedContent(t) => {
-                    info!("promoted spoofing:{}",might_be_ip_spoofing);
                     if !might_be_ip_spoofing && src.port() == 24254 {
-                    info!("promoted spoofing:{}",might_be_ip_spoofing);
                         self.peer_map.get_mut(&src).unwrap().promoted_content = Some(t);
                     }
                     vec![]
