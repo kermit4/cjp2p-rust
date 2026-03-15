@@ -1194,14 +1194,10 @@ impl ChatMessage {
 struct Search {}
 impl Search {
     fn new(ps: &PeerState, src: SocketAddr) -> Vec<Message> {
-        let mut message_out = vec![
+        let message_out = vec![
             PleaseReturnThisMessage::new(ps),
             Message::Search(Self {}),
         ];
-        if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
-            message_out =
-                vec![EncryptedMessages::new(their_pub, src, serde_json::to_vec(&message_out).unwrap())];
-        }
         return message_out;
     }
     fn receive(
