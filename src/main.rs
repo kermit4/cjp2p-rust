@@ -115,8 +115,8 @@ struct PeerState {
     boot: Instant,
     keypair: Keypair,
     open_file_cache: HashMap<String, OpenFile>,
-    search_results: HashMap<String, i32>,
-    search_time: Instant,
+    list_results: HashMap<String, i32>,
+    list_time: Instant,
     you_should_see_this: Option<YouSouldSeeThis>,
     i_just_saw_this: Option<IJustSawThis>,
 }
@@ -129,8 +129,8 @@ impl PeerState {
             boot: Instant::now(),
             keypair: Keypair::load_key(),
             open_file_cache: HashMap::new(),
-            search_results: HashMap::new(),
-            search_time: Instant::now(),
+            list_results: HashMap::new(),
+            list_time: Instant::now(),
             you_should_see_this: None,
             i_just_saw_this: None,
         };
@@ -244,7 +244,7 @@ impl PeerState {
             .peer_map
             .iter()
             .map(|(k, v)| (k, v.delay.as_secs_f64()))
-            .collect::<Vec<_>>();
+            .collect();
         peers.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
         self.peer_vec = peers.into_iter().map(|(addr, _)| *addr).collect();
     }
@@ -485,7 +485,9 @@ fn main() -> Result<(), std::io::Error> {
                             }
                         }
                     }
-                    for (k, v) in trending {
+                    let mut sorted_list_results: Vec<_> = trending.iter().collect();
+                    sorted_list_results.sort_by_key(|&(_, b)| b);
+                    for (k, v) in &sorted_list_results {
                         println!("{} {}",v,k);
                     }
                 } else if line == "/recommended\n" {
@@ -501,12 +503,15 @@ fn main() -> Result<(), std::io::Error> {
                             }
                         }
                     }
-                    for (k, v) in highly_recommended_content {
+                    let mut sorted_list_results: Vec<_> =
+                        highly_recommended_content.iter().collect();
+                    sorted_list_results.sort_by_key(|&(_, b)| b);
+                    for (k, v) in &sorted_list_results {
                         println!("{} {}",v,k);
                     }
-                } else if line == "/search\n" {
-                    ps.search_results = HashMap::new();
-                    ps.search_time = Instant::now();
+                } else if line == "/list\n" {
+                    ps.list_results = HashMap::new();
+                    ps.list_time = Instant::now();
                     println!("searching");
                     for sa in &ps.peer_vec {
                         let mut message_out = ps.always_returned(*sa);
@@ -1199,11 +1204,13 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
             break;
         }
     }
-    if ps.search_time + Duration::from_secs(1) < Instant::now() {
-        for (k, v) in &ps.search_results {
+    if ps.list_time + Duration::from_secs(1) < Instant::now() {
+        let mut sorted_list_results: Vec<_> = ps.list_results.iter().collect();
+        sorted_list_results.sort_by_key(|&(_, b)| b);
+        for (k, v) in &sorted_list_results {
             println!("{} {}",v,k);
         }
-        ps.search_time += Duration::from_secs(60 * 60 * 24 * 365 * 99);
+        ps.list_time += Duration::from_secs(60 * 60 * 24 * 365 * 99);
     }
 }
 
@@ -1364,10 +1371,10 @@ impl ContentList {
             ps.peer_map[&src].delay,
             self.results
         );
-            match ps.search_results.get_mut(&r.to_owned()) {
+            match ps.list_results.get_mut(&r.to_owned()) {
                 Some(h) => *h += 1,
                 None => {
-                    ps.search_results.insert(r.to_owned(), 1);
+                    ps.list_results.insert(r.to_owned(), 1);
                     ()
                 }
             }
