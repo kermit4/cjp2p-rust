@@ -431,9 +431,13 @@ fn main() -> Result<(), std::io::Error> {
                     inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
                 } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
                     let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
-                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                    trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
-                    ps.socket.send_to(&message_out_bytes, arg).ok();
+                    if let Message::EncryptedMessages(_) = message_out[0] {
+                        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                        trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
+                        ps.socket.send_to(&message_out_bytes, arg).ok();
+                    } else {
+                        warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+                    }
                 } else if sscanf!(line.as_str(), "/promote {}",arg).is_ok() {
                     ps.promoted_content = Some(PromotedContent {
                         id: arg.to_owned(),
