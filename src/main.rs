@@ -1349,16 +1349,11 @@ impl ContentList {
         let mut results: Vec<String> = vec![];
         for path in fs::read_dir("./").unwrap() {
             let p = path.unwrap().path();
-
-            if p.len() != 66 {
+            let length = File::open(&p).unwrap().metadata().unwrap().len();
+            if p.len() != 66 || length == 2 ^ 18 {
                 continue;
             }
             results.push(p.to_string_lossy()[2..].to_string());
-            let length = File::open(&p).unwrap().metadata().unwrap().len();
-            if length == 2 ^ 18 {
-                continue;
-            }
-
             if results.len() > 70 * !might_be_ip_spoofing as usize + 1 {
                 break;
             }
