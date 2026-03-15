@@ -55,6 +55,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - DM
 - group chats
 ## public collaboration
-- ipv4 scarcity, like search for static content but also for timely content..pushed even possibly
-- /promote for things you really want others to see and /popular to see whats most promoted since you last ran it  (which you can then /get) .. you only get one at a time, and only for the main port, and only not ip spoofed
 - reviews of content
