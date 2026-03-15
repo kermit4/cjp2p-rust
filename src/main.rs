@@ -467,7 +467,7 @@ fn main() -> Result<(), std::io::Error> {
                     } else {
                         warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
                     }
-                } else if sscanf!(line.as_str(), "/promote {}",arg).is_ok() {
+                } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
                     ps.you_should_see_this = Some(YouSouldSeeThis {
                         id: arg.to_owned(),
                         length: File::open(&arg).unwrap().metadata().unwrap().len(),
@@ -488,20 +488,20 @@ fn main() -> Result<(), std::io::Error> {
                     for (k, v) in trending {
                         println!("{} {}",v,k);
                     }
-                } else if line == "/promoted\n" {
-                    let mut highly_promoted_content: HashMap<String, i32> = HashMap::new();
+                } else if line == "/recommended\n" {
+                    let mut highly_recommended_content: HashMap<String, i32> = HashMap::new();
                     for (_, v) in &ps.peer_map {
                         if let Some(p) = &v.you_should_see_this {
-                            match highly_promoted_content.get_mut(&p.id) {
+                            match highly_recommended_content.get_mut(&p.id) {
                                 Some(h) => *h += 1,
                                 None => {
-                                    highly_promoted_content.insert(p.id.to_owned(), 1);
+                                    highly_recommended_content.insert(p.id.to_owned(), 1);
                                     ()
                                 }
                             }
                         }
                     }
-                    for (k, v) in highly_promoted_content {
+                    for (k, v) in highly_recommended_content {
                         println!("{} {}",v,k);
                     }
                 } else if line == "/search\n" {
