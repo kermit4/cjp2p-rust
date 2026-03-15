@@ -1225,7 +1225,7 @@ impl SearchResult {
             let p = path.unwrap().path();
 
             if p.len() == 66 {
-                results.push(p.to_string_lossy()[3..].to_string());
+                results.push(p.to_string_lossy()[2..].to_string());
             }
             if results.len() > 70 * !might_be_ip_spoofing as usize + 1 {
                 break;
