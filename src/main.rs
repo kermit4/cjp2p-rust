@@ -479,6 +479,15 @@ fn main() -> Result<(), std::io::Error> {
                     for v in &ps.peer_vec[..33] {
                         println!("{} {:?}",v,ps.peer_map[v].delay);
                     }
+                    println!("{} total peers",ps.peer_map.len());
+                    let mut count = 0;
+                    let mut unique_ips = HashSet::new();
+                    for (k, _) in &ps.peer_map {
+                        if unique_ips.insert(k.ip()) {
+                            count += 1;
+                        }
+                    }
+                    println!("{} total unique IP peers",count);
                 } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
                     ps.you_should_see_this = Some(YouSouldSeeThis {
                         id: arg.to_owned(),
