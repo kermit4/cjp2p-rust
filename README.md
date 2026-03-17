@@ -27,6 +27,8 @@ sha256sum
 
 or http://127.0.0.1:24254/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
+or inlined images in HTML loaded live http://127.0.0.1:24254/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6
+
 typing stdin sends a chat message to a mostly random set of peers, but say "/ping" for fun, or "/search"
 
 This is also at https://crates.io/crates/libcjp but probably isn't useful as a crate yet.  
@@ -41,7 +43,7 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - CLI commands  / API?  or just as curl//REST examples, not CLI
 - how would end users best interact? through a browser? how about sending or streaming
 - cjp2p crate too? or instead? or just cjp? is lib redundant?
-- split lib and use cases, but need one or two more use cases?  but functionality builds on other functionality, where''s he cut?   the UI i guess
+- split lib and use cases, but need one or two more use cases?  but functionality builds on other functionality, where''s he cut?   the UI i guess or move/expose core functions i havent changed in a while to the lib
 - how can users easily and excitedly use decentralized software in place of centralized...easy plus a draw..whats hot and trending, what peers respect, an algorithm but that they control
 - more / commands
 - http quickstart and acceleration need work, maybe just request the whole thing as soon as it knows a peer  .. user waiting is much more important than maintaining some low packet loss
@@ -57,3 +59,10 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - group chats
 ## public collaboration
 - reviews of content
+## unnsorted
+- make it easy for other people to build on, even if they dont know rust? /on to add functionality? scriptable?
+- make it do what i actually do each day, check for news basically. /trending is all i really do. but, i may want to weight some sources higher. well, do that later. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
+- also command line /view or /open to just open with browser or xdg-open, whichever works better
+- does it need to support HTML pages with lots of emdedde things, and quickly? it could, but people can just print them to PDF 
+- somehow saito.io does udp p2p in browser, and even using LAN IPs..how
+- just automate, in a dectralized way, whatever im doing thats not doing that
