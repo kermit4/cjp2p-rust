@@ -585,11 +585,9 @@ fn handle_web_request(
                             Content-Range: bytes {}-{}/{}\r\n"
                             ,length,start,start+length-1,
                             file.metadata().unwrap().len());
-                if let Ok(Some(kind)) = infer::get_from_path(&id) {
-                    println!("MIME type from path: {}", kind.mime_type());
-                    response += &format!("Content-Type: {}\r\n",kind.mime_type());
-                } else {
-                    println!("Unknown file type for path");
+                match infer::get_from_path("incoming/".to_string() + &id) {
+                    Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
+                    _ => warn!("HTTP unknown mime type for {}",&id),
                 }
                 response += "\r\n";
                 debug!("http response {}",response);
@@ -1168,11 +1166,9 @@ impl InboundState {
                              Content-Type: video/mp4\r\n\
                             Content-Range: bytes {}-{}/{}\r\n"
             ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof);
-        if let Ok(Some(kind)) = infer::get_from_path("incoming/".to_string() + &self.id) {
-            println!("MIME type from path: {}", kind.mime_type());
-            response += &format!("Content-Type: {}\r\n",kind.mime_type());
-        } else {
-            println!("Unknown file type for path");
+        match infer::get_from_path("incoming/".to_string() + &self.id) {
+            Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
+            _ => warn!("HTTP unknown mime type for {}",&self.id),
         }
         response += "\r\n";
         debug!("http response {}",response);
