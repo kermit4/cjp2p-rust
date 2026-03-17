@@ -56,7 +56,7 @@ struct PeerInfo {
 impl PeerInfo {
     fn new() -> Self {
         return Self {
-            delay: Duration::from_millis(200),
+            delay: Duration::from_millis(120),
             anti_ip_spoofing_cookie_they_expect: None,
             anti_ip_spoofing_cookie_i_expect: (rand::thread_rng().gen::<u32>()).to_string(),
             ed25519: None,
@@ -394,10 +394,15 @@ fn main() -> Result<(), std::io::Error> {
         info!("queing inbound file {:?}", v);
         inbound_states.insert(v.to_string(), InboundState::new(&v, &ps));
     }
-    let mut next_maintenance = Instant::now();
+    let mut next_maintenance = Instant::now() - Duration::from_secs(99999);
 
     loop {
         let mut read_fds = FdSet::new();
+        if next_maintenance.elapsed() > Duration::ZERO {
+            maintenance(&mut inbound_states, &mut ps);
+            next_maintenance =
+                Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
+        }
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
         let stdin = std::io::stdin();
@@ -469,6 +474,10 @@ fn main() -> Result<(), std::io::Error> {
                         ps.socket.send_to(&message_out_bytes, arg).ok();
                     } else {
                         warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+                    }
+                } else if line == "/peers\n" {
+                    for v in &ps.peer_vec[..33] {
+                        println!("{} {:?}",v,ps.peer_map[v].delay);
                     }
                 } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
                     ps.you_should_see_this = Some(YouSouldSeeThis {
@@ -542,11 +551,6 @@ fn main() -> Result<(), std::io::Error> {
         }
         if read_fds.contains(ps.socket.as_fd()) {
             handle_network(&mut ps, &mut inbound_states);
-        }
-        if next_maintenance.elapsed() > Duration::ZERO {
-            maintenance(&mut inbound_states, &mut ps);
-            next_maintenance =
-                Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
         }
     }
 }

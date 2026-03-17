@@ -25,11 +25,19 @@ sha256sum
 # should be  6f5a06b0a8b83d66583a319bfa104393f5e52d2c017437a1b425e9275576500c
 ```
 
-or http://127.0.0.1:24254/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
+or Sintel http://127.0.0.1:24254/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
 or inlined images in HTML loaded live http://127.0.0.1:24254/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6
 
-typing stdin sends a chat message to a mostly random set of peers, but say "/ping" for fun, or "/search"
+typing stdin sends a chat message to a mostly random set of peers, but there are some / commands:
+- /ping
+- /get hash
+- /list
+- /recommend hash
+- /recommended
+- /trending
+- /peers (lists just the closest few)
+- /msg [ip:port or 0xPubKey] msg
 
 This is also at https://crates.io/crates/libcjp but probably isn't useful as a crate yet.  
 
@@ -62,7 +70,11 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 ## unnsorted
 - make it easy for other people to build on, even if they dont know rust? /on to add functionality? scriptable?
 - make it do what i actually do each day, check for news basically. /trending is all i really do. but, i may want to weight some sources higher. well, do that later. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
-- also command line /view or /open to just open with browser or xdg-open, whichever works better
-- does it need to support HTML pages with lots of emdedde things, and quickly? it could, but people can just print them to PDF 
-- somehow saito.io does udp p2p in browser, and even using LAN IPs..how
-- just automate, in a dectralized way, whatever im doing thats not doing that
+-   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
+- save recommended and last viewed.. maybe break out a persistent peer state finally
+- http code is not DRY
+- reputation
+- use dev branch?
+- /peers all under 300ms
+- thanks/reputation. auto thanks on succesful get.
+- really need metadata for /list and /recommended and /trending
