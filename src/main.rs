@@ -425,141 +425,135 @@ fn main() -> Result<(), std::io::Error> {
         }
 
         if read_fds.contains(stdin.as_fd()) {
-            let mut line = String::new();
-            io::stdin().read_line(&mut line).unwrap();
-            if line.len() > 1 {
-                let mut arg: String = "".to_string();
-                let mut arg2: String = "".to_string();
-                if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
-                    ps.i_just_saw_this = Some(IJustSawThis {
-                        id: arg.to_owned(),
-                        length: File::open(&arg).unwrap().metadata().unwrap().len(),
-                    });
-                    println!("QUEING FILE {arg}");
-                    inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
-                } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
-                    let to = hex::decode(&arg).unwrap();
-                    let mut who: HashSet<SocketAddr> = HashSet::new();
-                    for (k, v) in &ps.peer_map {
-                        if let Some(key) = &v.ed25519 {
-                            if *key == to {
-                                who.insert(*k);
-                            }
-                        }
-                    }
-                    if who.len() > 0 {
-                        let message_out = ChatMessage::new(
-                            &ps,
-                            who.clone().into_iter().next().unwrap(),
-                            arg2.clone(),
-                        );
-                        if let Message::EncryptedMessages(_) = message_out[0] {
-                            let message_out_bytes: Vec<u8> =
-                                serde_json::to_vec(&message_out).unwrap();
-                            trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
-                            for sa in who {
-                                ps.socket.send_to(&message_out_bytes, sa).ok();
-                            }
-                        } else {
-                            println!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
-                        }
-                    } else {
-                        println!("not found");
-                    }
-                } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
-                    let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
-                    if let Message::EncryptedMessages(_) = message_out[0] {
-                        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                        trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
-                        ps.socket.send_to(&message_out_bytes, arg).ok();
-                    } else {
-                        warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
-                    }
-                } else if line == "/peers\n" {
-                    for v in &ps.peer_vec[..33] {
-                        println!("{} {:?}",v,ps.peer_map[v].delay);
-                    }
-                    println!("{} total peers",ps.peer_map.len());
-                    let mut count = 0;
-                    let mut unique_ips = HashSet::new();
-                    for (k, _) in &ps.peer_map {
-                        if unique_ips.insert(k.ip()) {
-                            count += 1;
-                        }
-                    }
-                    println!("{} total unique IP peers",count);
-                } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
-                    ps.you_should_see_this = Some(YouSouldSeeThis {
-                        id: arg.to_owned(),
-                        length: File::open(&arg).unwrap().metadata().unwrap().len(),
-                    });
-                } else if line == "/trending\n" {
-                    let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
-                    for (_, v) in &ps.peer_map {
-                        if let Some(p) = &v.i_just_saw_this {
-                            match trending.get_mut(&p.id) {
-                                Some(h) => h.0 += 1,
-                                None => {
-                                    trending.insert(p.id.to_owned(), (1, p.length));
-                                    ()
-                                }
-                            }
-                        }
-                    }
-                    let mut sorted_list_results: Vec<_> = trending.iter().collect();
-                    sorted_list_results.sort_by_key(|&(_, b)| b.0);
-                    for (k, v) in &sorted_list_results {
-                        println!("{} {} {}",v.0,k,v.1);
-                    }
-                } else if line == "/recommended\n" {
-                    let mut highly_recommended_content: HashMap<String, (i32, u64)> =
-                        HashMap::new();
-                    for (_, v) in &ps.peer_map {
-                        if let Some(p) = &v.you_should_see_this {
-                            match highly_recommended_content.get_mut(&p.id) {
-                                Some(h) => h.0 += 1,
-                                None => {
-                                    highly_recommended_content
-                                        .insert(p.id.to_owned(), (1, p.length));
-                                    ()
-                                }
-                            }
-                        }
-                    }
-                    let mut sorted_list_results: Vec<_> =
-                        highly_recommended_content.iter().collect();
-                    sorted_list_results.sort_by_key(|&(_, b)| b.0);
-                    for (k, v) in &sorted_list_results {
-                        println!("{} {} {}",v.0,k,v.1);
-                    }
-                } else if line == "/list\n" {
-                    ps.list_results = HashMap::new();
-                    ps.list_time = Instant::now();
-                    println!("searching");
-                    for sa in &ps.peer_vec {
-                        let mut message_out = ps.always_returned(*sa);
-                        for v in PleaseListContent::new(&ps) {
-                            message_out.push(v);
-                        }
-                        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                        trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
-                        ps.socket.send_to(&message_out_bytes, sa).ok();
-                    }
-                } else {
-                    for sa in ps.best_peers(100, 5) {
-                        let message_out = ChatMessage::new(&ps, sa, line.clone());
-                        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                        trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
-                        ps.socket.send_to(&message_out_bytes, sa).ok();
+            handle_stdin(&mut ps, &mut inbound_states);
+        } else if read_fds.contains(web_server.as_fd()) {
+            handle_web_request(&web_server, &mut inbound_states, &ps);
+        } else if read_fds.contains(ps.socket.as_fd()) {
+            handle_network(&mut ps, &mut inbound_states);
+        }
+    }
+}
+fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
+    let mut line = String::new();
+    io::stdin().read_line(&mut line).unwrap();
+    if line.len() > 1 {
+        let mut arg: String = "".to_string();
+        let mut arg2: String = "".to_string();
+        if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
+            ps.i_just_saw_this = Some(IJustSawThis {
+                id: arg.to_owned(),
+                length: File::open(&arg).unwrap().metadata().unwrap().len(),
+            });
+            println!("QUEING FILE {arg}");
+            inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
+        } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
+            let to = hex::decode(&arg).unwrap();
+            let mut who: HashSet<SocketAddr> = HashSet::new();
+            for (k, v) in &ps.peer_map {
+                if let Some(key) = &v.ed25519 {
+                    if *key == to {
+                        who.insert(*k);
                     }
                 }
             }
-        }
-        if read_fds.contains(web_server.as_fd()) {
-            handle_web_request(&web_server, &mut inbound_states, &ps);
-        }
-        if read_fds.contains(ps.socket.as_fd()) {
-            handle_network(&mut ps, &mut inbound_states);
+            if who.len() > 0 {
+                let message_out =
+                    ChatMessage::new(&ps, who.clone().into_iter().next().unwrap(), arg2.clone());
+                if let Message::EncryptedMessages(_) = message_out[0] {
+                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                    trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
+                    for sa in who {
+                        ps.socket.send_to(&message_out_bytes, sa).ok();
+                    }
+                } else {
+                    println!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+                }
+            } else {
+                println!("not found");
+            }
+        } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
+            let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
+            if let Message::EncryptedMessages(_) = message_out[0] {
+                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
+                ps.socket.send_to(&message_out_bytes, arg).ok();
+            } else {
+                warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+            }
+        } else if line == "/peers\n" {
+            for v in &ps.peer_vec[..33] {
+                println!("{} {:?}",v,ps.peer_map[v].delay);
+            }
+            println!("{} total peers",ps.peer_map.len());
+            let mut count = 0;
+            let mut unique_ips = HashSet::new();
+            for (k, _) in &ps.peer_map {
+                if unique_ips.insert(k.ip()) {
+                    count += 1;
+                }
+            }
+            println!("{} total unique IP peers",count);
+        } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
+            ps.you_should_see_this = Some(YouSouldSeeThis {
+                id: arg.to_owned(),
+                length: File::open(&arg).unwrap().metadata().unwrap().len(),
+            });
+        } else if line == "/trending\n" {
+            let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
+            for (_, v) in &ps.peer_map {
+                if let Some(p) = &v.i_just_saw_this {
+                    match trending.get_mut(&p.id) {
+                        Some(h) => h.0 += 1,
+                        None => {
+                            trending.insert(p.id.to_owned(), (1, p.length));
+                            ()
+                        }
+                    }
+                }
+            }
+            let mut sorted_list_results: Vec<_> = trending.iter().collect();
+            sorted_list_results.sort_by_key(|&(_, b)| b.0);
+            for (k, v) in &sorted_list_results {
+                println!("{} {} {}",v.0,k,v.1);
+            }
+        } else if line == "/recommended\n" {
+            let mut highly_recommended_content: HashMap<String, (i32, u64)> = HashMap::new();
+            for (_, v) in &ps.peer_map {
+                if let Some(p) = &v.you_should_see_this {
+                    match highly_recommended_content.get_mut(&p.id) {
+                        Some(h) => h.0 += 1,
+                        None => {
+                            highly_recommended_content.insert(p.id.to_owned(), (1, p.length));
+                            ()
+                        }
+                    }
+                }
+            }
+            let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
+            sorted_list_results.sort_by_key(|&(_, b)| b.0);
+            for (k, v) in &sorted_list_results {
+                println!("{} {} {}",v.0,k,v.1);
+            }
+        } else if line == "/list\n" {
+            ps.list_results = HashMap::new();
+            ps.list_time = Instant::now();
+            println!("searching");
+            for sa in &ps.peer_vec {
+                let mut message_out = ps.always_returned(*sa);
+                for v in PleaseListContent::new(&ps) {
+                    message_out.push(v);
+                }
+                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+                ps.socket.send_to(&message_out_bytes, sa).ok();
+            }
+        } else {
+            for sa in ps.best_peers(100, 5) {
+                let message_out = ChatMessage::new(&ps, sa, line.clone());
+                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+                ps.socket.send_to(&message_out_bytes, sa).ok();
+            }
         }
     }
 }
