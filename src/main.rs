@@ -578,14 +578,20 @@ fn handle_web_request(
             if let Ok(file) = File::open(&id) {
                 let mut buf = vec![0; end-start ];
                 let length = file.read_at(&mut buf, start as u64).unwrap();
-                let response = format!(
+                let mut response = format!(
                             "HTTP/1.1 206 Partial Content\r\n\
                              Content-Length: {}\r\n\
                              Content-Type: video/mp4\r\n\
-                            Content-Range: bytes {}-{}/{}\r\n\
-                            \r\n"
+                            Content-Range: bytes {}-{}/{}\r\n"
                             ,length,start,start+length-1,
                             file.metadata().unwrap().len());
+                if let Ok(Some(kind)) = infer::get_from_path(&id) {
+                    println!("MIME type from path: {}", kind.mime_type());
+                    response += &format!("Content-Type: {}\r\n",kind.mime_type());
+                } else {
+                    println!("Unknown file type for path");
+                }
+                response += "\r\n";
                 debug!("http response {}",response);
                 //stream.set_write_timeout(Some(Duration::new(1, 0)))?
                 // it should fit in the buffer though
@@ -1156,15 +1162,19 @@ impl InboundState {
         } else if waited > Duration::from_millis(2) {
             debug!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
         }
-
-        let response = format!(
-            "HTTP/1.1 206 Partial Content\r\n\
-             Content-Length: {}\r\n\
-             Content-Type: video/mp4\r\n\
-            Content-Range: bytes {}-{}/{}\r\n\
-            \r\n"
-            ,self.http_end-self.http_start,self.http_start,self.http_end-1,
-            self.eof);
+        let mut response = format!(
+                            "HTTP/1.1 206 Partial Content\r\n\
+                             Content-Length: {}\r\n\
+                             Content-Type: video/mp4\r\n\
+                            Content-Range: bytes {}-{}/{}\r\n"
+            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof);
+        if let Ok(Some(kind)) = infer::get_from_path("incoming/".to_string() + &self.id) {
+            println!("MIME type from path: {}", kind.mime_type());
+            response += &format!("Content-Type: {}\r\n",kind.mime_type());
+        } else {
+            println!("Unknown file type for path");
+        }
+        response += "\r\n";
         debug!("http response {}",response);
         self.http_socket
             .as_mut()
