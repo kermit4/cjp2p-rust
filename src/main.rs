@@ -5,7 +5,7 @@ use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
 use memmap2::MmapMut;
-use nix::NixPath;
+//use nix::NixPath;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_with::{base64::Base64, serde_as, InspectError, VecSkipError};
@@ -29,7 +29,6 @@ use std::net::{SocketAddr, UdpSocket};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::AsFd;
 use std::os::unix::fs::FileExt;
-use std::path::Path;
 use std::time::{Duration, Instant};
 use std::vec;
 use std::{io, str};
@@ -1376,16 +1375,14 @@ impl ContentList {
     fn new(might_be_ip_spoofing: bool) -> Vec<Message> {
         let mut results: Vec<(String, u64)> = vec![];
         for path in fs::read_dir("./public").unwrap() {
+            info!("listing path {:?} ",&path);
             let p = path.unwrap().path();
-            let length = File::open(Path::new("./public/").join(&p))
-                .unwrap()
-                .metadata()
-                .unwrap()
-                .len();
-            if p.len() != 66 || length == 1 << 18 {
+            info!("listing p {:?}",&p);
+            let length = File::open(&p).unwrap().metadata().unwrap().len();
+            if p.file_name().unwrap().len() != 64 || length == 1 << 18 {
                 continue;
             }
-            results.push((p.to_string_lossy()[2..].to_string(), length));
+            results.push((p.file_name().unwrap().to_str().unwrap().to_string(), length));
             if results.len() > 70 * !might_be_ip_spoofing as usize + 1 {
                 break;
             }
