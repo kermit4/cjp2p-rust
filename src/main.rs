@@ -311,7 +311,7 @@ impl PeerState {
                 // verified
                 Message::AlwaysReturned(_) => vec![],
 
-                Message::PleaseSendPeers(t) => t.send_peers(&self, might_be_ip_spoofing, src),
+                Message::PleaseSendPeers(_) => Peers::send_peers(self, might_be_ip_spoofing, src),
                 Message::Peers(t) => t.receive_peers(self),
                 Message::PleaseSendContent(t) =>
                     t.send_content(inbound_states, src, might_be_ip_spoofing, self),
@@ -332,14 +332,14 @@ impl PeerState {
                     }
                     vec![]
                 }
-                Message::ChatMessage(t) => t.receive(self, src),
-                Message::PleaseListContent(t) => t.receive(self, src, might_be_ip_spoofing),
-                Message::ContentList(t) => t.receive(self, src),
+                Message::ChatMessage(t) => t.receive_chat_message(self, src),
+                Message::PleaseListContent(_) => ContentList::new(might_be_ip_spoofing),
+                Message::ContentList(t) => t.receive_content_list(self, src),
                 Message::PleaseAlwaysReturnThisMessage(t) => self.save_key(src, t.cookie.clone()),
                 Message::PleaseReturnThisMessage(t) =>
                     vec![Message::ReturnedMessage(ReturnedMessage { cookie: t.cookie, })],
                 Message::EncryptedMessages(t) =>
-                    t.receive(self, src, might_be_ip_spoofing, inbound_states),
+                    t.decrypt_messages(self, src, might_be_ip_spoofing, inbound_states),
             })
         }
         return message_out;
@@ -731,24 +731,17 @@ struct PleaseAlwaysReturnThisMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct PleaseSendPeers {}
-impl PleaseSendPeers {
-    fn send_peers(
-        &self,
-        ps: &PeerState,
-        might_be_ip_spoofing: bool,
-        src: SocketAddr,
-    ) -> Vec<Message> {
+impl Peers {
+    fn send_peers(ps: &PeerState, might_be_ip_spoofing: bool, src: SocketAddr) -> Vec<Message> {
         let p = ps.best_peers(1 + 45 * !might_be_ip_spoofing as i32, 6);
         trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
-        let mut message_out = vec![Message::Peers(Peers { peers: p })];
+        let mut message_out = vec![Message::Peers(Self { peers: p })];
         if might_be_ip_spoofing {
             message_out.push(ps.please_always_return(src));
         }
         return message_out;
     }
-}
 
-impl Peers {
     fn receive_peers(&self, ps: &mut PeerState) -> Vec<Message> {
         trace!("received peers {:?} ", self.peers.len());
         for p in &self.peers {
@@ -929,7 +922,7 @@ impl Content {
         i.peers.insert(src);
         let block_number = self.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
-        let mut message_out = i.receive_content(&self);
+        let mut message_out = i.receive_inbound_content(&self);
         if i.finished() {
             i.serve_http_if_any_is_ready(); // TODO force this to not care how much is left
             inbound_states.remove(&self.id);
@@ -1005,7 +998,7 @@ impl InboundState {
         };
     }
 
-    fn receive_content(&mut self, content: &Content) -> Vec<Message> {
+    fn receive_inbound_content(&mut self, content: &Content) -> Vec<Message> {
         let block_number = content.offset / BLOCK_SIZE!();
         let this_eof = match content.eof {
             Some(n) => n,
@@ -1330,7 +1323,7 @@ impl ChatMessage {
         }
         return message_out;
     }
-    fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+    fn receive_chat_message(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
         println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
@@ -1352,19 +1345,6 @@ impl PleaseListContent {
             Message::PleaseListContent(Self {}),
         ];
         return message_out;
-    }
-    fn receive(
-        &self,
-        ps: &mut PeerState,
-        src: SocketAddr,
-        might_be_ip_spoofing: bool,
-    ) -> Vec<Message> {
-        println!("\x1b[7m{} {src} 0x{} from {:?} away searched\x1b[m",
-            Utc::now().to_rfc3339(),
-            hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
-            ps.peer_map[&src].delay,
-        );
-        return ContentList::new(might_be_ip_spoofing);
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
@@ -1393,7 +1373,7 @@ impl ContentList {
         ];
         return message_out;
     }
-    fn receive(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+    fn receive_content_list(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
         // TODO call maybetheyhavesome?
         for (id, size) in &self.results {
             trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
@@ -1435,7 +1415,7 @@ impl EncryptedMessages {
         trace!("sending encrypted msg to {src}");
         return message_out;
     }
-    fn receive(
+    fn decrypt_messages(
         &self,
         ps: &mut PeerState,
         src: SocketAddr,
