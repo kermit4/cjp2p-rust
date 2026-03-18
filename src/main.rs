@@ -145,14 +145,6 @@ impl PeerState {
         ps.load_peers();
         return ps;
     }
-    fn save_key(&mut self, src: SocketAddr, cookie: String) -> Vec<Message> {
-        trace!("saving cookie {cookie} for {src}");
-        self.peer_map
-            .get_mut(&src)
-            .unwrap()
-            .anti_ip_spoofing_cookie_they_expect = Some(cookie);
-        return vec![];
-    }
     fn hash_ip(&self, src: SocketAddr) -> String {
         let mut hasher = Sha256::new();
         hasher.update(&self.keypair.private[..8]);
@@ -722,7 +714,12 @@ impl Receive for PleaseAlwaysReturnThisMessage {
         _: bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        ps.save_key(src, self.cookie.clone())
+        trace!("saving cookie {} for {src}",self.cookie);
+        ps.peer_map
+            .get_mut(&src)
+            .unwrap()
+            .anti_ip_spoofing_cookie_they_expect = Some(self.cookie);
+        return vec![];
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
@@ -964,7 +961,7 @@ impl Receive for Content {
         i.peers.insert(src);
         let block_number = self.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
-        let mut message_out = i.receive_inbound_content(&self);
+        let mut message_out = i.receive_content(&self);
         if i.finished() {
             i.serve_http_if_any_is_ready(); // TODO force this to not care how much is left
             inbound_states.remove(&self.id);
@@ -1040,7 +1037,7 @@ impl InboundState {
         };
     }
 
-    fn receive_inbound_content(&mut self, content: &Content) -> Vec<Message> {
+    fn receive_content(&mut self, content: &Content) -> Vec<Message> {
         let block_number = content.offset / BLOCK_SIZE!();
         let this_eof = match content.eof {
             Some(n) => n,
