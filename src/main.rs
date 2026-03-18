@@ -23,13 +23,13 @@ use std::fs::File;
 use std::fs::OpenOptions;
 //use std::io::copy;
 use nix::sys::select::{select, FdSet};
-use std::net::{SocketAddr, UdpSocket};
-use std::os::fd::AsFd;
-use std::os::unix::fs::FileExt;
-//use std::path::Path;
 use rand::Rng;
 use scanf::sscanf;
+use std::net::{SocketAddr, UdpSocket};
 use std::net::{TcpListener, TcpStream};
+use std::os::fd::AsFd;
+use std::os::unix::fs::FileExt;
+use std::path::Path;
 use std::time::{Duration, Instant};
 use std::vec;
 use std::{io, str};
@@ -379,8 +379,9 @@ fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
 }
 
 fn main() -> Result<(), std::io::Error> {
-    fs::create_dir("./shared").ok();
-    std::env::set_current_dir("./shared").unwrap();
+    fs::create_dir("./cjp2p").ok();
+    std::env::set_current_dir("./cjp2p").unwrap();
+    fs::create_dir("./public").ok();
     fs::create_dir("./metadata").ok();
     fs::create_dir("./state").ok();
     env_logger::builder()
@@ -445,7 +446,11 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
         if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
             ps.i_just_saw_this = Some(IJustSawThis {
                 id: arg.to_owned(),
-                length: File::open(&arg).unwrap().metadata().unwrap().len(),
+                length: File::open("public/".to_owned() + &arg)
+                    .unwrap()
+                    .metadata()
+                    .unwrap()
+                    .len(),
             });
             println!("QUEING FILE {arg}");
             inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
@@ -487,8 +492,9 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             for v in ps.peer_vec.iter().rev() {
                 let d = ps.peer_map[v].delay;
                 if d < Duration::from_secs(1) {
-                println!("{:21} {:?}",v,d);
-            }}
+                    println!("{:21} {:?}",v,d);
+                }
+            }
             println!("{} total peers",ps.peer_map.len());
             let mut count = 0;
             let mut unique_ips = HashSet::new();
@@ -501,7 +507,11 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
         } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
             ps.you_should_see_this = Some(YouSouldSeeThis {
                 id: arg.to_owned(),
-                length: File::open(&arg).unwrap().metadata().unwrap().len(),
+                length: File::open("public/".to_owned() + &arg)
+                    .unwrap()
+                    .metadata()
+                    .unwrap()
+                    .len(),
             });
         } else if line == "/trending\n" {
             let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
@@ -587,7 +597,7 @@ fn handle_web_request(
                 end = start + 0x40000;
             }
 
-            if let Ok(file) = File::open(&id) {
+            if let Ok(file) = File::open("public/".to_owned() + &id) {
                 let mut buf = vec![0; end-start ];
                 let length = file.read_at(&mut buf, start as u64).unwrap();
                 let mut response = format!(
@@ -870,7 +880,7 @@ impl Content {
         };
         let ofr = if let Some(ofr) = ps.open_file_cache.get(&req.id) {
             ofr
-        } else if let Ok(file) = File::open(&req.id) {
+        } else if let Ok(file) = File::open("public/".to_owned() + &req.id) {
             let ofr = OpenFile {
                 eof: file.metadata().unwrap().len() as usize,
                 file: file,
@@ -1132,7 +1142,7 @@ impl InboundState {
             info!("{0} finished {1} bytes", self.id, self.eof);
             println!("{0} finished {1} bytes", self.id, self.eof);
             let path = "./incoming/".to_owned() + &self.id;
-            let new_path = "./".to_owned() + &self.id;
+            let new_path = "./public/".to_owned() + &self.id;
             fs::rename(path, new_path).unwrap();
             self.save_content_peers();
             return true;
@@ -1365,9 +1375,13 @@ struct ContentList {
 impl ContentList {
     fn new(might_be_ip_spoofing: bool) -> Vec<Message> {
         let mut results: Vec<(String, u64)> = vec![];
-        for path in fs::read_dir("./").unwrap() {
+        for path in fs::read_dir("./public").unwrap() {
             let p = path.unwrap().path();
-            let length = File::open(&p).unwrap().metadata().unwrap().len();
+            let length = File::open(Path::new("./public/").join(&p))
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .len();
             if p.len() != 66 || length == 1 << 18 {
                 continue;
             }
