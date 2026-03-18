@@ -1,10 +1,4 @@
 //use base64::{engine::general_purpose, Engine as _};
-
-
-use std::hash::BuildHasher;
-use rapidhash::quality::SeedableState;
-
-
 use bitvec::prelude::*;
 use chrono::{Timelike, Utc};
 use env_logger::fmt::TimestampPrecision;
@@ -160,13 +154,9 @@ impl PeerState {
         return vec![];
     }
     fn hash_ip(&self, src: SocketAddr) -> String {
- let hasher = SeedableState::fixed();
-
-//        let mut hasher = Sha256::new();
-        return format!("{:x}",
-hasher.hash_one(format!("{} {}", hex::encode(&self.keypair.private),  src.ip())));
- //       hasher.update(format!("{} {}", hex::encode(&self.keypair.private),  src.ip()));
-//        return format!("{:x}", hasher.finalize())[..8].to_string();
+        let mut hasher = Sha256::new();
+        hasher.update(format!("{} {}", hex::encode(&self.keypair.private),  src.ip()));
+        return format!("{:x}", hasher.finalize())[..8].to_string();
     }
 
     fn check_key(&self, messages: &Vec<Message>, src: SocketAddr) -> bool {
