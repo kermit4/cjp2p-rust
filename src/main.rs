@@ -155,7 +155,8 @@ impl PeerState {
     }
     fn hash_ip(&self, src: SocketAddr) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(format!("{} {}", hex::encode(&self.keypair.private),  src.ip()));
+        hasher.update(&self.keypair.private[..8]);
+        hasher.update(src.ip().to_string());
         return format!("{:x}", hasher.finalize())[..8].to_string();
     }
 
