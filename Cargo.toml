@@ -34,4 +34,5 @@ serde_with = { version = "3.15.1", features = ["base64","alloc"] }
 time-core = ">=0.1.0"
 memmap2 = ">=0.0.0"
 infer = ">=0.0.0"
+enum_dispatch = ">=0.0.0"
 

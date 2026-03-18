@@ -1,6 +1,7 @@
 //use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
 use chrono::{Timelike, Utc};
+use enum_dispatch::enum_dispatch;
 use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
@@ -306,42 +307,15 @@ impl PeerState {
     ) -> Vec<Message> {
         let mut message_out = vec![];
         for message_in_enum in messages {
-            message_out.append(&mut match message_in_enum {
-                // checked before this loop because we want to know first if the source IP is
-                // verified
-                Message::AlwaysReturned(_) => vec![],
-
-                Message::PleaseSendPeers(_) => Peers::send_peers(self, might_be_ip_spoofing, src),
-                Message::Peers(t) => t.receive_peers(self),
-                Message::PleaseSendContent(t) =>
-                    t.send_content(inbound_states, src, might_be_ip_spoofing, self),
-                Message::Content(t) => t.receive_content(inbound_states, src, self),
-                Message::ReturnedMessage(t) => t.update_round_trip_time(self, src),
-                Message::MaybeTheyHaveSome(t) =>
-                    t.add_content_peer_suggestions(self, inbound_states),
-                Message::MyPublicKey(t) => t.save_public_key(self, src),
-                Message::IJustSawThis(t) => {
-                    if !might_be_ip_spoofing && src.port() == 24254 {
-                        self.peer_map.get_mut(&src).unwrap().i_just_saw_this = Some(t);
-                    }
-                    vec![]
-                }
-                Message::YouSouldSeeThis(t) => {
-                    if !might_be_ip_spoofing && src.port() == 24254 {
-                        self.peer_map.get_mut(&src).unwrap().you_should_see_this = Some(t);
-                    }
-                    vec![]
-                }
-                Message::ChatMessage(t) => t.receive_chat_message(self, src),
-                Message::PleaseListContent(_) => ContentList::new(might_be_ip_spoofing),
-                Message::ContentList(t) => t.receive_content_list(self, src),
-                Message::PleaseAlwaysReturnThisMessage(t) => self.save_key(src, t.cookie.clone()),
-                Message::PleaseReturnThisMessage(t) =>
-                    vec![Message::ReturnedMessage(ReturnedMessage { cookie: t.cookie, })],
-                Message::EncryptedMessages(t) =>
-                    t.decrypt_messages(self, src, might_be_ip_spoofing, inbound_states),
-            })
+            message_out.append(&mut message_in_enum.receive(
+                self,
+                src,
+                might_be_ip_spoofing,
+                inbound_states,
+            ));
         }
+        // checked before this loop because we want to know first if the source IP is
+        // verified
         return message_out;
     }
 }
@@ -723,26 +697,61 @@ struct Peers {
 struct AlwaysReturned {
     cookie: String,
 }
+impl Receive for AlwaysReturned {
+    fn receive(
+        self,
+        _: &mut PeerState,
+        _: SocketAddr,
+        _: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        //this is handled early
+        vec![]
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 struct PleaseAlwaysReturnThisMessage {
     cookie: String,
 }
-
+impl Receive for PleaseAlwaysReturnThisMessage {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        _: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        ps.save_key(src, self.cookie.clone())
+    }
+}
 #[derive(Serialize, Deserialize, Debug)]
 struct PleaseSendPeers {}
-impl Peers {
-    fn send_peers(ps: &PeerState, might_be_ip_spoofing: bool, src: SocketAddr) -> Vec<Message> {
+impl Receive for PleaseSendPeers {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        might_be_ip_spoofing: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
         let p = ps.best_peers(1 + 45 * !might_be_ip_spoofing as i32, 6);
         trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
-        let mut message_out = vec![Message::Peers(Self { peers: p })];
+        let mut message_out = vec![Message::Peers(Peers { peers: p })];
         if might_be_ip_spoofing {
             message_out.push(ps.please_always_return(src));
         }
         return message_out;
     }
-
-    fn receive_peers(&self, ps: &mut PeerState) -> Vec<Message> {
+}
+impl Receive for Peers {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        _: SocketAddr,
+        _: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
         trace!("received peers {:?} ", self.peers.len());
         for p in &self.peers {
             let sa: SocketAddr = *p;
@@ -760,10 +769,38 @@ struct IJustSawThis {
     id: String,
     length: u64,
 }
+impl Receive for IJustSawThis {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        might_be_ip_spoofing: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        if !might_be_ip_spoofing && src.port() == 24254 {
+            ps.peer_map.get_mut(&src).unwrap().i_just_saw_this = Some(self);
+        }
+        vec![]
+    }
+}
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct YouSouldSeeThis {
     id: String,
     length: u64,
+}
+impl Receive for YouSouldSeeThis {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        might_be_ip_spoofing: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        if !might_be_ip_spoofing && src.port() == 24254 {
+            ps.peer_map.get_mut(&src).unwrap().you_should_see_this = Some(self);
+        }
+        vec![]
+    }
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PleaseSendContent {
@@ -817,12 +854,14 @@ impl PleaseSendContent {
             length: BLOCK_SIZE!(),
         })];
     }
-    fn send_content(
-        &self,
-        inbound_states: &mut HashMap<String, InboundState>,
+}
+impl Receive for PleaseSendContent {
+    fn receive(
+        self,
+        ps: &mut PeerState,
         src: SocketAddr,
         might_be_ip_spoofing: bool,
-        ps: &mut PeerState,
+        inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if self.id.find("/") != None || self.id.find("\\") != None {
             return vec![];
@@ -893,11 +932,14 @@ impl Content {
             eof: Some(ofr.eof),
         })];
     }
-    fn receive_content(
-        &self,
-        inbound_states: &mut HashMap<String, InboundState>,
-        src: SocketAddr,
+}
+impl Receive for Content {
+    fn receive(
+        self,
         ps: &mut PeerState,
+        src: SocketAddr,
+        _: bool,
+        inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if !inbound_states.contains_key(&self.id) {
             debug!( "unwanted content, probably dups -- the tail still in flight after completion, for {0} block {1}",
@@ -1243,10 +1285,12 @@ struct MaybeTheyHaveSome {
     peers: HashSet<SocketAddr>,
 }
 
-impl MaybeTheyHaveSome {
-    fn add_content_peer_suggestions(
+impl Receive for MaybeTheyHaveSome {
+    fn receive(
         self,
         ps: &mut PeerState,
+        _: SocketAddr,
+        _: bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if !inbound_states.contains_key(&self.id) {
@@ -1266,6 +1310,17 @@ impl MaybeTheyHaveSome {
 struct PleaseReturnThisMessage {
     cookie: String,
 }
+impl Receive for PleaseReturnThisMessage {
+    fn receive(
+        self,
+        _: &mut PeerState,
+        _: SocketAddr,
+        _: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        vec![Message::ReturnedMessage(ReturnedMessage { cookie: self.cookie, })]
+    }
+}
 impl PleaseReturnThisMessage {
     fn new(ps: &PeerState) -> Message {
         Message::PleaseReturnThisMessage(Self {
@@ -1278,8 +1333,14 @@ impl PleaseReturnThisMessage {
 struct ReturnedMessage {
     cookie: String,
 }
-impl ReturnedMessage {
-    fn update_round_trip_time(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+impl Receive for ReturnedMessage {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        _: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
         match ps.peer_map.get_mut(&src) {
             Some(peer) => {
                 peer.delay =
@@ -1298,8 +1359,14 @@ struct MyPublicKey {
     #[serde_as(as = "Base64")]
     ed25519: Vec<u8>,
 }
-impl MyPublicKey {
-    fn save_public_key(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+impl Receive for MyPublicKey {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        _: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
         ps.peer_map.get_mut(&src).unwrap().ed25519 = Some(self.ed25519.clone());
         return vec![];
     }
@@ -1323,7 +1390,15 @@ impl ChatMessage {
         }
         return message_out;
     }
-    fn receive_chat_message(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+}
+impl Receive for ChatMessage {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        _: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
         println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
@@ -1338,21 +1413,14 @@ impl ChatMessage {
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PleaseListContent {}
-impl PleaseListContent {
-    fn new(ps: &PeerState) -> Vec<Message> {
-        let message_out = vec![
-            PleaseReturnThisMessage::new(ps),
-            Message::PleaseListContent(Self {}),
-        ];
-        return message_out;
-    }
-}
-#[derive(Serialize, Deserialize, Debug)]
-struct ContentList {
-    results: Vec<(String, u64)>,
-}
-impl ContentList {
-    fn new(might_be_ip_spoofing: bool) -> Vec<Message> {
+impl Receive for PleaseListContent {
+    fn receive(
+        self,
+        _: &mut PeerState,
+        _: SocketAddr,
+        might_be_ip_spoofing: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
         let mut results: Vec<(String, u64)> = vec![];
         for path in fs::read_dir("./public").unwrap() {
             let p = path.unwrap().path();
@@ -1368,12 +1436,32 @@ impl ContentList {
         if results.len() == 0 {
             return vec![];
         }
+        return vec![
+            Message::ContentList(ContentList { results: results }),
+        ];
+    }
+}
+impl PleaseListContent {
+    fn new(ps: &PeerState) -> Vec<Message> {
         let message_out = vec![
-            Message::ContentList(Self { results: results }),
+            PleaseReturnThisMessage::new(ps),
+            Message::PleaseListContent(Self {}),
         ];
         return message_out;
     }
-    fn receive_content_list(&self, ps: &mut PeerState, src: SocketAddr) -> Vec<Message> {
+}
+#[derive(Serialize, Deserialize, Debug)]
+struct ContentList {
+    results: Vec<(String, u64)>,
+}
+impl Receive for ContentList {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        _: bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
         // TODO call maybetheyhavesome?
         for (id, size) in &self.results {
             trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
@@ -1415,8 +1503,10 @@ impl EncryptedMessages {
         trace!("sending encrypted msg to {src}");
         return message_out;
     }
-    fn decrypt_messages(
-        &self,
+}
+impl Receive for EncryptedMessages {
+    fn receive(
+        self,
         ps: &mut PeerState,
         src: SocketAddr,
         mut might_be_ip_spoofing: bool,
@@ -1441,6 +1531,7 @@ impl EncryptedMessages {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[enum_dispatch]
 enum Message {
     PleaseSendPeers(PleaseSendPeers),
     Peers(Peers),
@@ -1471,4 +1562,15 @@ impl InspectError for ErrorInspector {
     fn inspect_error(error: impl serde::de::Error) {
         warn!( "could not deserialize an incoming message {error}");
     }
+}
+
+#[enum_dispatch(Message)]
+trait Receive {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: SocketAddr,
+        might_be_ip_spoofing: bool,
+        inbound_states: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message>;
 }
