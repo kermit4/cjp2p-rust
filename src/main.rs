@@ -1375,9 +1375,7 @@ impl ContentList {
     fn new(might_be_ip_spoofing: bool) -> Vec<Message> {
         let mut results: Vec<(String, u64)> = vec![];
         for path in fs::read_dir("./public").unwrap() {
-            info!("listing path {:?} ",&path);
             let p = path.unwrap().path();
-            info!("listing p {:?}",&p);
             let length = File::open(&p).unwrap().metadata().unwrap().len();
             if p.file_name().unwrap().len() != 64 || length == 1 << 18 {
                 continue;
