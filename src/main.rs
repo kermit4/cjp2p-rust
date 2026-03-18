@@ -1,10 +1,4 @@
 //use base64::{engine::general_purpose, Engine as _};
-
-
-use std::hash::BuildHasher;
-use rapidhash::quality::SeedableState;
-
-
 use bitvec::prelude::*;
 use chrono::{Timelike, Utc};
 use env_logger::fmt::TimestampPrecision;
@@ -115,7 +109,7 @@ impl Keypair {
     }
 }
 
-struct PeerState<'a> {
+struct PeerState {
     peer_map: HashMap<SocketAddr, PeerInfo>,
     peer_vec: Vec<SocketAddr>,
     socket: UdpSocket,
@@ -126,9 +120,8 @@ struct PeerState<'a> {
     list_time: Instant,
     you_should_see_this: Option<YouSouldSeeThis>,
     i_just_saw_this: Option<IJustSawThis>,
-    hasher: SeedableState<'a>,
 }
-impl PeerState<'_> {
+impl PeerState {
     fn new() -> Self {
         let mut ps = Self {
             peer_map: HashMap::new(),
@@ -141,7 +134,6 @@ impl PeerState<'_> {
             list_time: Instant::now(),
             you_should_see_this: None,
             i_just_saw_this: None,
- hasher: SeedableState::fixed(),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -162,12 +154,9 @@ impl PeerState<'_> {
         return vec![];
     }
     fn hash_ip(&self, src: SocketAddr) -> String {
-
-//        let mut hasher = Sha256::new();
-        return format!("{:x}",
-self.hasher.hash_one(format!("{} {}", hex::encode(&self.keypair.private),  src.ip())))[..8].to_string();
- //       hasher.update(format!("{} {}", hex::encode(&self.keypair.private),  src.ip()));
-//        return format!("{:x}", hasher.finalize())[..8].to_string();
+        let mut hasher = Sha256::new();
+        hasher.update(format!("{} {}", hex::encode(&self.keypair.private),  src.ip()));
+        return format!("{:x}", hasher.finalize())[..8].to_string();
     }
 
     fn check_key(&self, messages: &Vec<Message>, src: SocketAddr) -> bool {
