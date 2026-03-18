@@ -484,9 +484,11 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                 warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
             }
         } else if line == "/peers\n" {
-            for v in &ps.peer_vec[..33] {
-                println!("{} {:?}",v,ps.peer_map[v].delay);
-            }
+            for v in ps.peer_vec.iter().rev() {
+                let d = ps.peer_map[v].delay;
+                if d < Duration::from_secs(1) {
+                println!("{:21} {:?}",v,d);
+            }}
             println!("{} total peers",ps.peer_map.len());
             let mut count = 0;
             let mut unique_ips = HashSet::new();
