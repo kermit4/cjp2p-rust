@@ -6,6 +6,7 @@ use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
 use memmap2::MmapMut;
+use std::net::IpAddr;
 //use nix::NixPath;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -483,16 +484,27 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                 warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
             }
         } else if line == "/peers\n" {
+            println!("========== active IP4 peer/ports");
             for v in ps.peer_vec.iter().rev() {
-                let d = ps.peer_map[v].delay;
-                if d < Duration::from_secs(1) {
-                    println!("{:21} {:?}",v,d);
+                if let IpAddr::V4(ip) = v.ip() {
+                    let d = ps.peer_map[v].delay;
+                    if d < Duration::from_secs(1) {
+                        println!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21} {}",
+ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
+v.port(),
+                        d,
+                        v,
+                       if let Ok(hn)= dns_lookup::lookup_addr(&v.ip()) { hn } else { "".to_string()} );
+                    }
                 }
             }
-            println!("{} total peers",ps.peer_map.len());
+            println!("{} total active peers",ps.peer_map.len());
             let mut unique_ips = HashSet::new();
+            println!("========== all IPs");
             for (k, _) in &ps.peer_map {
-                unique_ips.insert(k.ip());
+                if unique_ips.insert(k.ip()) {
+                    println!("{:21} {}",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
+                }
             }
             println!("{} total unique IP peers",unique_ips.len());
         } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
