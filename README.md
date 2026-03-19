@@ -1,8 +1,8 @@
-This implements everything in spotted and listed in the https://github.com/kermit4/cjp2p protocol repo, plus some other things.   The primary purpose of this repo, and the protocol are to demonstrate how you can A) use JSON as your base protocol to maintain future compatibility and be easily approachable to new implementations, and B) how you can send messages directly without relays or connections, rather than messages relayed around a web of connections that are abstracted on top of messages, as is oddly commonplace in p2p networking, probably out of habbit from 1:1 server/clientt application design.  However this code is functional, at various things, just not the best at any 1 of them, but interoperability instead of lots of siloed p2p apps is the benefit.
+This implements everything in spotted and listed in the https://github.com/kermit4/cjp2p protocol repo, plus some other things.   The primary purpose of this repo, is to demonstrate sample use cases of the CJP2P protocol.
 
-This will make available any files in the directory ./shared  It will ignore any requests for anything that has a / or \ in it.
+This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it.
 
-To request a file, run with the content_id as an arguement.  It will be placed in ./shared/incoming/ until it is complete, then moved to ./shared
+To request a file, run with the content_id as an arguement.  It will be placed in ./cjp2p/incoming/ until it is complete, then moved to ./cjp2p/public
 
 i.e. 
 
@@ -19,7 +19,7 @@ or info/warn log levels
 
 for fun try: make demo, ^C when it seems done, and then
 ```
-(cd shared
+(cd shared/public
 cat $(cat                                                                                                                   562b168a64967fd64687664b987dd1c50c36d1532449bb4c385d683538c0bf03 )) |
 sha256sum    
 # should be  6f5a06b0a8b83d66583a319bfa104393f5e52d2c017437a1b425e9275576500c
@@ -27,16 +27,18 @@ sha256sum
 
 or Sintel http://127.0.0.1:24254/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
-or inlined images in HTML loaded live http://127.0.0.1:24254/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6
+or inlined images in HTML loaded live 
+- http://127.0.0.1:24254/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
+- http://127.0.0.1:24254/c51017dcf8d9c5fd2ab0abdd599795c5dcbcdd561f3d1e8ddc438668a03d17ea wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON --wait 1 
 
 typing stdin sends a chat message to a mostly random set of peers, but there are some / commands:
 - /ping
 - /get hash
 - /list
-- /recommend hash
+- /recommend <hash>
 - /recommended
 - /trending
-- /peers (lists just the closest few)
+- /peers
 - /msg [ip:port or 0xPubKey] msg
 
 This is also at https://crates.io/crates/libcjp but probably isn't useful as a crate yet.  
@@ -74,3 +76,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 -   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
 - really need metadata for /list and /recommended and /trending
 - easy web UI
+- web page converter? to put a whole page in the system..
