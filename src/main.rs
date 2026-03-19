@@ -80,15 +80,15 @@ struct Keypair {
     private: Vec<u8>,
 }
 impl Keypair {
-    fn load_key() -> Keypair {
+    fn load_key() -> Self {
         let file = OpenOptions::new()
             .create(true)
             .write(true)
             .read(true)
             .open("state/key.json");
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
-            let saved: Keypair = serde_json::from_reader(&file.unwrap()).unwrap();
-            return Keypair {
+            let saved: Self = serde_json::from_reader(&file.unwrap()).unwrap();
+            return Self {
                 public: saved.public,
                 private: saved.private,
             };
@@ -96,7 +96,7 @@ impl Keypair {
             let keypair_ = Builder::new(NOISE_PARAMS.parse().unwrap())
                 .generate_keypair()
                 .unwrap();
-            let keypair = Keypair {
+            let keypair = Self {
                 public: keypair_.public,
                 private: keypair_.private,
             };
@@ -118,22 +118,52 @@ struct PeerState {
     open_file_cache: HashMap<String, OpenFile>,
     list_results: HashMap<String, (i32, u64)>,
     list_time: Instant,
+    p: PersistentState,
+}
+#[derive(Serialize, Deserialize, Debug)]
+struct PersistentState {
     you_should_see_this: Option<YouSouldSeeThis>,
     i_just_saw_this: Option<IJustSawThis>,
+}
+impl PersistentState {
+    fn save(&self) {
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open("state/persistent_state.json")
+            .unwrap()
+            .write_all(&serde_json::to_vec_pretty(&self).unwrap())
+            .unwrap();
+    }
+    fn load() -> Self {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open("state/persistent_state.json");
+        if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
+            return serde_json::from_reader(&file.unwrap()).unwrap();
+        } else {
+            return Self {
+                you_should_see_this: None,
+                i_just_saw_this: None,
+            };
+        }
+    }
 }
 impl PeerState {
     fn new() -> Self {
         let mut ps = Self {
-            peer_map: HashMap::new(),
-            peer_vec: Vec::new(),
+            peer_map: PeerState::load_peers(),
+            peer_vec: vec![],
             socket: UdpSocket::bind("0.0.0.0:24254").unwrap(),
             boot: Instant::now(),
             keypair: Keypair::load_key(),
             open_file_cache: HashMap::new(),
             list_results: HashMap::new(),
             list_time: Instant::now(),
-            you_should_see_this: None,
-            i_just_saw_this: None,
+            p: PersistentState::load(),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -142,7 +172,6 @@ impl PeerState {
         for p in ["148.71.89.128:24254", "159.69.54.127:24254"] {
             ps.peer_map.insert(p.parse().unwrap(), PeerInfo::new());
         }
-        ps.load_peers();
         return ps;
     }
     fn hash_ip(&self, src: SocketAddr) -> String {
@@ -216,10 +245,10 @@ impl PeerState {
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(self.please_always_return(sa));
-            if let Some(i_just_saw_this) = &self.i_just_saw_this {
+            if let Some(i_just_saw_this) = &self.p.i_just_saw_this {
                 message_out.push(Message::IJustSawThis(i_just_saw_this.clone()));
             }
-            if let Some(you_should_see_this) = &self.you_should_see_this {
+            if let Some(you_should_see_this) = &self.p.you_should_see_this {
                 message_out.push(Message::YouSouldSeeThis(you_should_see_this.clone()));
             }
             message_out.push(Message::MyPublicKey(MyPublicKey {
@@ -247,15 +276,15 @@ impl PeerState {
         self.peer_vec = peers.into_iter().map(|(addr, _)| *addr).collect();
     }
 
-    fn load_peers(&mut self) -> () {
+    fn load_peers() -> HashMap<SocketAddr, PeerInfo> {
         let file = OpenOptions::new().read(true).open("state/peers.v6.json");
+        let mut map = HashMap::<SocketAddr, PeerInfo>::new();
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
             let json: Vec<(SocketAddr, PeerInfo)> =
                 serde_json::from_reader(&file.unwrap()).unwrap();
-            let before = self.peer_map.len();
-            self.peer_map.extend(json);
-            info!("loaded {0} peers", self.peer_map.len() - before);
+            map.extend(json);
         }
+        return map;
     }
     fn save_peers(&self) -> () {
         debug!("saving peers");
@@ -409,7 +438,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
         let mut arg: String = "".to_string();
         let mut arg2: String = "".to_string();
         if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
-            ps.i_just_saw_this = Some(IJustSawThis {
+            ps.p.i_just_saw_this = Some(IJustSawThis {
                 id: arg.to_owned(),
                 length: File::open("public/".to_owned() + &arg)
                     .unwrap()
@@ -470,7 +499,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             }
             println!("{} total unique IP peers",count);
         } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
-            ps.you_should_see_this = Some(YouSouldSeeThis {
+            ps.p.you_should_see_this = Some(YouSouldSeeThis {
                 id: arg.to_owned(),
                 length: File::open("public/".to_owned() + &arg)
                     .unwrap()
@@ -1242,6 +1271,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     ps.sort();
     if Utc::now().second() / 3 + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();
+        ps.p.save();
     }
     ps.probe_interfaces();
     ps.probe();
