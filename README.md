@@ -73,3 +73,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - make it do what i actually do each day, check for news basically. /trending is all i really do. but, i may want to weight some sources higher. well, do that later. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
 -   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
 - really need metadata for /list and /recommended and /trending
+- easy web UI

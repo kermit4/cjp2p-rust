@@ -490,14 +490,11 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                 }
             }
             println!("{} total peers",ps.peer_map.len());
-            let mut count = 0;
             let mut unique_ips = HashSet::new();
             for (k, _) in &ps.peer_map {
-                if unique_ips.insert(k.ip()) {
-                    count += 1;
-                }
+                unique_ips.insert(k.ip());
             }
-            println!("{} total unique IP peers",count);
+            println!("{} total unique IP peers",unique_ips.len());
         } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
             ps.p.you_should_see_this = Some(YouSouldSeeThis {
                 id: arg.to_owned(),
