@@ -491,7 +491,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
 ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
 v.port(),
                         d,
-                        v,
+                        v);
                     }
                 }
             }
