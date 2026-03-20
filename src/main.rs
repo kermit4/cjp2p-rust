@@ -336,8 +336,6 @@ impl PeerState {
                 inbound_states,
             ));
         }
-        // checked before this loop because we want to know first if the source IP is
-        // verified
         return message_out;
     }
 }
@@ -1076,7 +1074,6 @@ impl InboundState {
     }
 
     fn receive_content(&mut self, content: &Content) -> Vec<Message> {
-        let block_number = content.offset / BLOCK_SIZE!();
         let this_eof = match content.eof {
             Some(n) => n,
             None => content.offset + content.base64.len() + 1,
@@ -1096,6 +1093,10 @@ impl InboundState {
             self.mmap = Some(unsafe { MmapMut::map_mut(&file).unwrap() });
         }
 
+        if content.offset >= self.eof {
+            return vec![];
+        }
+        let block_number = content.offset / BLOCK_SIZE!();
         if self.bitmap[block_number] {
             info!("dup {block_number}");
         } else if content.base64.len() == BLOCK_SIZE!()
