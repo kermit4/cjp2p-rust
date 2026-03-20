@@ -487,12 +487,11 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                 if let IpAddr::V4(ip) = v.ip() {
                     let d = ps.peer_map[v].delay;
                     if d < Duration::from_secs(1) {
-                        println!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21} {}",
+                        println!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21}",
 ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
 v.port(),
                         d,
                         v,
-                       if let Ok(hn)= dns_lookup::lookup_addr(&v.ip()) { hn } else { "".to_string()} );
                     }
                 }
             }

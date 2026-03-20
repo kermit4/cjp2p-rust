@@ -81,4 +81,3 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - really need metadata for /list and /recommended and /trending
 - easy web UI
 - web page converter? to put a whole page in the system..
-dont rev dns the entire peer list
