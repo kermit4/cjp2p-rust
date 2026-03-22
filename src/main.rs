@@ -603,10 +603,11 @@ fn handle_web_request(
                 let mut response = format!(
                             "HTTP/1.1 206 Partial Content\r\n\
                              Content-Length: {}\r\n\
+                             Content-Disposition: inline\r\n\
                             Content-Range: bytes {}-{}/{}\r\n"
                             ,length,start,start+length-1,
                             file.metadata().unwrap().len());
-                match infer::get_from_path("public/".to_owned()+&id) {
+                match infer::get_from_path("public/".to_owned() + &id) {
                     Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
                     _ => warn!("HTTP unknown mime type for {}",&id),
                 }
@@ -1253,6 +1254,7 @@ impl InboundState {
         let mut response = format!(
                             "HTTP/1.1 206 Partial Content\r\n\
                              Content-Length: {}\r\n\
+                             Content-Disposition: inline\r\n\
                             Content-Range: bytes {}-{}/{}\r\n"
             ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof);
         match infer::get_from_path("incoming/".to_string() + &self.id) {
