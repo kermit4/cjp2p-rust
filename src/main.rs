@@ -606,7 +606,7 @@ fn handle_web_request(
                             Content-Range: bytes {}-{}/{}\r\n"
                             ,length,start,start+length-1,
                             file.metadata().unwrap().len());
-                match infer::get_from_path(&id) {
+                match infer::get_from_path("public/".to_owned()+&id) {
                     Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
                     _ => warn!("HTTP unknown mime type for {}",&id),
                 }
