@@ -36,16 +36,14 @@ or inlined images in HTML loaded live
 
 typing stdin sends a chat message to a mostly random set of peers, but there are some / commands:
 - /ping
-
-typing stdin sends a chat message to a mostly random set of peers, but there are some / commands:
-- /ping
 - /get hash
 - /list
-- /recommend <hash>
+- /recommend hash
 - /recommended
 - /trending
 - /peers
 - /msg [ip:port or 0xPubKey] msg
+- /help
 
 This is also at https://crates.io/crates/libcjp but probably isn't useful as a crate yet.  
 

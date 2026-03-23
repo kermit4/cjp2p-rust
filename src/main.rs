@@ -562,6 +562,18 @@ v.port(),
                 trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
                 ps.socket.send_to(&message_out_bytes, sa).ok();
             }
+        } else if line == "/help\n" {
+            println!("
+                        - /ping
+                        - /get hash
+                        - /list
+                        - /recommend hash
+                        - /recommended
+                        - /trending
+                        - /peers
+                        - /msg [ip:port or 0xPubKey] msg
+                        - /help
+                ");
         } else {
             for sa in ps.best_peers(100, 5) {
                 let message_out = ChatMessage::new(&ps, sa, line.clone());
