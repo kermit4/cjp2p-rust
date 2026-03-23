@@ -11,12 +11,14 @@ d=
 change() {
     s=$1;f=$2
     grep -F $f circular_check  && return
-    if grep -IqF "$s" "$f" ;then
+    if grep -wIqF "$s" "$f" ;then
         echo $f >> circular_check
+        #echo changed "$s to $sha_s"
         sha_s=$(sha256sum "$s"|cut -d ' ' -f 1)
         sha_f=$(sha256sum "$f"|cut -d ' ' -f 1)
         sed   -i "s<$s<$sha_s<g" "$f"
-        find $d/*/ -type f |while read ff;do
+        grep -wIqFlr "$sha_f"  $d/*/ |while read ff;do
+            #echo -en "$(wc -l < circular_check) change $sha_f $ff\r"
             change "$sha_f" "$ff"
         done
     fi
@@ -43,4 +45,8 @@ done
 find */ -type f -exec sha256sum {} +|while read b a;do 
     ln -f "$a" ../cjp2p/public/$b
 done
-find ../cjp2p/public/ -samefile "${1#http*://}" -printf "http://127.0.0.1:24254/%f\n"
+find ../cjp2p/public/ -samefile "${1#http*://}" -printf "http://127.0.0.1:24254/%f\n"|grep . ||
+find ../cjp2p/public/ -samefile "${1#http*://}"/index.htm* -printf "http://127.0.0.1:24254/%f\n"
+
+
+echo ".mhtml would make more sense here (what brave maeks when it saves a file) , though i havent got those to work over http"

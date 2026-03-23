@@ -1,5 +1,7 @@
 This implements everything in spotted and listed in the https://github.com/kermit4/cjp2p protocol repo, plus some other things.   The primary purpose of this repo, is to demonstrate sample use cases of the CJP2P protocol.
 
+It's functional for end users, but the current target audience is p2p devs, so the UI IS minimal and not clearly documented.
+
 This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it.
 
 To request a file, run with the content_id as an arguement.  It will be placed in ./cjp2p/incoming/ until it is complete, then moved to ./cjp2p/public
@@ -62,6 +64,9 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - how can users easily and excitedly use decentralized software in place of centralized...easy plus a draw..whats hot and trending, what peers respect, an algorithm but that they control
 - more / commands
 - http quickstart and acceleration need work, maybe just request the whole thing as soon as it knows a peer  .. user waiting is much more important than maintaining some low packet loss
+- easy web UI
+- really need metadata for /list and /recommended and /trending
+-   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
 ## cryptography related
 - more encryption? by default? the asymmetric encryption i have is 10x as much CPU as none.  symmetric might be  fast
 - trust 
@@ -69,6 +74,9 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - proof of latency? signature chain of somewhat verifiable latency?
 - reputation
 - thanks/reputation. auto thanks on succesful get.
+- direct referal trust or public reputation..and is that the scarcity or something else like ipv4 addresses or work.
+- read this again https://howtofixtheweb.com/
+- rememebre my "beuseful" logic (reputation based on feedback, sort of like google's pagerank )
 ## near-real time things - may overlap 
 - news feed
 - once there is economics, sell services
@@ -77,7 +85,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - reviews of content
 ## unnsorted
 - make it do what i actually do each day, check for news basically. /trending is all i really do. but, i may want to weight some sources higher. well, do that later. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
--   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
-- really need metadata for /list and /recommended and /trending
-- easy web UI
-- web page converter? to put a whole page in the system..
+- alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
