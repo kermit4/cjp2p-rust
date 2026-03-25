@@ -1,12 +1,12 @@
 SHELL = /bin/bash -ue
 
-debug:
-	BUILD_VERSION=`Rust git log --pretty=format:"%ad %h %s" -1` cargo build
+debug: Makefile
+	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo build
 
-release:
-	BUILD_VERSION=`Rust git log --pretty=format:"%ad %h %s" -1` cargo build --release
+release: Makefile
+	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo build --release
 
-check:
+check: Makefile
 	cargo check 
 
 demo: release
