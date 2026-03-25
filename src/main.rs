@@ -1455,6 +1455,9 @@ impl Receive for ChatMessage {
             ps.peer_map[&src].delay,
             self.message
         );
+        if self.message.starts_with("/version") {
+            return Self::new(ps, src, format!("VERSION {}\n",env!("BUILD_VERSION")));
+        }
         if self.message.starts_with("/ping") {
             return Self::new(ps, src, "PONG\n".to_string());
         }

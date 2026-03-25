@@ -1,10 +1,10 @@
 SHELL = /bin/bash -ue
 
 debug:
-	cargo build
+	BUILD_VERSION=`Rust git log --pretty=format:"%ad %h %s" -1` cargo build
 
 release:
-	cargo build --release
+	BUILD_VERSION=`Rust git log --pretty=format:"%ad %h %s" -1` cargo build --release
 
 check:
 	cargo check 
