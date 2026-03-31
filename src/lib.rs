@@ -83,7 +83,7 @@ impl Keypair {
             .create(true)
             .write(true)
             .read(true)
-            .open("state/key.json");
+            .open("./cjp2p/state/key.json");
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
             let saved: Self = serde_json::from_reader(&file.unwrap()).unwrap();
             return Self {
@@ -130,7 +130,7 @@ impl PersistentState {
             .truncate(true)
             .write(true)
             .read(true)
-            .open("state/persistent_state.json")
+            .open("./cjp2p/state/persistent_state.json")
             .unwrap()
             .write_all(&serde_json::to_vec_pretty(&self).unwrap())
             .unwrap();
@@ -140,7 +140,7 @@ impl PersistentState {
             .create(true)
             .write(true)
             .read(true)
-            .open("state/persistent_state.json");
+            .open("./cjp2p/state/persistent_state.json");
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
             return serde_json::from_reader(&file.unwrap()).unwrap();
         } else {
@@ -153,6 +153,10 @@ impl PersistentState {
 }
 impl PeerState {
     pub fn new() -> Self {
+        fs::create_dir("./cjp2p").ok();
+        fs::create_dir("./cjp2p/public").ok();
+        fs::create_dir("./cjp2p/metadata").ok();
+        fs::create_dir("./cjp2p/state").ok();
         let mut ps = Self {
             peer_map: PeerState::load_peers(),
             peer_vec: vec![],
@@ -276,7 +280,9 @@ impl PeerState {
     }
 
     pub fn load_peers() -> HashMap<SocketAddr, PeerInfo> {
-        let file = OpenOptions::new().read(true).open("state/peers.v6.json");
+        let file = OpenOptions::new()
+            .read(true)
+            .open("./cjp2p/state/peers.v6.json");
         let mut map = HashMap::<SocketAddr, PeerInfo>::new();
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
             let json: Vec<(SocketAddr, PeerInfo)> =
@@ -297,7 +303,7 @@ impl PeerState {
             .create(true)
             .write(true)
             .truncate(true)
-            .open("state/peers.v6.json")
+            .open("./cjp2p/state/peers.v6.json")
             .unwrap()
             .write_all(&serde_json::to_vec_pretty(&peers_to_save).unwrap())
             .ok();
@@ -631,7 +637,7 @@ impl Content {
         };
         let ofr = if let Some(ofr) = ps.open_file_cache.get(&req.id) {
             ofr
-        } else if let Ok(file) = File::open("public/".to_owned() + &req.id) {
+        } else if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &req.id) {
             let ofr = OpenFile {
                 eof: file.metadata().unwrap().len() as usize,
                 file: file,
@@ -820,7 +826,7 @@ impl InboundState {
     }
     pub fn save_content_peers(&self) -> () {
         debug!("saving inbound state peers");
-        let filename = "./metadata/".to_owned() + &self.id + ".json";
+        let filename = "./cjp2p/metadata/".to_owned() + &self.id + ".json";
         OpenOptions::new()
             .create(true)
             .write(true)
@@ -839,7 +845,7 @@ impl InboundState {
         might_be_ip_spoofing: bool,
         src: &SocketAddr,
     ) -> Vec<Message> {
-        let filename = "./metadata/".to_owned() + &id + ".json";
+        let filename = "./cjp2p/metadata/".to_owned() + &id + ".json";
         let mut file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -899,7 +905,7 @@ impl InboundState {
             info!("{0} finished {1} bytes", self.id, self.eof);
             println!("{0} finished {1} bytes", self.id, self.eof);
             let path = "./incoming/".to_owned() + &self.id;
-            let new_path = "./public/".to_owned() + &self.id;
+            let new_path = "./cjp2p/public/".to_owned() + &self.id;
             fs::rename(path, new_path).unwrap();
             self.save_content_peers();
             return true;
@@ -1154,7 +1160,7 @@ impl Receive for PleaseListContent {
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         let mut results: Vec<(String, u64)> = vec![];
-        for path in fs::read_dir("./public").unwrap() {
+        for path in fs::read_dir("./cjp2p/public").unwrap() {
             let p = path.unwrap().path();
             let length = File::open(&p).unwrap().metadata().unwrap().len();
             if p.file_name().unwrap().len() != 64 || length == 1 << 18 {

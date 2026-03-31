@@ -23,7 +23,7 @@ use std::io::{Read, Write};
 use std::env;
 //use std::fmt;
 //use std::f64;
-use std::fs;
+//use std::fs;
 use std::fs::File;
 //use std::fs::OpenOptions;
 //use std::io::copy;
@@ -39,11 +39,6 @@ use std::vec;
 //use std::{io, str};
 use std::io;
 fn main() -> Result<(), std::io::Error> {
-    fs::create_dir("./cjp2p").ok();
-    std::env::set_current_dir("./cjp2p").unwrap();
-    fs::create_dir("./public").ok();
-    fs::create_dir("./metadata").ok();
-    fs::create_dir("./state").ok();
     env_logger::builder()
         .format_timestamp(Some(TimestampPrecision::Millis))
         .init();
@@ -154,7 +149,7 @@ pub fn handle_web_request(
                 end = start + 0x40000;
             }
 
-            if let Ok(file) = File::open("public/".to_owned() + &id) {
+            if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &id) {
                 let mut buf = vec![0; end-start ];
                 let length = file.read_at(&mut buf, start as u64).unwrap();
                 let mut response = format!(
@@ -221,7 +216,7 @@ pub fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inb
         if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
             ps.p.i_just_saw_this = Some(IJustSawThis {
                 id: arg.to_owned(),
-                length: File::open("public/".to_owned() + &arg)
+                length: File::open("./cjp2p/public/".to_owned() + &arg)
                     .unwrap()
                     .metadata()
                     .unwrap()
@@ -289,7 +284,7 @@ v.port(),
         } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
             ps.p.you_should_see_this = Some(YouSouldSeeThis {
                 id: arg.to_owned(),
-                length: File::open("public/".to_owned() + &arg)
+                length: File::open("./cjp2p/public/".to_owned() + &arg)
                     .unwrap()
                     .metadata()
                     .unwrap()
