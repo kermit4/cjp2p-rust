@@ -7,7 +7,7 @@ description = "Connectionless JSON P2P (CJP2P) implementation in Rust.   To buil
 repository = "https://github.com/kermit4/cjp2p-rust/"
 keywords = ["JSON","P2P","UDP","decentralized"]
 categories = ["network-programming","filesystem","email","cryptography::cryptocurrencies"]
-include =  ["Cargo.lock", "Cargo.toml", "LICENSE", "Makefile", "README.md", "src/main.rs"]
+include =  ["Cargo.lock", "Cargo.toml", "LICENSE", "Makefile", "README.md", "src/lib.rs", "src/main.rs"]
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
