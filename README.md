@@ -84,5 +84,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 ## unnsorted
 - make it do what i actually do each day, check for news basically. /trending is all i really do. but, i may want to weight some sources higher. well, do that later. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
 - alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
-- why WAITs on the URL pickups, this should be ultra fast. its the dead hosts i bet. scan faster, filter dead hosts out faster, higher decay at loss probably is
 - 6/4x the CPU to send/receive content encrypted. why.
