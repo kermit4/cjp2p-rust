@@ -1,14 +1,14 @@
 SHELL = /bin/bash -ue
 
 debug: target/debug/libcjp
-target/debug/libcjp: Makefile src/main.rs Cargo.toml
+target/debug/libcjp: Makefile src/main.rs Cargo.toml src/lib.rs
 	cargo build
 
 release: target/release/libcjp
-target/release/libcjp:	Makefile src/main.rs Cargo.toml
+target/release/libcjp:	Makefile src/main.rs Cargo.toml src/lib.rs
 	cargo build --release
 
-check: Makefile src/main.rs Cargo.toml
+check: Makefile src/main.rs Cargo.toml src/lib.rs
 	cargo check 
 
 demo: release
