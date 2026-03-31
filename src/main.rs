@@ -634,7 +634,7 @@ fn handle_web_request(
                     Some(i) => i,
                     _ => {
                         let new_i = InboundState::new(id, &ps);
-                        info!("http queing inbound file {:?}", id);
+                        info!("http scheduling inbound file {:?}", id);
                         inbound_states.insert(id.to_string(), new_i);
                         inbound_states.get_mut(id).unwrap()
                     }
@@ -644,10 +644,15 @@ fn handle_web_request(
                 i.http_end = end;
                 i.http_socket = Some(stream);
                 if i.eof >= i.http_end && !i.serve_http_if_any_is_ready() {
-                    info!("http scheduling inbound file {:?}", id);
                     i.next_block = start as usize / BLOCK_SIZE!();
-                    for _ in 1..9 {
-                        i.request_blocks(ps, i.peers.clone());
+                    if i.peers.len() > 0 {
+                        for _ in 0..(1 + 50 / i.peers.len()) {
+                            i.request_blocks(ps, i.peers.clone());
+                        }
+                    } else {
+                        let to_try = ps.best_peers(500, 20);
+                        debug!("http starting search  with {} hosts",to_try.len());
+                        i.request_blocks(ps, ps.best_peers(500, 20));
                     }
                 }
 
@@ -916,7 +921,7 @@ impl Receive for PleaseSendContent {
             i.peers.insert(src);
             message_out.append(&mut i.send_content_peers(might_be_ip_spoofing, src));
         } else {
-            message_out.append(&mut Content::new_messages(&self, might_be_ip_spoofing, ps));
+            message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
         }
         if message_out.len() == 0
             || (!might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 23 == 0)
@@ -937,7 +942,7 @@ impl Receive for PleaseSendContent {
 }
 
 impl Content {
-    fn new_messages(
+    fn new_block(
         req: &PleaseSendContent,
         might_be_ip_spoofing: bool,
         ps: &mut PeerState,
@@ -1138,7 +1143,7 @@ impl InboundState {
             message_out.append(&mut ps.always_returned(sa));
 
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            debug!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes)
+            debug!( "requesting additional blocks {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes)
             );
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }

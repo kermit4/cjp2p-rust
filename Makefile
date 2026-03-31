@@ -1,19 +1,21 @@
 SHELL = /bin/bash -ue
 
-debug: Makefile
+debug: target/debug/libcjp
+target/debug/libcjp: Makefile src/main.rs Cargo.toml
 	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo build
 
-release: Makefile
+release: target/release/libcjp
+target/release/libcjp:	Makefile src/main.rs Cargo.toml
 	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo build --release
 
-check: Makefile
+check: Makefile src/main.rs Cargo.toml
 	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo check 
 
 demo: release
 	timeout 4  ./target/release/libcjp                                         562b168a64967fd64687664b987dd1c50c36d1532449bb4c385d683538c0bf03 || true
 	./target/release/libcjp $$(cat                                                shared/562b168a64967fd64687664b987dd1c50c36d1532449bb4c385d683538c0bf03 )
 
-pretty: check
+pretty: debug
 	cargo fmt --  --config skip_macro_invocations='["*"]' --config match_arm_blocks=false
 
 all: check release debug
