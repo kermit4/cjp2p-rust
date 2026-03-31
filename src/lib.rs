@@ -1131,7 +1131,11 @@ impl Receive for ChatMessage {
             self.message
         );
         if self.message.starts_with("/version") {
-            return Self::new(ps, src, format!("VERSION Rust {}\n",env!("CARGO_PKG_VERSION")));
+            return Self::new(
+                ps,
+                src,
+                format!("VERSION Rust {}\n",env!("CARGO_PKG_VERSION")),
+            );
         }
         if self.message.starts_with("/ping") {
             return Self::new(ps, src, "PONG\n".to_string());
