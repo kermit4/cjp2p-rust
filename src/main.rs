@@ -572,6 +572,7 @@ v.port(),
                         - /trending
                         - /peers
                         - /msg [ip:port or 0xPubKey] msg
+                        - /version
                         - /help
                 ");
         } else {

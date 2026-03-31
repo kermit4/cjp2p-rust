@@ -43,6 +43,7 @@ typing stdin sends a chat message to a mostly random set of peers, but there are
 - /trending
 - /peers
 - /msg [ip:port or 0xPubKey] msg
+- /version
 - /help
 
 This is also at https://crates.io/crates/libcjp but probably isn't useful as a crate yet.  
@@ -62,13 +63,13 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - how can users easily and excitedly use decentralized software in place of centralized...easy plus a draw..whats hot and trending, what peers respect, an algorithm but that they control
 - more / commands
 - http quickstart and acceleration need work, maybe just request the whole thing as soon as it knows a peer  .. user waiting is much more important than maintaining some low packet loss
-- easy web UI
+- easy web UI - just interface on the / commands
 - really need metadata for /list and /recommended and /trending
 -   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
 ## cryptography related
 - more encryption? by default? the asymmetric encryption i have is 10x as much CPU as none.  symmetric might be  fast
 - trust 
-- valuable numbers
+- valuable numbers? (PoW)
 - proof of latency? signature chain of somewhat verifiable latency?
 - reputation
 - thanks/reputation. auto thanks on succesful get.
@@ -85,3 +86,6 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - make it do what i actually do each day, check for news basically. /trending is all i really do. but, i may want to weight some sources higher. well, do that later. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
 - alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
 - 6/4x the CPU to send/receive content encrypted. why.
+- need metadata for large files, then finish lib
+ some equivalent of wikipedia
+- ok the web server if accessesd publicly can cause floodnig, it should onnly search verified hosts
