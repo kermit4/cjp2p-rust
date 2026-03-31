@@ -2,14 +2,14 @@ SHELL = /bin/bash -ue
 
 debug: target/debug/libcjp
 target/debug/libcjp: Makefile src/main.rs Cargo.toml
-	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo build
+	cargo build
 
 release: target/release/libcjp
 target/release/libcjp:	Makefile src/main.rs Cargo.toml
-	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo build --release
+	cargo build --release
 
 check: Makefile src/main.rs Cargo.toml
-	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo check 
+	cargo check 
 
 demo: release
 	timeout 4  ./target/release/libcjp                                         562b168a64967fd64687664b987dd1c50c36d1532449bb4c385d683538c0bf03 || true
