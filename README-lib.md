@@ -8,6 +8,7 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 
     let mut ps: PeerState = PeerState::new();
     let mut read_fds = FdSet::new();
+    let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     read_fds.insert(ps.socket.as_fd());
     loop {
         select( None, &mut read_fds, None, None, &mut (nix::sys::time::TimeVal::new(1, 0))).unwrap();
