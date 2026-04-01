@@ -6,7 +6,12 @@ fi
 rm -rf html_slurp
 mkdir -p html_slurp
 cd html_slurp
-wget -nv -p -H -k  "$@"
+opts=
+if echo "$@"|grep -qi wiki.edia  ;then
+    opts="--wait=1"
+    echo heavily rate limiting wget per wikipedia policy
+fi
+wget $opts -nv -p -H -k  "$@"
 d=
 change() {
     s=$1;f=$2
