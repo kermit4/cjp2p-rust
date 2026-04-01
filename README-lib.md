@@ -19,7 +19,7 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 
 
 ```
-
+Except half the point of this is that it's easily expansible, and I have no idea how to do that with Rust libraries.  i.e. add fields to messages, add new messages, ignore messages, add handling to messages, i.e. expand on the code not just call it.  So maybe it's better to fork the source than try to use the library
 
 # TODO
 - really need metadata for /list and /recommended and /trending
