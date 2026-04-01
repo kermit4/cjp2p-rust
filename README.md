@@ -89,4 +89,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - need metadata for large files, then finish lib
  some equivalent of wikipedia
 - ok the web server if accessesd publicly can cause floodnig, it should onnly search verified hosts
-- images over 256k dont render well in brave
+- images over 256k dont render well in brave, but i think that may be a brave bug

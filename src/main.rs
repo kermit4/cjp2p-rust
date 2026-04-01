@@ -215,14 +215,6 @@ pub fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inb
         let mut arg: String = "".to_string();
         let mut arg2: String = "".to_string();
         if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
-            ps.p.i_just_saw_this = Some(IJustSawThis {
-                id: arg.to_owned(),
-                length: File::open("./cjp2p/public/".to_owned() + &arg)
-                    .unwrap()
-                    .metadata()
-                    .unwrap()
-                    .len(),
-            });
             println!("QUEING FILE {arg}");
             inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
         } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {

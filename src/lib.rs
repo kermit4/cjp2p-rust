@@ -691,6 +691,12 @@ impl Receive for Content {
         let block_number = self.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
         let mut message_out = i.receive_content(&self);
+        if self.eof.is_some() {
+            ps.p.i_just_saw_this = Some(IJustSawThis {
+                id: self.id.to_owned(),
+                length: self.eof.unwrap() as u64,
+            });
+        }
         if i.finished() {
             i.serve_http_if_any_is_ready(); // TODO force this to not care how much is left
             inbound_states.remove(&self.id);
