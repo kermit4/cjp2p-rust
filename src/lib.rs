@@ -735,7 +735,7 @@ pub struct InboundState {
 
 impl InboundState {
     pub fn new(id: &str, ps: &PeerState) -> Self {
-        fs::create_dir("./incoming").ok();
+        fs::create_dir("./cjp2p/incoming").ok();
         let mut peers = HashSet::new();
         for (k, v) in &ps.peer_map {
             if let Some(p) = &v.you_should_see_this {
@@ -780,7 +780,7 @@ impl InboundState {
                 .create(true)
                 .read(true)
                 .write(true)
-                .open("./incoming/".to_owned() + &self.id)
+                .open("./cjp2p/incoming/".to_owned() + &self.id)
                 .unwrap();
             file.set_len(self.eof as u64).unwrap();
             self.mmap = Some(unsafe { MmapMut::map_mut(&file).unwrap() });
@@ -904,7 +904,7 @@ impl InboundState {
         if hash == self.id.to_lowercase() {
             info!("{0} finished {1} bytes", self.id, self.eof);
             println!("{0} finished {1} bytes", self.id, self.eof);
-            let path = "./incoming/".to_owned() + &self.id;
+            let path = "./cjp2p/incoming/".to_owned() + &self.id;
             let new_path = "./cjp2p/public/".to_owned() + &self.id;
             fs::rename(path, new_path).unwrap();
             self.save_content_peers();
@@ -950,7 +950,7 @@ impl InboundState {
                              Content-Disposition: inline\r\n\
                             Content-Range: bytes {}-{}/{}\r\n"
             ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof);
-        match infer::get_from_path("incoming/".to_string() + &self.id) {
+        match infer::get_from_path("./cjp2p/incoming/".to_string() + &self.id) {
             Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
             _ => warn!("HTTP unknown mime type for {}",&self.id),
         }
