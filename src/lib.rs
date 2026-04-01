@@ -53,7 +53,7 @@ pub struct PeerInfo {
 impl PeerInfo {
     pub fn new() -> Self {
         return Self {
-            delay: Duration::from_millis(120),
+            delay: Duration::from_millis(200),
             anti_ip_spoofing_cookie_they_expect: None,
             ed25519: None,
             you_should_see_this: Some(YouSouldSeeThis {
@@ -174,8 +174,10 @@ impl PeerState {
         ps.socket
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
-        for p in ["148.71.89.128:24254", "159.69.54.127:24254"] {
-            ps.peer_map.insert(p.parse().unwrap(), PeerInfo::new());
+        for bootstrap in ["148.71.89.128:24254", "159.69.54.127:24254"] {
+        let mut pi=PeerInfo::new();
+        pi.delay=Duration::from_millis(20);
+        ps.peer_map.insert(bootstrap.parse().unwrap(), pi);
         }
         return ps;
     }
@@ -244,7 +246,9 @@ impl PeerState {
     pub fn probe(&mut self) -> () {
         for sa in self.best_peers(10, 3) {
             let peer_info = self.peer_map.get_mut(&sa).unwrap();
-            peer_info.delay = peer_info.delay.saturating_add(peer_info.delay / 20);
+            peer_info.delay = peer_info
+                .delay
+                .saturating_add(peer_info.delay / 3 + Duration::from_millis(1));
             let mut message_out: Vec<Message> = Vec::new();
             message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
             // let people know im here
@@ -362,7 +366,9 @@ pub fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, I
     };
     let messages = messages.0;
     if !ps.peer_map.contains_key(&src) {
-        ps.peer_map.insert(src, PeerInfo::new());
+        let mut pi=PeerInfo::new();
+        pi.delay=Duration::from_millis(120);
+        ps.peer_map.insert(src, pi);
         warn!("new peer spotted {src}");
     }
     // This ist a Vec<Value> because I don't know the structure of the Please*Returns
@@ -987,9 +993,9 @@ pub fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut 
     if ps.next_maintenance.elapsed() <= Duration::ZERO {
         return;
     }
-
+    debug!("maintenance");
     ps.next_maintenance =
-        Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
+        Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(911..1234));
     ps.sort();
     if Utc::now().second() / 3 + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();
@@ -1087,16 +1093,15 @@ impl Receive for ReturnedMessage {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        _: bool,
+        might_be_ip_spoofing: bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        match ps.peer_map.get_mut(&src) {
-            Some(peer) => {
+        if !might_be_ip_spoofing {
+            if let Some(peer) = ps.peer_map.get_mut(&src) {
                 peer.delay =
                     (ps.boot + Duration::from_secs_f64(self.cookie.parse().unwrap())).elapsed();
                 trace!("measured {0} at {1}", src, peer.delay.as_secs_f64())
             }
-            _ => (),
         };
         return vec![];
     }

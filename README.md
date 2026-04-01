@@ -89,4 +89,4 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - need metadata for large files, then finish lib
  some equivalent of wikipedia
 - ok the web server if accessesd publicly can cause floodnig with the extra agggressive search i think?, it should onnly search verified hosts
-- images and html over 256k dont render well in brave, but i think that may be a browser bug.  maybe it only handles it proprerly for video.  or maybe it just happens to handle it for video and this way is improper.  try non-blocking writes to the socket?  and set the buffer big.
+- images and html over 4M dont render well in brave, but i think that may be a browser bug.  maybe it only handles it proprerly for video.  or maybe it just happens to handle it for video and this way is improper.  use non-blocking writes to the socket
