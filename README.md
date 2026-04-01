@@ -87,6 +87,6 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
 - 6/4x the CPU to send/receive content encrypted. why.
 - need metadata for large files, then finish lib
- some equivalent of wikipedia
+-  some equivalent of wikipedia
 - ok the web server if accessesd publicly can cause floodnig with the extra agggressive search i think?, it should onnly search verified hosts
-- images and html over 4M dont render well in brave, but i think that may be a browser bug.  maybe it only handles it proprerly for video.  or maybe it just happens to handle it for video and this way is improper.  use non-blocking writes to the socket
+- images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.

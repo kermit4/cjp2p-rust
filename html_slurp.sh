@@ -45,8 +45,8 @@ done
 find */ -type f -exec sha256sum {} +|while read b a;do 
     ln -f "$a" ../cjp2p/public/$b
 done
-find ../cjp2p/public/ -samefile "${1#http*://}" -printf "http://127.0.0.1:24254/%f\n"|grep . ||
-find ../cjp2p/public/ -samefile "${1#http*://}"/index.htm* -printf "http://127.0.0.1:24254/%f\n"
+find ../cjp2p/public/ -samefile "${1#http*://}" -printf "http://127.0.0.1:24255/%f\n"|grep . ||
+find ../cjp2p/public/ -samefile "${1#http*://}"/index.htm* -printf "http://127.0.0.1:24255/%f\n"
 
 
 echo ".mhtml would make more sense here (what brave maeks when it saves a file) , though i havent got those to work over http"
