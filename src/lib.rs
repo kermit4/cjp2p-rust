@@ -117,6 +117,7 @@ pub struct PeerState {
     pub list_results: HashMap<String, (i32, u64)>,
     pub list_time: Instant,
     pub p: PersistentState,
+    next_maintenance: Instant,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PersistentState {
@@ -167,6 +168,7 @@ impl PeerState {
             list_results: HashMap::new(),
             list_time: Instant::now(),
             p: PersistentState::load(),
+            next_maintenance: Instant::now() - Duration::from_secs(99999),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -982,6 +984,12 @@ impl InboundState {
 }
 
 pub fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
+    if ps.next_maintenance.elapsed() <= Duration::ZERO {
+        return;
+    }
+
+    ps.next_maintenance =
+        Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
     ps.sort();
     if Utc::now().second() / 3 + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();

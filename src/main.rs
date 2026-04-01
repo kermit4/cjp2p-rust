@@ -28,7 +28,7 @@ use std::fs::File;
 //use std::fs::OpenOptions;
 //use std::io::copy;
 use nix::sys::select::{select, FdSet};
-use rand::Rng;
+//use rand::Rng;
 use scanf::sscanf;
 use std::net::SocketAddr;
 use std::net::{TcpListener, TcpStream};
@@ -53,15 +53,10 @@ fn main() -> Result<(), std::io::Error> {
         info!("queing inbound file {:?}", v);
         inbound_states.insert(v.to_string(), InboundState::new(&v, &ps));
     }
-    let mut next_maintenance = Instant::now() - Duration::from_secs(99999);
 
     loop {
         let mut read_fds = FdSet::new();
-        if next_maintenance.elapsed() > Duration::ZERO {
-            maintenance(&mut inbound_states, &mut ps);
-            next_maintenance =
-                Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(1111..1234));
-        }
+        libcjp::maintenance(&mut inbound_states, &mut ps);
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
         let stdin = std::io::stdin();

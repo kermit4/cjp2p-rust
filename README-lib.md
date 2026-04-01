@@ -16,6 +16,7 @@ This will make available any files in the directory ./cj2p/public  It will ignor
     read_fds.insert(ps.socket.as_fd());
     loop {
         select( None, &mut read_fds, None, None, &mut (nix::sys::time::TimeVal::new(1, 0))).unwrap();
+        libcjp::maintenance(&mut inbound_states, &mut ps); // this only does anything once per second
         if read_fds.contains(ps.socket.as_fd()) {
             handle_network(&mut ps, &mut inbound_states);
         }
