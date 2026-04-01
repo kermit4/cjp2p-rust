@@ -44,7 +44,7 @@ fn main() -> Result<(), std::io::Error> {
         .init();
     println!("logging level: {}", log::max_level());
     let mut ps: PeerState = PeerState::new();
-    let web_server = TcpListener::bind("0.0.0.0:24254").unwrap();
+    let web_server = TcpListener::bind("0.0.0.0:24255").unwrap();
     println!("your ed25519 public key, stored in cjp2p/state/key.json, is:  0x{}",hex::encode(&ps.keypair.public));
     let mut args = env::args();
     args.next();

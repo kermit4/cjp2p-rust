@@ -27,12 +27,12 @@ sha256sum
 # should be  6f5a06b0a8b83d66583a319bfa104393f5e52d2c017437a1b425e9275576500c
 ```
 
-or Sintel http://127.0.0.1:24254/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
+or Sintel http://127.0.0.1:24255/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
 or inlined images in HTML loaded live 
-- http://127.0.0.1:24254/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
-- http://127.0.0.1:24254/fb132816910cda37494d2c1ec70b6bc92f9bc4b129842e7f4e9d16aac789ac3f wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON --wait 1 
-- http://127.0.0.1:24254/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth --wait 1   
+- http://127.0.0.1:24255/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
+- http://127.0.0.1:24255/fb132816910cda37494d2c1ec70b6bc92f9bc4b129842e7f4e9d16aac789ac3f wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON --wait 1 
+- http://127.0.0.1:24255/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth --wait 1   
 
 typing stdin sends a chat message to a mostly random set of peers, but there are some / commands:
 - /ping
