@@ -948,6 +948,7 @@ impl InboundState {
                             "HTTP/1.1 206 Partial Content\r\n\
                              Content-Length: {}\r\n\
                              Content-Disposition: inline\r\n\
+                             Accept-Range: bytes\r\n\
                             Content-Range: bytes {}-{}/{}\r\n"
             ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof);
         match infer::get_from_path("./cjp2p/incoming/".to_string() + &self.id) {

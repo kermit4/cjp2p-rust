@@ -156,6 +156,7 @@ pub fn handle_web_request(
                             "HTTP/1.1 206 Partial Content\r\n\
                              Content-Length: {}\r\n\
                              Content-Disposition: inline\r\n\
+                             Accept-Range: bytes\r\n\
                             Content-Range: bytes {}-{}/{}\r\n"
                             ,length,start,start+length-1,
                             file.metadata().unwrap().len());
