@@ -943,12 +943,15 @@ impl InboundState {
             return false;
         }
         let waited = self.http_time.elapsed();
-        if waited > Duration::from_millis(120) {
-            warn!("\x1b[7;31m {} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
+        let txt = format!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
+        if waited > Duration::from_millis(250) {
+            warn!("\x1b[7;31m {} ",txt);
+        } else if waited > Duration::from_millis(120) {
+            info!("{}",txt);
         } else if waited > Duration::from_millis(60) {
-            info!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
-        } else if waited > Duration::from_millis(2) {
-            debug!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
+            debug!("{}",txt);
+        } else {
+            trace!("{}",txt);
         }
         let mut response = format!(
                             "HTTP/1.1 206 Partial Content\r\n\
