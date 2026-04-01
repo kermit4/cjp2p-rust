@@ -72,21 +72,20 @@ This is also at https://crates.io/crates/libcjp but probably isn't useful as a c
 - valuable numbers? (PoW)
 - proof of latency? signature chain of somewhat verifiable latency?
 - reputation
-- thanks/reputation. auto thanks on succesful get.
+- thanks based reputation. auto-thanks on succesful get.
 - direct referal trust or public reputation..and is that the scarcity or something else like ipv4 addresses or work.
 - read this again https://howtofixtheweb.com/
-- rememebre my "beuseful" logic (reputation based on feedback, sort of like google's pagerank )
+- 6/4x the CPU to send/receive content encrypted. why.
 ## near-real time things - may overlap 
 - news feed
 - once there is economics, sell services
 - group chats
 ## public collaboration
 - reviews of content
+-  some equivalent of wikipedia
 ## unnsorted
 - make it do what i actually do each day, check for news basically. /trending is all i really do. but, i may want to weight some sources higher. well, do that later. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
 - alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
-- 6/4x the CPU to send/receive content encrypted. why.
-- need metadata for large files, then finish lib
--  some equivalent of wikipedia
+- need metadata for large files, then finish lib (hashset instead of enum_dispatch?)
 - ok the web server if accessesd publicly can cause floodnig with the extra agggressive search i think?, it should onnly search verified hosts
 - images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.
