@@ -32,6 +32,7 @@ use nix::sys::select::{select, FdSet};
 use scanf::sscanf;
 use std::net::SocketAddr;
 use std::net::{TcpListener, TcpStream};
+use socket2::SockRef;
 use std::os::fd::AsFd;
 use std::os::unix::fs::FileExt;
 use std::time::{Duration, Instant};
@@ -141,9 +142,9 @@ pub fn handle_web_request(
             }
             debug!("http start end {start} {end}");
             if end == 0 {
-                end = start + 0x40000;
+                end = start + 0x400000;
             }
-
+            SockRef::from(&stream).set_send_buffer_size(0x410000).ok();
             if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &id) {
                 let mut buf = vec![0; end-start ];
                 let length = file.read_at(&mut buf, start as u64).unwrap();

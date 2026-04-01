@@ -659,6 +659,7 @@ dependencies = [
  "serde_with",
  "sha2",
  "snow",
+ "socket2",
  "time-core",
 ]
 
