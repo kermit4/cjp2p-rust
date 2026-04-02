@@ -33,7 +33,6 @@ or inlined images in HTML loaded live
 - http://127.0.0.1:24255/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
 - http://127.0.0.1:24255/fb132816910cda37494d2c1ec70b6bc92f9bc4b129842e7f4e9d16aac789ac3f wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON
 - http://127.0.0.1:24255/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth --wait 1   
-- http://127.0.0.1:24255/6fe6757b8c2311bee457dbb3f17a68a4a0c36f85a5f01c37d3fea2c2515e3990  so many thumbnails!  made with ./html_slurp.sh  https://commons.wikimedia.org/wiki/Category:Fossils  (the few broken images are bugs in html_slurp.sh due to unusual image names/urls, not the Rust code)
 
 typing stdin sends a chat message to a mostly random set of peers, but there are some / commands:
 - /ping
