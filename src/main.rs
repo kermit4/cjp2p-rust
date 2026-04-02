@@ -47,7 +47,7 @@ fn main() -> Result<(), std::io::Error> {
     let mut ps: PeerState = PeerState::new();
     let web_server = TcpListener::bind("0.0.0.0:24255").unwrap();
     SockRef::from(&web_server)
-        .set_send_buffer_size(0x40000)
+        .set_send_buffer_size(0x400000)
         .ok();
     let sndbuf = SockRef::from(&web_server).send_buffer_size().unwrap();
     if sndbuf < 0x40000 {
@@ -149,7 +149,7 @@ pub fn handle_web_request(
             }
             debug!("http start end {start} {end}");
             if end == 0 {
-                end = start + 0x40000;
+                end = start + 0x400000;
             }
 
             if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &id) {
