@@ -14,14 +14,15 @@ fi
 wget $opts -nv -p -H -k  "$@"
 d=
 change() {
-    s=$1;f=$2
-    grep -F $f circular_check  && return
+    s=$1
+    f=$2
+    grep -F $f circular_check  && echo loop at "$f" && return
     if grep -wIqF "$s" "$f" ;then
         echo $f >> circular_check
         #echo changed "$s to $sha_s"
         sha_s=$(sha256sum "$s"|cut -d ' ' -f 1)
         sha_f=$(sha256sum "$f"|cut -d ' ' -f 1)
-        sed   -i "s<$s<$sha_s<g" "$f"
+        sed   -i "s<${s//[<][$^*]/.}<$sha_s<g" "$f"
         grep -wIqFlr "$sha_f"  $d/*/ |while read ff;do
             #echo -en "$(wc -l < circular_check) change $sha_f $ff\r"
             change "$sha_f" "$ff"

@@ -435,7 +435,7 @@ impl Receive for AlwaysReturned {
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         //this is handled early
-        vec![]
+        return vec![];
     }
 }
 
@@ -514,7 +514,7 @@ impl Receive for IJustSawThis {
         if !might_be_ip_spoofing && src.port() == 24254 {
             ps.peer_map.get_mut(&src).unwrap().i_just_saw_this = Some(self);
         }
-        vec![]
+        return vec![];
     }
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -533,7 +533,7 @@ impl Receive for YouSouldSeeThis {
         if !might_be_ip_spoofing && src.port() == 24254 {
             ps.peer_map.get_mut(&src).unwrap().you_should_see_this = Some(self);
         }
-        vec![]
+        return vec![];
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
@@ -1073,7 +1073,7 @@ impl Receive for PleaseReturnThisMessage {
         _: bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        vec![Message::ReturnedMessage(ReturnedMessage { cookie: self.cookie, })]
+        return vec![Message::ReturnedMessage(ReturnedMessage { cookie: self.cookie, })];
     }
 }
 impl PleaseReturnThisMessage {
