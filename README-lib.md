@@ -29,7 +29,7 @@ Except half the point of this is that it's easily expansible, and I have no idea
 This uses 10KB/s at idle.
 
 # TODO
-- try some hashset of message handlers instead of enum+enum_dispatcher, so an appliction can replace, expand, add, or remove, messages?
+- try some HashMap of message handlers instead of enum+enum_dispatcher, so an appliction can replace, expand, add, or remove, messages?  or maybe somehow put the core loop steps more in the application side so it can replace the enum?. or maybe something with "dyn"?
 - really need metadata for /list and /recommended and /trending
 - make it so users of lib can add message types
 ## cryptography/scarcity related
