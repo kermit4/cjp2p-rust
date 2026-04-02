@@ -24,7 +24,7 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 
 
 ```
-Except half the point of this is that it's easily expansible, and I have no idea how to do that with Rust libraries, or if you're even supposed to.  i.e. add fields to messages, add new messages, ignore messages, add handling to messages, i.e. expand on the code not just call it.  So maybe it's better to copy/fork the source than use the library.
+This probably isn't useful as a crate, as it's examples to build from, not strict implementations, so it's probably better to copy or fork this than use it, as I don't see how you would arbitrarily override parts of a crate in Rust, i.e. add fields to messages, add new messages, ignore messages, add or change handling of messages, generally expand on the code not just call it like some fixed hash function or system call wrapper.  
 
 This uses 10KB/s at idle.
 
