@@ -46,9 +46,13 @@ fn main() -> Result<(), std::io::Error> {
     println!("logging level: {}", log::max_level());
     let mut ps: PeerState = PeerState::new();
     let web_server = TcpListener::bind("0.0.0.0:24255").unwrap();
-            SockRef::from(&web_server).set_send_buffer_size(0x40000).ok();
-            let sndbuf = SockRef::from(&web_server).send_buffer_size().unwrap();
-            if sndbuf<0x40000 { warn!("sndbuf  = {:?}",sndbuf);}
+    SockRef::from(&web_server)
+        .set_send_buffer_size(0x40000)
+        .ok();
+    let sndbuf = SockRef::from(&web_server).send_buffer_size().unwrap();
+    if sndbuf < 0x40000 {
+        warn!("sndbuf  = {:?}",sndbuf);
+    }
     println!("your ed25519 public key, stored in cjp2p/state/key.json, is:  0x{}",hex::encode(&ps.keypair.public));
     let mut args = env::args();
     args.next();

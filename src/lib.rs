@@ -175,9 +175,9 @@ impl PeerState {
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
         for bootstrap in ["148.71.89.128:24254", "159.69.54.127:24254"] {
-        let mut pi=PeerInfo::new();
-        pi.delay=Duration::from_millis(20);
-        ps.peer_map.insert(bootstrap.parse().unwrap(), pi);
+            let mut pi = PeerInfo::new();
+            pi.delay = Duration::from_millis(20);
+            ps.peer_map.insert(bootstrap.parse().unwrap(), pi);
         }
         return ps;
     }
@@ -366,8 +366,8 @@ pub fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, I
     };
     let messages = messages.0;
     if !ps.peer_map.contains_key(&src) {
-        let mut pi=PeerInfo::new();
-        pi.delay=Duration::from_millis(120);
+        let mut pi = PeerInfo::new();
+        pi.delay = Duration::from_millis(120);
         ps.peer_map.insert(src, pi);
         warn!("new peer spotted {src}");
     }
