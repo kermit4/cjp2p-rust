@@ -35,21 +35,21 @@ src/lib.rs is also at https://crates.io/crates/libcjp but this probably isn't us
 - CLI commands  / API?  or just as curl//REST examples, not CLI
 - how would end users best interact? through a browser? how about sending or streaming
 - how can users easily and excitedly use decentralized software in place of centralized...easy plus a draw..whats hot and trending, what peers respect, an algorithm but that they control
+- but for now the target audience is devs not users
 - more / commands
-- http quickstart and acceleration need work, maybe just request the whole thing as soon as it knows a peer  .. user waiting is much more important than maintaining some low packet loss
-- easy web UI - just interface on the / commands
+- easy web UI - just HTML interface on the / commands really.  maybe a /trending /recommended /pending auto-refresh and colorize if you have it yet or not
 - really need metadata for /list and /recommended and /trending
 -   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
 ## cryptography related
-- more encryption? by default? the asymmetric encryption i have is 10x as much CPU as none.  symmetric might be  fast
+- more encryption? by default?   for debugging (tcpdump) its much easier to leave this off for now, but could be a command line option
 - trust 
-- valuable numbers? (PoW)
+- valuable numbers? (PoW?  or valuable just because the issuer, based on their public key, limits the issuance.  every person their own "coin" as value derived from their reputation?  reputation granting fungible negotiable scarcity? be your own CENTRAL bank!)
 - proof of latency? signature chain of somewhat verifiable latency?
 - reputation
 - thanks based reputation. auto-thanks on succesful get.
 - direct referal trust or public reputation..and is that the scarcity or something else like ipv4 addresses or work.
 - read this again https://howtofixtheweb.com/
-- 6/4x the CPU to send/receive content encrypted. why.
+- 4x the CPU on to send/receive encrypted. why? 4x block size makes  it only 70% slower though, but it still seems high
 ## near-real time things - may overlap 
 - news feed
 - once there is economics, sell services
