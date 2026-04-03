@@ -61,4 +61,4 @@ src/lib.rs is also at https://crates.io/crates/libcjp but this probably isn't us
 - make it do what i actually do each day, check for news basically. /trending is all i really do. but, i may want to weight some sources higher. well, do that later. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
 - alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
 - need metadata for large files
-- images and html over 256k dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.
+- images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.

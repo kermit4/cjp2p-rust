@@ -269,7 +269,7 @@ v.port(),
                     }
                 }
             }
-            println!("{} total active peers",ps.peer_map.len());
+            println!("{} total peers",ps.peer_map.len());
             let mut unique_ips = HashSet::new();
             println!("========== all IPs");
             for (k, _) in &ps.peer_map {

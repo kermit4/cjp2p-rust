@@ -29,7 +29,7 @@ This probably isn't useful as a crate, as it's examples to build from, not stric
 This uses 10KB/s at idle.
 
 # TODO
-- try some HashMap of message handlers instead of enum+enum_dispatcher, so an appliction can replace, expand, add, or remove, messages?  or maybe somehow put the core loop steps more in the application side so it can replace the enum?. or maybe something with "dyn"?
+- try some HashMap of message handlers that implement Receive and return vec![Value] to avoid the enum, instead of enum+enum_dispatcher, so an appliction can replace, expand, add, or remove, messages?  or maybe somehow put the core loop steps more in the application side so it can replace the enum?. or maybe something with "dyn"?  there's still the question of how to expand on the two big structs PeerState and InboundState.  Maybe reading https://doc.rust-lang.org/stable/book/ch10-02-traits.html a few more times would help.
 - really need metadata for /list and /recommended and /trending
 - make it so users of lib can add message types
 ## cryptography/scarcity related
