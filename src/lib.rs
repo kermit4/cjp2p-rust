@@ -373,7 +373,8 @@ pub fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, I
     }
     // This ist a Vec<Value> because I don't know the structure of the Please*Returns
     let mut might_be_ip_spoofing = ps.check_key(&messages, src);
-    let mut message_out = ps.handle_messages(messages, src, &mut might_be_ip_spoofing, inbound_states);
+    let mut message_out =
+        ps.handle_messages(messages, src, &mut might_be_ip_spoofing, inbound_states);
     if message_out.len() == 0 {
         return;
     }
@@ -385,18 +386,19 @@ pub fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, I
         warn!("ratio: none left!");
         return;
     }
-    let mut message_out_bytes = serde_json::to_vec(&message_out).unwrap();
+    let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
     trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
     // slow, even big blocks is 4x slower user time, with sys time 3x
     // 4k blocks 8x slower user, 5x net
-          if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
-                  message_out_bytes = serde_json::to_vec(
-                      &(vec![
+    /*    if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
+        message_out_bytes = serde_json::to_vec(
+            &(vec![
                           EncryptedMessages::new(their_pub, src, message_out_bytes),
                           ]),
-                  ).unwrap();
-              }
+        )
+        .unwrap();
+    } */
     match ps.socket.send_to(&message_out_bytes, src) {
         Ok(s) => trace!("sent {s}"),
         Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
