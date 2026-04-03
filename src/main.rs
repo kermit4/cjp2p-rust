@@ -287,6 +287,10 @@ v.port(),
                     .unwrap()
                     .len(),
             });
+        } else if line == "/pending\n" {
+            for (_, i) in inbound_states.iter_mut() {
+                println!("pending {}",i.id);
+            }
         } else if line == "/trending\n" {
             let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
             for (_, v) in &ps.peer_map {
@@ -344,6 +348,7 @@ v.port(),
                         - /recommend hash
                         - /recommended
                         - /trending
+                        - /pending
                         - /peers
                         - /msg [ip:port or 0xPubKey] msg
                         - /version
