@@ -289,7 +289,7 @@ v.port(),
             });
         } else if line == "/pending\n" {
             for (_, i) in inbound_states.iter_mut() {
-                println!("pending {}",i.id);
+                println!("pending {} {}/{}",i.id,i.bytes_complete,i.eof);
             }
         } else if line == "/trending\n" {
             let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
