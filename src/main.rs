@@ -288,6 +288,7 @@ v.port(),
                     .len(),
             });
         } else if line == "/pending\n" {
+            println!("{} pending",inbound_states.len());
             for (_, i) in inbound_states.iter_mut() {
                 println!("pending {} {}/{}",i.id,i.bytes_complete,i.eof);
             }
