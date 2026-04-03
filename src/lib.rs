@@ -334,7 +334,7 @@ impl PeerState {
         &mut self,
         messages: Vec<Message>,
         src: SocketAddr,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         let mut message_out = vec![];
@@ -372,8 +372,8 @@ pub fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, I
         warn!("new peer spotted {src}");
     }
     // This ist a Vec<Value> because I don't know the structure of the Please*Returns
-    let might_be_ip_spoofing = ps.check_key(&messages, src);
-    let mut message_out = ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
+    let mut might_be_ip_spoofing = ps.check_key(&messages, src);
+    let mut message_out = ps.handle_messages(messages, src, &mut might_be_ip_spoofing, inbound_states);
     if message_out.len() == 0 {
         return;
     }
@@ -385,19 +385,18 @@ pub fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, I
         warn!("ratio: none left!");
         return;
     }
-    let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
+    let mut message_out_bytes = serde_json::to_vec(&message_out).unwrap();
     trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
     // slow, even big blocks is 4x slower user time, with sys time 3x
     // 4k blocks 8x slower user, 5x net
-    /*      if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
+          if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
                   message_out_bytes = serde_json::to_vec(
                       &(vec![
                           EncryptedMessages::new(their_pub, src, message_out_bytes),
                           ]),
                   ).unwrap();
               }
-    */
     match ps.socket.send_to(&message_out_bytes, src) {
         Ok(s) => trace!("sent {s}"),
         Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
@@ -431,7 +430,7 @@ impl Receive for AlwaysReturned {
         self,
         _: &mut PeerState,
         _: SocketAddr,
-        _: bool,
+        _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         //this is handled early
@@ -448,7 +447,7 @@ impl Receive for PleaseAlwaysReturnThisMessage {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        _: bool,
+        _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         trace!("saving cookie {} for {src}",self.cookie);
@@ -466,13 +465,13 @@ impl Receive for PleaseSendPeers {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        let p = ps.best_peers(1 + 45 * !might_be_ip_spoofing as i32, 6);
+        let p = ps.best_peers(1 + 45 * !*might_be_ip_spoofing as i32, 6);
         trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
-        if might_be_ip_spoofing {
+        if *might_be_ip_spoofing {
             message_out.push(ps.please_always_return(src));
         }
         return message_out;
@@ -483,7 +482,7 @@ impl Receive for Peers {
         self,
         ps: &mut PeerState,
         _: SocketAddr,
-        _: bool,
+        _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         trace!("received peers {:?} ", self.peers.len());
@@ -508,10 +507,10 @@ impl Receive for IJustSawThis {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if !might_be_ip_spoofing && src.port() == 24254 {
+        if !*might_be_ip_spoofing && src.port() == 24254 {
             ps.peer_map.get_mut(&src).unwrap().i_just_saw_this = Some(self);
         }
         return vec![];
@@ -527,10 +526,10 @@ impl Receive for YouSouldSeeThis {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if !might_be_ip_spoofing && src.port() == 24254 {
+        if !*might_be_ip_spoofing && src.port() == 24254 {
             ps.peer_map.get_mut(&src).unwrap().you_should_see_this = Some(self);
         }
         return vec![];
@@ -594,7 +593,7 @@ impl Receive for PleaseSendContent {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if self.id.find("/") != None || self.id.find("\\") != None {
@@ -603,12 +602,12 @@ impl Receive for PleaseSendContent {
         let mut message_out: Vec<Message> = Vec::new();
         if let Some(i) = inbound_states.get_mut(&self.id) {
             i.peers.insert(src);
-            message_out.append(&mut i.send_content_peers(might_be_ip_spoofing, src));
+            message_out.append(&mut i.send_content_peers(*might_be_ip_spoofing, src));
         } else {
             message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
         }
         if message_out.len() == 0
-            || (!might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 23 == 0)
+            || (!*might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 23 == 0)
         // if the file is small, they dont need more peers
         // and if its big they'll hit this random often
         {
@@ -618,7 +617,7 @@ impl Receive for PleaseSendContent {
                 &src,
             ));
         }
-        if might_be_ip_spoofing && message_out.len() > 0 {
+        if *might_be_ip_spoofing && message_out.len() > 0 {
             message_out.push(ps.please_always_return(src));
         }
         return message_out;
@@ -628,15 +627,15 @@ impl Receive for PleaseSendContent {
 impl Content {
     pub fn new_block(
         req: &PleaseSendContent,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         ps: &mut PeerState,
     ) -> Vec<Message> {
-        if might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 27 == 0 {
+        if *might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 27 == 0 {
             info!("randomly ignoring unverified source IPs for {} so ba dumb client doesn't get stuck in a loop",req.id);
 
             return vec![];
         }
-        let length = if might_be_ip_spoofing {
+        let length = if *might_be_ip_spoofing {
             1
         } else if req.length > 0xa000 {
             0xa000
@@ -672,7 +671,7 @@ impl Receive for Content {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        _: bool,
+        _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if !inbound_states.contains_key(&self.id) {
@@ -856,7 +855,7 @@ impl InboundState {
     }
     pub fn send_content_peers_from_disk(
         id: &String,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         src: &SocketAddr,
     ) -> Vec<Message> {
         let filename = "./cjp2p/metadata/".to_owned() + &id + ".json";
@@ -883,7 +882,7 @@ impl InboundState {
         if peers.len() == 0 {
             return vec![];
         }
-        let at_most = 3 + 45 * !might_be_ip_spoofing as usize;
+        let at_most = 3 + 45 * !*might_be_ip_spoofing as usize;
 
         // TODO check peer_map, unless im already saving those to disk
         return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
@@ -1045,7 +1044,7 @@ impl Receive for MaybeTheyHaveSome {
         self,
         ps: &mut PeerState,
         _: SocketAddr,
-        _: bool,
+        _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if !inbound_states.contains_key(&self.id) {
@@ -1070,7 +1069,7 @@ impl Receive for PleaseReturnThisMessage {
         self,
         _: &mut PeerState,
         _: SocketAddr,
-        _: bool,
+        _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         return vec![Message::ReturnedMessage(ReturnedMessage { cookie: self.cookie, })];
@@ -1093,10 +1092,10 @@ impl Receive for ReturnedMessage {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if !might_be_ip_spoofing {
+        if !*might_be_ip_spoofing {
             if let Some(peer) = ps.peer_map.get_mut(&src) {
                 peer.delay =
                     (ps.boot + Duration::from_secs_f64(self.cookie.parse().unwrap())).elapsed();
@@ -1118,7 +1117,7 @@ impl Receive for MyPublicKey {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        _: bool,
+        _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         ps.peer_map.get_mut(&src).unwrap().ed25519 = Some(self.ed25519.clone());
@@ -1150,7 +1149,7 @@ impl Receive for ChatMessage {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        _: bool,
+        _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
@@ -1179,7 +1178,7 @@ impl Receive for PleaseListContent {
         self,
         _: &mut PeerState,
         _: SocketAddr,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         let mut results: Vec<(String, u64)> = vec![];
@@ -1190,7 +1189,7 @@ impl Receive for PleaseListContent {
                 continue;
             }
             results.push((p.file_name().unwrap().to_str().unwrap().to_string(), length));
-            if results.len() > 70 * !might_be_ip_spoofing as usize + 1 {
+            if results.len() > 70 * !*might_be_ip_spoofing as usize + 1 {
                 break;
             }
         }
@@ -1220,7 +1219,7 @@ impl Receive for ContentList {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        _: bool,
+        _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         // TODO call maybetheyhavesome?
@@ -1270,7 +1269,7 @@ impl Receive for EncryptedMessages {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        mut might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
@@ -1282,7 +1281,7 @@ impl Receive for EncryptedMessages {
             trace!("handling decrypted message from {src}: {}",
              String::from_utf8_lossy(&buf[..len]));
             let messages = serde_json::from_slice(&buf[..len]).unwrap();
-            might_be_ip_spoofing &= ps.check_key(&messages, src);
+            *might_be_ip_spoofing &= ps.check_key(&messages, src);
             return ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
         } else {
             info!("failed to decrypt a message from {src}");
@@ -1331,7 +1330,7 @@ trait Receive {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        might_be_ip_spoofing: bool,
+        might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message>;
 }
