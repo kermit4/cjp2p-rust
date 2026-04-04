@@ -440,7 +440,7 @@ fn main() -> Result<(), std::io::Error> {
         if read_fds.contains(stdin.as_fd()) {
             handle_stdin(&mut ps, &mut inbound_states);
         } else if read_fds.contains(web_server.as_fd()) {
-            handle_web_request(&web_server, &mut inbound_states, &ps);
+            handle_web_request(&web_server, &mut inbound_states, &mut ps);
         } else if read_fds.contains(ps.socket.as_fd()) {
             handle_network(&mut ps, &mut inbound_states);
         }
@@ -457,30 +457,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             println!("QUEING FILE {arg}");
             inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
         } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
-            let to = hex::decode(&arg).unwrap();
-            let mut who: HashSet<SocketAddr> = HashSet::new();
-            for (k, v) in &ps.peer_map {
-                if let Some(key) = &v.ed25519 {
-                    if *key == to {
-                        who.insert(*k);
-                    }
-                }
-            }
-            if who.len() > 0 {
-                let message_out =
-                    ChatMessage::new(&ps, who.clone().into_iter().next().unwrap(), arg2.clone());
-                if let Message::EncryptedMessages(_) = message_out[0] {
-                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                    trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
-                    for sa in who {
-                        ps.socket.send_to(&message_out_bytes, sa).ok();
-                    }
-                } else {
-                    println!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
-                }
-            } else {
-                println!("not found");
-            }
+            chat_to_pub(ps, arg, &arg2);
         } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
             let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
             if let Message::EncryptedMessages(_) = message_out[0] {
@@ -630,20 +607,53 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
         page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
     }
 
-    page += &format!("\n");
-    page += &format!("{} total peers\n",ps.peer_map.len());
+    let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
+    for (_, v) in &ps.peer_map {
+        if let Some(p) = &v.i_just_saw_this {
+            match trending.get_mut(&p.id) {
+                Some(h) => h.0 += 1,
+                None => {
+                    trending.insert(p.id.to_owned(), (1, p.length));
+                    ()
+                }
+            }
+        }
+    }
+    let mut sorted_list_results: Vec<_> = trending.iter().collect();
+    sorted_list_results.sort_by_key(|&(_, b)| b.0);
+    page += &format!("most recently downloaded content:\n");
+    for (k, v) in sorted_list_results.into_iter().rev() {
+        page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
+    }
+
+    page += &format!("\n{} total peers\n",ps.peer_map.len());
+    let mut unique_pubs = HashSet::new();
+    page += &format!("--- active public keys: \n");
+    for (k, v) in &ps.peer_map {
+        if v.delay < Duration::from_millis(250) {
+            if let Some(their_pub) = &v.ed25519 {
+                if unique_pubs.insert(their_pub) {
+                    page += &format!("{:21} <a href=/chat/{} target=_blank>0x{}</a> {}\n",k.ip(),
+            hex::encode(v.ed25519.clone().unwrap_or_default()),
+            hex::encode(v.ed25519.clone().unwrap_or_default()),
+            if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()},
+);
+                }
+            }
+        }
+    }
+    page += &format!("--- all IPs: \n");
     let mut unique_ips = HashSet::new();
-    page += &format!("========== all IPs\n");
     for (k, _) in &ps.peer_map {
         if unique_ips.insert(k.ip()) {
             page+=&format!("{:21} {}\n",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
         }
     }
-    page += &format!("{} total unique IP peers\n",unique_ips.len());
+    page += &format!("{} total unique IP peers\n--- active peers: \n",unique_ips.len());
     for v in ps.peer_vec.iter() {
         if let IpAddr::V4(ip) = v.ip() {
             let d = ps.peer_map[v].delay;
-            if d < Duration::from_secs(1) {
+            if d < Duration::from_millis(119) {
                 page += &format!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21}\n",
                     ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
                     v.port(),
@@ -658,7 +668,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
 fn handle_web_request(
     web_server: &TcpListener,
     inbound_states: &mut HashMap<String, InboundState>,
-    ps: &PeerState,
+    ps: &mut PeerState,
 ) {
     if let Ok((mut stream, _)) = web_server.accept() {
         if let Some(req) = parse_header(&mut stream) {
@@ -668,6 +678,22 @@ fn handle_web_request(
                 stream
                     .write_all(status_page(inbound_states, ps).as_bytes())
                     .ok();
+                return;
+            }
+            if req.path.starts_with("/chat/") {
+                let v = &req.path[6..];
+                let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=8></head><body><pre>\n\
+    send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
+        ");
+                if req.path.contains("?msg=") {
+                    let mut parts = v.split("?msg=");
+                    let their_pub = parts.next().unwrap().to_string();
+                    let msg = parts.next().unwrap().to_string();
+                    chat_to_pub(ps, their_pub, &msg);
+                    page +=
+                        &format!("\n\n{} sent..but you'll only see replies in the console yet",msg);
+                }
+                stream.write_all(page.as_bytes()).ok();
                 return;
             }
             let id = &req.path[1..];
@@ -1737,4 +1763,33 @@ trait Receive {
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message>;
+}
+
+fn chat_to_pub(ps: &mut PeerState, arg: String, arg2: &String) -> () {
+    let to = hex::decode(&arg).unwrap();
+    let mut who: HashSet<SocketAddr> = HashSet::new();
+    for (k, v) in &ps.peer_map {
+        if v.delay < Duration::from_millis(300) {
+            if let Some(key) = &v.ed25519 {
+                if *key == to {
+                    who.insert(*k);
+                }
+            }
+        }
+    }
+    if who.len() > 0 {
+        let message_out =
+            ChatMessage::new(&ps, who.clone().into_iter().next().unwrap(), arg2.clone());
+        if let Message::EncryptedMessages(_) = message_out[0] {
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
+            for sa in who {
+                ps.socket.send_to(&message_out_bytes, sa).ok();
+            }
+        } else {
+            println!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+        }
+    } else {
+        println!("not found");
+    }
 }
