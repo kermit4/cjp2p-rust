@@ -1,3 +1,5 @@
+use socket2::SockRef;
+//use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
 use chrono::{Timelike, Utc};
 use enum_dispatch::enum_dispatch;
@@ -5,24 +7,27 @@ use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
 use memmap2::MmapMut;
-use nix::sys::select::{select, FdSet};
-use rand::Rng;
-use scanf::sscanf;
+use std::net::IpAddr;
+//use nix::NixPath;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_with::{base64::Base64, serde_as, InspectError, VecSkipError};
 use sha2::{Digest, Sha256};
 use snow::Builder;
-use socket2::SockRef;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+//use std::convert::TryInto;
 use std::env;
+//use std::fmt;
 use std::f64;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::net::IpAddr;
+//use std::io::copy;
+use nix::sys::select::{select, FdSet};
+use rand::Rng;
+use scanf::sscanf;
 use std::net::{SocketAddr, UdpSocket};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::AsFd;
@@ -31,27 +36,361 @@ use std::time::{Duration, Instant};
 use std::vec;
 use std::{io, str};
 //use base64::{engine::general_purpose, Engine as _};
-//use bitvec::prelude::*;
-//use chrono::{Timelike, Utc};
-//use enum_dispatch::enum_dispatch;
-//use log::{debug, error, info, log_enabled, trace, warn, Level};
-//use memmap2::MmapMut;
 //use nix::NixPath;
-//use serde::{Deserialize, Serialize};
-//use serde_json::json;
-//use serde_with::{base64::Base64, serde_as, InspectError, VecSkipError};
-//use sha2::{Digest, Sha256};
-//use snow::Builder;
-//use std::cmp;
-//use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 //use std::convert::TryInto;
 //use std::fmt;
-//use std::f64;
-//use std::fs;
-//use std::fs::OpenOptions;
 //use std::io::copy;
-//use rand::Rng;
-//use std::{io, str};
+
+const NOISE_PARAMS: &str = "Noise_NK_25519_AESGCM_SHA256";
+
+macro_rules! BLOCK_SIZE {
+    () => {
+        0x1000 // 4k
+    };
+}
+
+// when this gets to millions of peers, consider keeping less info about the slower ones
+#[serde_as]
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct PeerInfo {
+    delay: Duration,
+    anti_ip_spoofing_cookie_they_expect: Option<String>,
+    #[serde_as(as = "Option<Base64>")]
+    ed25519: Option<Vec<u8>>,
+    you_should_see_this: Option<YouSouldSeeThis>,
+    i_just_saw_this: Option<IJustSawThis>,
+}
+impl PeerInfo {
+    fn new() -> Self {
+        return Self {
+            delay: Duration::from_millis(200),
+            anti_ip_spoofing_cookie_they_expect: None,
+            ed25519: None,
+            you_should_see_this: Some(YouSouldSeeThis {
+                id: "43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1".to_owned(),
+                length: 105277987,
+            }),
+            i_just_saw_this: None,
+        };
+    }
+}
+#[derive(Debug)]
+struct OpenFile {
+    file: File,
+    eof: usize,
+}
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug)]
+struct Keypair {
+    #[serde_as(as = "Base64")]
+    public: Vec<u8>,
+    #[serde_as(as = "Base64")]
+    private: Vec<u8>,
+}
+impl Keypair {
+    fn load_key() -> Self {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open("./cjp2p/state/key.json");
+        if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
+            let saved: Self = serde_json::from_reader(&file.unwrap()).unwrap();
+            return Self {
+                public: saved.public,
+                private: saved.private,
+            };
+        } else {
+            let keypair_ = Builder::new(NOISE_PARAMS.parse().unwrap())
+                .generate_keypair()
+                .unwrap();
+            let keypair = Self {
+                public: keypair_.public,
+                private: keypair_.private,
+            };
+            file.as_ref()
+                .unwrap()
+                .write_all(&serde_json::to_vec_pretty(&keypair).unwrap())
+                .ok();
+            return keypair;
+        }
+    }
+}
+
+struct PeerState {
+    peer_map: HashMap<SocketAddr, PeerInfo>,
+    peer_vec: Vec<SocketAddr>,
+    socket: UdpSocket,
+    boot: Instant,
+    keypair: Keypair,
+    open_file_cache: HashMap<String, OpenFile>,
+    list_results: HashMap<String, (i32, u64)>,
+    list_time: Instant,
+    p: PersistentState,
+    next_maintenance: Instant,
+}
+#[derive(Serialize, Deserialize, Debug)]
+struct PersistentState {
+    you_should_see_this: Option<YouSouldSeeThis>,
+    i_just_saw_this: Option<IJustSawThis>,
+}
+impl PersistentState {
+    fn save(&self) {
+        OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .read(true)
+            .open("./cjp2p/state/persistent_state.json")
+            .unwrap()
+            .write_all(&serde_json::to_vec_pretty(&self).unwrap())
+            .unwrap();
+    }
+    fn load() -> Self {
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open("./cjp2p/state/persistent_state.json");
+        if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
+            return serde_json::from_reader(&file.unwrap()).unwrap();
+        } else {
+            return Self {
+                you_should_see_this: None,
+                i_just_saw_this: None,
+            };
+        }
+    }
+}
+impl PeerState {
+    fn new() -> Self {
+        fs::create_dir("./cjp2p").ok();
+        fs::create_dir("./cjp2p/public").ok();
+        fs::create_dir("./cjp2p/metadata").ok();
+        fs::create_dir("./cjp2p/state").ok();
+        let mut ps = Self {
+            peer_map: PeerState::load_peers(),
+            peer_vec: vec![],
+            socket: UdpSocket::bind("0.0.0.0:24254").unwrap(),
+            boot: Instant::now(),
+            keypair: Keypair::load_key(),
+            open_file_cache: HashMap::new(),
+            list_results: HashMap::new(),
+            list_time: Instant::now(),
+            p: PersistentState::load(),
+            next_maintenance: Instant::now() - Duration::from_secs(99999),
+        };
+        ps.socket.set_broadcast(true).ok();
+        ps.socket
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        for bootstrap in ["148.71.89.128:24254", "159.69.54.127:24254"] {
+            let mut pi = PeerInfo::new();
+            pi.delay = Duration::from_millis(20);
+            ps.peer_map.insert(bootstrap.parse().unwrap(), pi);
+        }
+        return ps;
+    }
+    fn hash_ip(&self, src: SocketAddr) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(&self.keypair.private[..8]);
+        hasher.update(src.ip().to_string());
+        return format!("{:x}", hasher.finalize())[..8].to_string();
+    }
+
+    fn check_key(&self, messages: &Vec<Message>, src: SocketAddr) -> bool {
+        for message_in in messages {
+            if let Message::AlwaysReturned(m) = message_in {
+                let correct_hash = self.hash_ip(src);
+                return correct_hash != m.cookie;
+            }
+        }
+        return true;
+    }
+    fn please_always_return(&self, src: SocketAddr) -> Message {
+        let correct_hash = self.hash_ip(src);
+        return Message::PleaseAlwaysReturnThisMessage(PleaseAlwaysReturnThisMessage {
+            cookie: correct_hash,
+        });
+    }
+
+    fn always_returned(&self, sa: SocketAddr) -> Vec<Message> {
+        trace!("always_returned for {sa}");
+        match self.peer_map.get(&sa) {
+            None => return vec![],
+            Some(p) => match p.anti_ip_spoofing_cookie_they_expect.to_owned() {
+                Some(cookie) => {
+                    trace!("always_returned for {sa} found {cookie}");
+                    return vec![Message::AlwaysReturned(AlwaysReturned{cookie:cookie })];
+                }
+                None => return vec![],
+            },
+        }
+    }
+
+    fn probe_interfaces(&mut self) -> () {
+        let to_probe: &mut HashSet<SocketAddr> = &mut HashSet::new();
+        let addrs = nix::ifaddrs::getifaddrs().unwrap();
+        for ifaddr in addrs {
+            match ifaddr.broadcast {
+                Some(address) => match address.as_sockaddr_in() {
+                    Some(addr) => {
+                        let mut sa = SocketAddr::from(*addr);
+                        sa.set_port(24254);
+                        to_probe.insert(sa);
+                        ()
+                    }
+                    None => (),
+                },
+                None => (),
+            }
+        }
+        to_probe.insert("224.0.0.1:24254".parse().unwrap());
+        for sa in to_probe.iter() {
+            let message_out_bytes: Vec<u8> =
+                serde_json::to_vec(&vec![Message::PleaseSendPeers(PleaseSendPeers {})]).unwrap();
+            trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+            self.socket.send_to(&message_out_bytes, sa).ok();
+        }
+    }
+    fn probe(&mut self) -> () {
+        for sa in self.best_peers(10, 3) {
+            let peer_info = self.peer_map.get_mut(&sa).unwrap();
+            peer_info.delay = peer_info
+                .delay
+                .saturating_add(peer_info.delay / 3 + Duration::from_millis(1));
+            let mut message_out: Vec<Message> = Vec::new();
+            message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
+            // let people know im here
+            // im not sure if anyone cares about all this info from completely random contacts
+            message_out.push(self.please_always_return(sa));
+            if let Some(i_just_saw_this) = &self.p.i_just_saw_this {
+                message_out.push(Message::IJustSawThis(i_just_saw_this.clone()));
+            }
+            if let Some(you_should_see_this) = &self.p.you_should_see_this {
+                message_out.push(Message::YouSouldSeeThis(you_should_see_this.clone()));
+            }
+            message_out.push(Message::MyPublicKey(MyPublicKey {
+                ed25519: self.keypair.public.clone(),
+            }));
+            message_out.append(&mut self.always_returned(sa));
+            message_out.push(PleaseReturnThisMessage::new(self));
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+
+            trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+            match self.socket.send_to(&message_out_bytes, sa) {
+                Ok(s) => trace!("sent {s}"),
+                Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
+            }
+        }
+    }
+
+    fn sort(&mut self) -> () {
+        let mut peers: Vec<_> = self
+            .peer_map
+            .iter()
+            .map(|(k, v)| (k, v.delay.as_secs_f64()))
+            .collect();
+        peers.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
+        self.peer_vec = peers.into_iter().map(|(addr, _)| *addr).collect();
+    }
+
+    fn load_peers() -> HashMap<SocketAddr, PeerInfo> {
+        let file = OpenOptions::new()
+            .read(true)
+            .open("./cjp2p/state/peers.v6.json");
+        let mut map = HashMap::<SocketAddr, PeerInfo>::new();
+        if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
+            let json: Vec<(SocketAddr, PeerInfo)> =
+                serde_json::from_reader(&file.unwrap()).unwrap();
+            map.extend(json);
+        }
+        return map;
+    }
+    fn save_peers(&self) -> () {
+        debug!("saving peers");
+        // not really sure how many, if any, of these peers or fields should be saved, or just a PleaseListContent of host:ips, but for the few users (1) of this so far, might as well save it all
+        let mut peers_to_save: Vec<(SocketAddr, PeerInfo)> = Vec::new();
+        for i in 0..cmp::min(self.peer_vec.len(), 99) {
+            peers_to_save.push((self.peer_vec[i], self.peer_map[&self.peer_vec[i]].clone()))
+        }
+
+        OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open("./cjp2p/state/peers.v6.json")
+            .unwrap()
+            .write_all(&serde_json::to_vec_pretty(&peers_to_save).unwrap())
+            .ok();
+    }
+
+    fn best_peers(&self, how_many: i32, quality: i32) -> HashSet<SocketAddr> {
+        let mut rng = rand::thread_rng();
+        let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
+        for _ in 0..how_many {
+            let i = ((rng.gen_range(0.0..1.0) as f64).powi(quality) * (self.peer_vec.len() as f64))
+                as usize;
+            if i >= self.peer_vec.len() {
+                continue;
+            }
+            let p = &self.peer_vec[i];
+            result.insert(*p);
+            trace!( "best peer(q:{quality}) {0} {1} {2}", i, p, self.peer_map[p].delay.as_secs_f64());
+        }
+        result.clone()
+    }
+    fn handle_messages(
+        &mut self,
+        messages: Vec<Message>,
+        src: SocketAddr,
+        might_be_ip_spoofing: &mut bool,
+        inbound_states: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        let mut message_out = vec![];
+        for message_in_enum in messages {
+            message_out.append(&mut message_in_enum.receive(
+                self,
+                src,
+                might_be_ip_spoofing,
+                inbound_states,
+            ));
+        }
+        return message_out;
+    }
+}
+
+#[derive(Debug)]
+struct HttpRequest {
+    path: String,
+    headers: HashMap<String, String>,
+}
+
+fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
+    let mut buf = [0; 4096];
+    let len = stream.read(&mut buf).ok()?;
+    let request_str = String::from_utf8_lossy(&buf[..len]);
+
+    let mut lines = request_str.lines();
+    let request_line = lines.next()?;
+    let mut parts = request_line.split_whitespace();
+
+    let _ = parts.next()?.to_string();
+    let path = parts.next()?.to_string();
+
+    let mut headers = HashMap::new();
+    for line in lines {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((key, value)) = line.split_once(": ") {
+            headers.insert(key.to_lowercase(), value.to_string());
+        }
+    }
+
+    Some(HttpRequest { path, headers })
+}
+
 fn main() -> Result<(), std::io::Error> {
     env_logger::builder()
         .format_timestamp(Some(TimestampPrecision::Millis))
@@ -109,122 +448,6 @@ fn main() -> Result<(), std::io::Error> {
     }
 }
 
-#[derive(Debug)]
-struct HttpRequest {
-    pub path: String,
-    pub headers: HashMap<String, String>,
-}
-
-fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
-    let mut buf = [0; 4096];
-    let len = stream.read(&mut buf).ok()?;
-    let request_str = String::from_utf8_lossy(&buf[..len]);
-
-    let mut lines = request_str.lines();
-    let request_line = lines.next()?;
-    let mut parts = request_line.split_whitespace();
-
-    let _ = parts.next()?.to_string();
-    let path = parts.next()?.to_string();
-
-    let mut headers = HashMap::new();
-    for line in lines {
-        if line.is_empty() {
-            break;
-        }
-        if let Some((key, value)) = line.split_once(": ") {
-            headers.insert(key.to_lowercase(), value.to_string());
-        }
-    }
-
-    Some(HttpRequest { path, headers })
-}
-
-fn handle_web_request(
-    web_server: &TcpListener,
-    inbound_states: &mut HashMap<String, InboundState>,
-    ps: &PeerState,
-) {
-    if let Ok((mut stream, _)) = web_server.accept() {
-        if let Some(req) = parse_header(&mut stream) {
-            let mut start: usize = 0;
-            let mut end: usize = 0;
-            if let Some(range) = req.headers.get("range") {
-                info!("got ranged http req {} range {:?}",req.path,range);
-                sscanf!(range, "bytes={}-{}",start,end).ok();
-            } else {
-                info!("got unranged http req {} {:?} ",req.path,req.headers);
-            }
-
-            let id = &req.path[1..];
-            if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
-                return;
-            }
-            debug!("http start end {start} {end}");
-            if end == 0 {
-                end = start + 0x400000;
-            }
-
-            if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &id) {
-                let mut buf = vec![0; end-start ];
-                let length = file.read_at(&mut buf, start as u64).unwrap();
-                buf.truncate(length);
-                let mut response = format!(
-                            "HTTP/1.1 206 Partial Content\r\n\
-                             Content-Length: {}\r\n\
-                             Content-Disposition: inline\r\n\
-                             Accept-Range: bytes\r\n\
-                            Content-Range: bytes {}-{}/{}\r\n"
-                            ,length,start,start+length-1,
-                            file.metadata().unwrap().len());
-                match infer::get_from_path("./cjp2p/public/".to_owned() + &id) {
-                    Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
-                    _ => warn!("HTTP unknown mime type for {}",&id),
-                }
-                response += "\r\n";
-                debug!("http response {}",response);
-                //stream.set_write_timeout(Some(Duration::new(1, 0)))?
-                // it should fit in the buffer though
-                stream.write_all(response.as_bytes()).ok();
-                stream.write_all(&buf).ok();
-            } else {
-                let i = match inbound_states.get_mut(id) {
-                    Some(i) => i,
-                    _ => {
-                        let new_i = InboundState::new(id, &ps);
-                        info!("http scheduling inbound file {:?}", id);
-                        inbound_states.insert(id.to_string(), new_i);
-                        inbound_states.get_mut(id).unwrap()
-                    }
-                };
-                i.http_time = Instant::now();
-                i.http_start = start;
-                i.http_end = end;
-                i.http_socket = Some(stream);
-                if i.eof >= i.http_end && !i.serve_http_if_any_is_ready() {
-                    i.next_block = start as usize / BLOCK_SIZE!();
-                    if i.peers.len() > 0 {
-                        for _ in 0..(1 + 50 / i.peers.len()) {
-                            i.request_blocks(ps, i.peers.clone());
-                        }
-                    } else {
-                        let to_try = ps.best_peers(500, 20);
-                        debug!("http starting search  with {} hosts",to_try.len());
-                        i.request_blocks(ps, ps.best_peers(500, 20));
-                    }
-                }
-
-                //but now we have to block but not block until content is hree if its not
-                // but why if  im doing 256k blocks anyway, or b locks of 256k blocks
-                //bit its still sorta the same, the bits are just 256k not 4k
-                //so write it and add the layer in after
-                //if each seek needs 256k though and the window is 0.. thats like 1.5s
-                //seek.ok display before done, just dont RELAY before done.
-                //but if its in motion, no, our window is huge
-            }
-        }
-    }
-}
 fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
     let mut line = String::new();
     io::stdin().read_line(&mut line).unwrap();
@@ -379,332 +602,91 @@ v.port(),
     }
 }
 
-//use base64::{engine::general_purpose, Engine as _};
-//use nix::NixPath;
-//use std::convert::TryInto;
-//use std::fmt;
-//use std::io::copy;
-
-const NOISE_PARAMS: &str = "Noise_NK_25519_AESGCM_SHA256";
-
-#[macro_export]
-macro_rules! BLOCK_SIZE {
-    () => {
-        0x1000 // 4k
-    };
-}
-
-// when this gets to millions of peers, consider keeping less info about the slower ones
-#[serde_as]
-#[derive(Clone, Serialize, Deserialize, Debug)]
-struct PeerInfo {
-    pub delay: Duration,
-    pub anti_ip_spoofing_cookie_they_expect: Option<String>,
-    #[serde_as(as = "Option<Base64>")]
-    pub ed25519: Option<Vec<u8>>,
-    pub you_should_see_this: Option<YouSouldSeeThis>,
-    pub i_just_saw_this: Option<IJustSawThis>,
-}
-impl PeerInfo {
-    pub fn new() -> Self {
-        return Self {
-            delay: Duration::from_millis(200),
-            anti_ip_spoofing_cookie_they_expect: None,
-            ed25519: None,
-            you_should_see_this: Some(YouSouldSeeThis {
-                id: "43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1".to_owned(),
-                length: 105277987,
-            }),
-            i_just_saw_this: None,
-        };
-    }
-}
-#[derive(Debug)]
-struct OpenFile {
-    pub file: File,
-    pub eof: usize,
-}
-#[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
-struct Keypair {
-    #[serde_as(as = "Base64")]
-    pub public: Vec<u8>,
-    #[serde_as(as = "Base64")]
-    pub private: Vec<u8>,
-}
-impl Keypair {
-    pub fn load_key() -> Self {
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .read(true)
-            .open("./cjp2p/state/key.json");
-        if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
-            let saved: Self = serde_json::from_reader(&file.unwrap()).unwrap();
-            return Self {
-                public: saved.public,
-                private: saved.private,
-            };
-        } else {
-            let keypair_ = Builder::new(NOISE_PARAMS.parse().unwrap())
-                .generate_keypair()
-                .unwrap();
-            let keypair = Self {
-                public: keypair_.public,
-                private: keypair_.private,
-            };
-            file.as_ref()
-                .unwrap()
-                .write_all(&serde_json::to_vec_pretty(&keypair).unwrap())
-                .ok();
-            return keypair;
-        }
-    }
-}
-
-struct PeerState {
-    pub peer_map: HashMap<SocketAddr, PeerInfo>,
-    pub peer_vec: Vec<SocketAddr>,
-    pub socket: UdpSocket,
-    pub boot: Instant,
-    pub keypair: Keypair,
-    pub open_file_cache: HashMap<String, OpenFile>,
-    pub list_results: HashMap<String, (i32, u64)>,
-    pub list_time: Instant,
-    pub p: PersistentState,
-    next_maintenance: Instant,
-}
-#[derive(Serialize, Deserialize, Debug)]
-struct PersistentState {
-    pub you_should_see_this: Option<YouSouldSeeThis>,
-    pub i_just_saw_this: Option<IJustSawThis>,
-}
-impl PersistentState {
-    pub fn save(&self) {
-        OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .read(true)
-            .open("./cjp2p/state/persistent_state.json")
-            .unwrap()
-            .write_all(&serde_json::to_vec_pretty(&self).unwrap())
-            .unwrap();
-    }
-    pub fn load() -> Self {
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .read(true)
-            .open("./cjp2p/state/persistent_state.json");
-        if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
-            return serde_json::from_reader(&file.unwrap()).unwrap();
-        } else {
-            return Self {
-                you_should_see_this: None,
-                i_just_saw_this: None,
-            };
-        }
-    }
-}
-impl PeerState {
-    pub fn new() -> Self {
-        fs::create_dir("./cjp2p").ok();
-        fs::create_dir("./cjp2p/public").ok();
-        fs::create_dir("./cjp2p/metadata").ok();
-        fs::create_dir("./cjp2p/state").ok();
-        let mut ps = Self {
-            peer_map: PeerState::load_peers(),
-            peer_vec: vec![],
-            socket: UdpSocket::bind("0.0.0.0:24254").unwrap(),
-            boot: Instant::now(),
-            keypair: Keypair::load_key(),
-            open_file_cache: HashMap::new(),
-            list_results: HashMap::new(),
-            list_time: Instant::now(),
-            p: PersistentState::load(),
-            next_maintenance: Instant::now() - Duration::from_secs(99999),
-        };
-        ps.socket.set_broadcast(true).ok();
-        ps.socket
-            .set_read_timeout(Some(Duration::from_secs(1)))
-            .unwrap();
-        for bootstrap in ["148.71.89.128:24254", "159.69.54.127:24254"] {
-            let mut pi = PeerInfo::new();
-            pi.delay = Duration::from_millis(20);
-            ps.peer_map.insert(bootstrap.parse().unwrap(), pi);
-        }
-        return ps;
-    }
-    pub fn hash_ip(&self, src: SocketAddr) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(&self.keypair.private[..8]);
-        hasher.update(src.ip().to_string());
-        return format!("{:x}", hasher.finalize())[..8].to_string();
-    }
-
-    pub fn check_key(&self, messages: &Vec<Message>, src: SocketAddr) -> bool {
-        for message_in in messages {
-            if let Message::AlwaysReturned(m) = message_in {
-                let correct_hash = self.hash_ip(src);
-                return correct_hash != m.cookie;
+fn handle_web_request(
+    web_server: &TcpListener,
+    inbound_states: &mut HashMap<String, InboundState>,
+    ps: &PeerState,
+) {
+    if let Ok((mut stream, _)) = web_server.accept() {
+        if let Some(req) = parse_header(&mut stream) {
+            let mut start: usize = 0;
+            let mut end: usize = 0;
+            if let Some(range) = req.headers.get("range") {
+                info!("got ranged http req {} range {:?}",req.path,range);
+                sscanf!(range, "bytes={}-{}",start,end).ok();
+            } else {
+                info!("got unranged http req {} {:?} ",req.path,req.headers);
             }
-        }
-        return true;
-    }
-    pub fn please_always_return(&self, src: SocketAddr) -> Message {
-        let correct_hash = self.hash_ip(src);
-        return Message::PleaseAlwaysReturnThisMessage(PleaseAlwaysReturnThisMessage {
-            cookie: correct_hash,
-        });
-    }
 
-    pub fn always_returned(&self, sa: SocketAddr) -> Vec<Message> {
-        trace!("always_returned for {sa}");
-        match self.peer_map.get(&sa) {
-            None => return vec![],
-            Some(p) => match p.anti_ip_spoofing_cookie_they_expect.to_owned() {
-                Some(cookie) => {
-                    trace!("always_returned for {sa} found {cookie}");
-                    return vec![Message::AlwaysReturned(AlwaysReturned{cookie:cookie })];
+            let id = &req.path[1..];
+            if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
+                return;
+            }
+            debug!("http start end {start} {end}");
+            if end == 0 {
+                end = start + 0x400000;
+            }
+
+            if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &id) {
+                let mut buf = vec![0; end-start ];
+                let length = file.read_at(&mut buf, start as u64).unwrap();
+                buf.truncate(length);
+                let mut response = format!(
+                            "HTTP/1.1 206 Partial Content\r\n\
+                             Content-Length: {}\r\n\
+                             Content-Disposition: inline\r\n\
+                             Accept-Range: bytes\r\n\
+                            Content-Range: bytes {}-{}/{}\r\n"
+                            ,length,start,start+length-1,
+                            file.metadata().unwrap().len());
+                match infer::get_from_path("./cjp2p/public/".to_owned() + &id) {
+                    Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
+                    _ => warn!("HTTP unknown mime type for {}",&id),
                 }
-                None => return vec![],
-            },
-        }
-    }
-
-    pub fn probe_interfaces(&mut self) -> () {
-        let to_probe: &mut HashSet<SocketAddr> = &mut HashSet::new();
-        let addrs = nix::ifaddrs::getifaddrs().unwrap();
-        for ifaddr in addrs {
-            match ifaddr.broadcast {
-                Some(address) => match address.as_sockaddr_in() {
-                    Some(addr) => {
-                        let mut sa = SocketAddr::from(*addr);
-                        sa.set_port(24254);
-                        to_probe.insert(sa);
-                        ()
+                response += "\r\n";
+                debug!("http response {}",response);
+                //stream.set_write_timeout(Some(Duration::new(1, 0)))?
+                // it should fit in the buffer though
+                stream.write_all(response.as_bytes()).ok();
+                stream.write_all(&buf).ok();
+            } else {
+                let i = match inbound_states.get_mut(id) {
+                    Some(i) => i,
+                    _ => {
+                        let new_i = InboundState::new(id, &ps);
+                        info!("http scheduling inbound file {:?}", id);
+                        inbound_states.insert(id.to_string(), new_i);
+                        inbound_states.get_mut(id).unwrap()
                     }
-                    None => (),
-                },
-                None => (),
+                };
+                i.http_time = Instant::now();
+                i.http_start = start;
+                i.http_end = end;
+                i.http_socket = Some(stream);
+                if i.eof >= i.http_end && !i.serve_http_if_any_is_ready() {
+                    i.next_block = start as usize / BLOCK_SIZE!();
+                    if i.peers.len() > 0 {
+                        for _ in 0..(1 + 50 / i.peers.len()) {
+                            i.request_blocks(ps, i.peers.clone());
+                        }
+                    } else {
+                        let to_try = ps.best_peers(500, 20);
+                        debug!("http starting search  with {} hosts",to_try.len());
+                        i.request_blocks(ps, ps.best_peers(500, 20));
+                    }
+                }
+
+                //but now we have to block but not block until content is hree if its not
+                // but why if  im doing 256k blocks anyway, or b locks of 256k blocks
+                //bit its still sorta the same, the bits are just 256k not 4k
+                //so write it and add the layer in after
+                //if each seek needs 256k though and the window is 0.. thats like 1.5s
+                //seek.ok display before done, just dont RELAY before done.
+                //but if its in motion, no, our window is huge
             }
         }
-        to_probe.insert("224.0.0.1:24254".parse().unwrap());
-        for sa in to_probe.iter() {
-            let message_out_bytes: Vec<u8> =
-                serde_json::to_vec(&vec![Message::PleaseSendPeers(PleaseSendPeers {})]).unwrap();
-            trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
-            self.socket.send_to(&message_out_bytes, sa).ok();
-        }
-    }
-    pub fn probe(&mut self) -> () {
-        for sa in self.best_peers(10, 3) {
-            let peer_info = self.peer_map.get_mut(&sa).unwrap();
-            peer_info.delay = peer_info
-                .delay
-                .saturating_add(peer_info.delay / 3 + Duration::from_millis(1));
-            let mut message_out: Vec<Message> = Vec::new();
-            message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
-            // let people know im here
-            // im not sure if anyone cares about all this info from completely random contacts
-            message_out.push(self.please_always_return(sa));
-            if let Some(i_just_saw_this) = &self.p.i_just_saw_this {
-                message_out.push(Message::IJustSawThis(i_just_saw_this.clone()));
-            }
-            if let Some(you_should_see_this) = &self.p.you_should_see_this {
-                message_out.push(Message::YouSouldSeeThis(you_should_see_this.clone()));
-            }
-            message_out.push(Message::MyPublicKey(MyPublicKey {
-                ed25519: self.keypair.public.clone(),
-            }));
-            message_out.append(&mut self.always_returned(sa));
-            message_out.push(PleaseReturnThisMessage::new(self));
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-
-            trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
-            match self.socket.send_to(&message_out_bytes, sa) {
-                Ok(s) => trace!("sent {s}"),
-                Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
-            }
-        }
-    }
-
-    pub fn sort(&mut self) -> () {
-        let mut peers: Vec<_> = self
-            .peer_map
-            .iter()
-            .map(|(k, v)| (k, v.delay.as_secs_f64()))
-            .collect();
-        peers.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
-        self.peer_vec = peers.into_iter().map(|(addr, _)| *addr).collect();
-    }
-
-    pub fn load_peers() -> HashMap<SocketAddr, PeerInfo> {
-        let file = OpenOptions::new()
-            .read(true)
-            .open("./cjp2p/state/peers.v6.json");
-        let mut map = HashMap::<SocketAddr, PeerInfo>::new();
-        if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
-            let json: Vec<(SocketAddr, PeerInfo)> =
-                serde_json::from_reader(&file.unwrap()).unwrap();
-            map.extend(json);
-        }
-        return map;
-    }
-    pub fn save_peers(&self) -> () {
-        debug!("saving peers");
-        // not really sure how many, if any, of these peers or fields should be saved, or just a PleaseListContent of host:ips, but for the few users (1) of this so far, might as well save it all
-        let mut peers_to_save: Vec<(SocketAddr, PeerInfo)> = Vec::new();
-        for i in 0..cmp::min(self.peer_vec.len(), 99) {
-            peers_to_save.push((self.peer_vec[i], self.peer_map[&self.peer_vec[i]].clone()))
-        }
-
-        OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open("./cjp2p/state/peers.v6.json")
-            .unwrap()
-            .write_all(&serde_json::to_vec_pretty(&peers_to_save).unwrap())
-            .ok();
-    }
-
-    pub fn best_peers(&self, how_many: i32, quality: i32) -> HashSet<SocketAddr> {
-        let mut rng = rand::thread_rng();
-        let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
-        for _ in 0..how_many {
-            let i = ((rng.gen_range(0.0..1.0) as f64).powi(quality) * (self.peer_vec.len() as f64))
-                as usize;
-            if i >= self.peer_vec.len() {
-                continue;
-            }
-            let p = &self.peer_vec[i];
-            result.insert(*p);
-            trace!( "best peer(q:{quality}) {0} {1} {2}", i, p, self.peer_map[p].delay.as_secs_f64());
-        }
-        result.clone()
-    }
-    pub fn handle_messages(
-        &mut self,
-        messages: Vec<Message>,
-        src: SocketAddr,
-        might_be_ip_spoofing: &mut bool,
-        inbound_states: &mut HashMap<String, InboundState>,
-    ) -> Vec<Message> {
-        let mut message_out = vec![];
-        for message_in_enum in messages {
-            message_out.append(&mut message_in_enum.receive(
-                self,
-                src,
-                might_be_ip_spoofing,
-                inbound_states,
-            ));
-        }
-        return message_out;
     }
 }
-
 fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
     let mut buf = [0; 0x10000];
 
@@ -776,11 +758,11 @@ fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Peers {
-    pub peers: HashSet<SocketAddr>,
+    peers: HashSet<SocketAddr>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct AlwaysReturned {
-    pub cookie: String,
+    cookie: String,
 }
 impl Receive for AlwaysReturned {
     fn receive(
@@ -797,7 +779,7 @@ impl Receive for AlwaysReturned {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct PleaseAlwaysReturnThisMessage {
-    pub cookie: String,
+    cookie: String,
 }
 impl Receive for PleaseAlwaysReturnThisMessage {
     fn receive(
@@ -856,8 +838,8 @@ impl Receive for Peers {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct IJustSawThis {
-    pub id: String,
-    pub length: u64,
+    id: String,
+    length: u64,
 }
 impl Receive for IJustSawThis {
     fn receive(
@@ -875,8 +857,8 @@ impl Receive for IJustSawThis {
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct YouSouldSeeThis {
-    pub id: String,
-    pub length: u64,
+    id: String,
+    length: u64,
 }
 impl Receive for YouSouldSeeThis {
     fn receive(
@@ -894,23 +876,23 @@ impl Receive for YouSouldSeeThis {
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PleaseSendContent {
-    pub id: String,
-    pub length: usize,
-    pub offset: usize,
+    id: String,
+    length: usize,
+    offset: usize,
 }
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct Content {
-    pub id: String,
-    pub offset: usize,
+    id: String,
+    offset: usize,
     #[serde_as(as = "Base64")]
-    pub base64: Vec<u8>,
-    pub eof: Option<usize>,
+    base64: Vec<u8>,
+    eof: Option<usize>,
 }
 
 impl PleaseSendContent {
-    pub fn new_messages(i: &mut InboundState) -> Vec<Message> {
+    fn new_messages(i: &mut InboundState) -> Vec<Message> {
         if i.http_socket.is_some()
             && (i.next_block * BLOCK_SIZE!() > i.http_end
                 || i.next_block * BLOCK_SIZE!() < i.http_start)
@@ -982,7 +964,7 @@ impl Receive for PleaseSendContent {
 }
 
 impl Content {
-    pub fn new_block(
+    fn new_block(
         req: &PleaseSendContent,
         might_be_ip_spoofing: &mut bool,
         ps: &mut PeerState,
@@ -1088,23 +1070,23 @@ impl Receive for Content {
 //
 #[derive(Debug)]
 struct InboundState {
-    pub mmap: Option<MmapMut>,
-    pub next_block: usize,
-    pub bitmap: BitVec,
-    pub id: String,
-    pub eof: usize,
-    pub bytes_complete: usize,
-    pub peers: HashSet<SocketAddr>,
-    pub last_activity: Instant,
-    pub hash_failures: i32,
-    pub http_time: Instant,
-    pub http_start: usize,
-    pub http_end: usize,
-    pub http_socket: Option<TcpStream>,
+    mmap: Option<MmapMut>,
+    next_block: usize,
+    bitmap: BitVec,
+    id: String,
+    eof: usize,
+    bytes_complete: usize,
+    peers: HashSet<SocketAddr>,
+    last_activity: Instant,
+    hash_failures: i32,
+    http_time: Instant,
+    http_start: usize,
+    http_end: usize,
+    http_socket: Option<TcpStream>,
 }
 
 impl InboundState {
-    pub fn new(id: &str, ps: &PeerState) -> Self {
+    fn new(id: &str, ps: &PeerState) -> Self {
         fs::create_dir("./cjp2p/incoming").ok();
         let mut peers = HashSet::new();
         for (k, v) in &ps.peer_map {
@@ -1177,7 +1159,7 @@ impl InboundState {
         return message_out;
     }
 
-    pub fn request_blocks(&mut self, ps: &PeerState, some_peers: HashSet<SocketAddr>) {
+    fn request_blocks(&mut self, ps: &PeerState, some_peers: HashSet<SocketAddr>) {
         for sa in some_peers {
             let mut message_out: Vec<Message> = Vec::new();
             for m in PleaseSendContent::new_messages(self) {
@@ -1194,7 +1176,7 @@ impl InboundState {
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
     }
-    pub fn save_content_peers(&self) -> () {
+    fn save_content_peers(&self) -> () {
         debug!("saving inbound state peers");
         let filename = "./cjp2p/metadata/".to_owned() + &self.id + ".json";
         OpenOptions::new()
@@ -1210,7 +1192,7 @@ impl InboundState {
             )
             .ok();
     }
-    pub fn send_content_peers_from_disk(
+    fn send_content_peers_from_disk(
         id: &String,
         might_be_ip_spoofing: &mut bool,
         src: &SocketAddr,
@@ -1247,7 +1229,7 @@ impl InboundState {
             peers: peers.iter().take(at_most).cloned().collect(),
         })];
     }
-    pub fn send_content_peers(&self, might_be_ip_spoofing: bool, src: SocketAddr) -> Vec<Message> {
+    fn send_content_peers(&self, might_be_ip_spoofing: bool, src: SocketAddr) -> Vec<Message> {
         debug!("{} sending peers", self.id);
         let at_most = 3 + 45 * !might_be_ip_spoofing as usize;
         let mut peers: HashSet<SocketAddr> = self.peers.iter().take(at_most).cloned().collect();
@@ -1260,7 +1242,7 @@ impl InboundState {
             peers: peers,
         })];
     }
-    pub fn finished(&mut self) -> bool {
+    fn finished(&mut self) -> bool {
         // yes this could sha as it goes, but then its not testing as much as it could, for
         // little real improvement, so dont do that
         if self.bytes_complete != self.eof {
@@ -1293,7 +1275,7 @@ impl InboundState {
         self.bytes_complete = 0;
         return false;
     }
-    pub fn serve_http_if_any_is_ready(&mut self) -> bool {
+    fn serve_http_if_any_is_ready(&mut self) -> bool {
         if self.http_socket.is_none() {
             return true;
         }
@@ -1392,8 +1374,8 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
 
 #[derive(Serialize, Deserialize, Debug)]
 struct MaybeTheyHaveSome {
-    pub id: String,
-    pub peers: HashSet<SocketAddr>,
+    id: String,
+    peers: HashSet<SocketAddr>,
 }
 
 impl Receive for MaybeTheyHaveSome {
@@ -1419,7 +1401,7 @@ impl Receive for MaybeTheyHaveSome {
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PleaseReturnThisMessage {
-    pub cookie: String,
+    cookie: String,
 }
 impl Receive for PleaseReturnThisMessage {
     fn receive(
@@ -1433,7 +1415,7 @@ impl Receive for PleaseReturnThisMessage {
     }
 }
 impl PleaseReturnThisMessage {
-    pub fn new(ps: &PeerState) -> Message {
+    fn new(ps: &PeerState) -> Message {
         Message::PleaseReturnThisMessage(Self {
             cookie: ps.boot.elapsed().as_secs_f64().to_string(),
         })
@@ -1442,7 +1424,7 @@ impl PleaseReturnThisMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ReturnedMessage {
-    pub cookie: String,
+    cookie: String,
 }
 impl Receive for ReturnedMessage {
     fn receive(
@@ -1467,7 +1449,7 @@ impl Receive for ReturnedMessage {
 #[derive(Serialize, Deserialize, Debug)]
 struct MyPublicKey {
     #[serde_as(as = "Base64")]
-    pub ed25519: Vec<u8>,
+    ed25519: Vec<u8>,
 }
 impl Receive for MyPublicKey {
     fn receive(
@@ -1484,10 +1466,10 @@ impl Receive for MyPublicKey {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ChatMessage {
-    pub message: String,
+    message: String,
 }
 impl ChatMessage {
-    pub fn new(ps: &PeerState, src: SocketAddr, message: String) -> Vec<Message> {
+    fn new(ps: &PeerState, src: SocketAddr, message: String) -> Vec<Message> {
         let mut message_out = vec![
             PleaseReturnThisMessage::new(ps),
             Message::MyPublicKey(MyPublicKey { ed25519: ps.keypair.public.clone(), }),
@@ -1559,7 +1541,7 @@ impl Receive for PleaseListContent {
     }
 }
 impl PleaseListContent {
-    pub fn new(ps: &PeerState) -> Vec<Message> {
+    fn new(ps: &PeerState) -> Vec<Message> {
         let message_out = vec![
             PleaseReturnThisMessage::new(ps),
             Message::PleaseListContent(Self {}),
@@ -1569,7 +1551,7 @@ impl PleaseListContent {
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct ContentList {
-    pub results: Vec<(String, u64)>,
+    results: Vec<(String, u64)>,
 }
 impl Receive for ContentList {
     fn receive(
@@ -1602,11 +1584,11 @@ impl Receive for ContentList {
 #[derive(Serialize, Deserialize, Debug)]
 struct EncryptedMessages {
     #[serde_as(as = "Base64")]
-    pub base64: Vec<u8>,
-    pub noise_params: String,
+    base64: Vec<u8>,
+    noise_params: String,
 }
 impl EncryptedMessages {
-    pub fn new(their_pub: &Vec<u8>, src: SocketAddr, message: Vec<u8>) -> Message {
+    fn new(their_pub: &Vec<u8>, src: SocketAddr, message: Vec<u8>) -> Message {
         let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
             .remote_public_key(their_pub)
             .build_initiator()
