@@ -377,7 +377,6 @@ fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
 
     let _ = parts.next()?.to_string();
     let path = parts.next()?.to_string();
-
     let mut headers = HashMap::new();
     for line in lines {
         if line.is_empty() {
@@ -602,7 +601,8 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
     }
 }
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
-    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=3><title>{}</title></head><body><pre>\n\
+    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>{}</title></head><body><pre>\n\
+    start a download: <form><input name=get></form>\n\
         {}\n\n", 
         env!("BUILD_VERSION"),
         env!("BUILD_VERSION"));
@@ -651,6 +651,16 @@ fn handle_web_request(
             }
             let id = &req.path[1..];
             if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
+                return;
+            }
+            if req.path.starts_with("/?get=") {
+                let v = &req.path[6..];
+                inbound_states.insert(v.to_string(), InboundState::new(v, &ps));
+                println!("http requested ordinary download of {}",v);
+                let response = format!(
+                            "HTTP/1.0 301 OK\r\n\
+                             Location: /\r\n\r\n");
+                stream.write_all(response.as_bytes()).ok();
                 return;
             }
             if let Some(range) = req.headers.get("range") {

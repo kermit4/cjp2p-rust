@@ -33,16 +33,9 @@ or inlined images in HTML loaded live
 - remember to talk like people not a computer (naming, especially on the wire)
 - make it easy for other people to build on, even if they dont know rust? /on to add functionality? scriptable?
 ## UI
-- CLI commands  / API?  or just as curl//REST examples, not CLI
-- how would end users best interact? through a browser? how about sending or streaming
-- how can users easily and excitedly use decentralized software in place of centralized...easy plus a draw..whats hot and trending, what peers respect, an algorithm but that they control
-- but for now the target audience is devs not users
-- more / commands
-- easy web UI - just HTML interface on the / commands really.  maybe a /trending /recommended /pending auto-refresh and colorize if you have it yet or not
-- really need metadata for /list and /recommended and /trending
 -   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
 ## cryptography related
-- more encryption? by default?   for debugging (tcpdump) its much easier to leave this off for now, but could be a command line option
+- more encryption? by default?   for debugging (tcpdump) its much easier to leave this off for now, but could be a command line option, and its a bit slow with Noise unless they save state.  maybe switch to something else 
 - trust 
 - valuable numbers? (PoW?  or valuable just because the issuer, based on their public key, limits the issuance.  every person their own "coin" as value derived from their reputation?  reputation granting fungible negotiable scarcity? be your own CENTRAL bank!)
 - proof of latency? signature chain of somewhat verifiable latency?
