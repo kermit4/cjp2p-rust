@@ -110,12 +110,12 @@ fn main() -> Result<(), std::io::Error> {
 }
 
 #[derive(Debug)]
-pub struct HttpRequest {
+struct HttpRequest {
     pub path: String,
     pub headers: HashMap<String, String>,
 }
 
-pub fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
+fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
     let mut buf = [0; 4096];
     let len = stream.read(&mut buf).ok()?;
     let request_str = String::from_utf8_lossy(&buf[..len]);
@@ -140,7 +140,7 @@ pub fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
     Some(HttpRequest { path, headers })
 }
 
-pub fn handle_web_request(
+fn handle_web_request(
     web_server: &TcpListener,
     inbound_states: &mut HashMap<String, InboundState>,
     ps: &PeerState,
@@ -225,7 +225,7 @@ pub fn handle_web_request(
         }
     }
 }
-pub fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
+fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
     let mut line = String::new();
     io::stdin().read_line(&mut line).unwrap();
     if line.len() > 1 {
@@ -397,7 +397,7 @@ macro_rules! BLOCK_SIZE {
 // when this gets to millions of peers, consider keeping less info about the slower ones
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct PeerInfo {
+struct PeerInfo {
     pub delay: Duration,
     pub anti_ip_spoofing_cookie_they_expect: Option<String>,
     #[serde_as(as = "Option<Base64>")]
@@ -420,13 +420,13 @@ impl PeerInfo {
     }
 }
 #[derive(Debug)]
-pub struct OpenFile {
+struct OpenFile {
     pub file: File,
     pub eof: usize,
 }
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Keypair {
+struct Keypair {
     #[serde_as(as = "Base64")]
     pub public: Vec<u8>,
     #[serde_as(as = "Base64")]
@@ -462,7 +462,7 @@ impl Keypair {
     }
 }
 
-pub struct PeerState {
+struct PeerState {
     pub peer_map: HashMap<SocketAddr, PeerInfo>,
     pub peer_vec: Vec<SocketAddr>,
     pub socket: UdpSocket,
@@ -475,7 +475,7 @@ pub struct PeerState {
     next_maintenance: Instant,
 }
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PersistentState {
+struct PersistentState {
     pub you_should_see_this: Option<YouSouldSeeThis>,
     pub i_just_saw_this: Option<IJustSawThis>,
 }
@@ -705,7 +705,7 @@ impl PeerState {
     }
 }
 
-pub fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
+fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
     let mut buf = [0; 0x10000];
 
     let (message_in_len, src) = ps.socket.recv_from(&mut buf).unwrap();
@@ -759,7 +759,7 @@ pub fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, I
         Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
     }
 }
-pub fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
+fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
     let mut ratio;
     let mut message_out_bytes;
     while {
@@ -775,11 +775,11 @@ pub fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Peers {
+struct Peers {
     pub peers: HashSet<SocketAddr>,
 }
 #[derive(Serialize, Deserialize, Debug)]
-pub struct AlwaysReturned {
+struct AlwaysReturned {
     pub cookie: String,
 }
 impl Receive for AlwaysReturned {
@@ -796,7 +796,7 @@ impl Receive for AlwaysReturned {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PleaseAlwaysReturnThisMessage {
+struct PleaseAlwaysReturnThisMessage {
     pub cookie: String,
 }
 impl Receive for PleaseAlwaysReturnThisMessage {
@@ -816,7 +816,7 @@ impl Receive for PleaseAlwaysReturnThisMessage {
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PleaseSendPeers {}
+struct PleaseSendPeers {}
 impl Receive for PleaseSendPeers {
     fn receive(
         self,
@@ -855,7 +855,7 @@ impl Receive for Peers {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct IJustSawThis {
+struct IJustSawThis {
     pub id: String,
     pub length: u64,
 }
@@ -874,7 +874,7 @@ impl Receive for IJustSawThis {
     }
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct YouSouldSeeThis {
+struct YouSouldSeeThis {
     pub id: String,
     pub length: u64,
 }
@@ -893,7 +893,7 @@ impl Receive for YouSouldSeeThis {
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PleaseSendContent {
+struct PleaseSendContent {
     pub id: String,
     pub length: usize,
     pub offset: usize,
@@ -901,7 +901,7 @@ pub struct PleaseSendContent {
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Content {
+struct Content {
     pub id: String,
     pub offset: usize,
     #[serde_as(as = "Base64")]
@@ -1087,7 +1087,7 @@ impl Receive for Content {
 }
 //
 #[derive(Debug)]
-pub struct InboundState {
+struct InboundState {
     pub mmap: Option<MmapMut>,
     pub next_block: usize,
     pub bitmap: BitVec,
@@ -1345,7 +1345,7 @@ impl InboundState {
     }
 }
 
-pub fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
+fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
     if ps.next_maintenance.elapsed() <= Duration::ZERO {
         return;
     }
@@ -1391,7 +1391,7 @@ pub fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut 
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct MaybeTheyHaveSome {
+struct MaybeTheyHaveSome {
     pub id: String,
     pub peers: HashSet<SocketAddr>,
 }
@@ -1418,7 +1418,7 @@ impl Receive for MaybeTheyHaveSome {
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PleaseReturnThisMessage {
+struct PleaseReturnThisMessage {
     pub cookie: String,
 }
 impl Receive for PleaseReturnThisMessage {
@@ -1441,7 +1441,7 @@ impl PleaseReturnThisMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ReturnedMessage {
+struct ReturnedMessage {
     pub cookie: String,
 }
 impl Receive for ReturnedMessage {
@@ -1465,7 +1465,7 @@ impl Receive for ReturnedMessage {
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
-pub struct MyPublicKey {
+struct MyPublicKey {
     #[serde_as(as = "Base64")]
     pub ed25519: Vec<u8>,
 }
@@ -1483,7 +1483,7 @@ impl Receive for MyPublicKey {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ChatMessage {
+struct ChatMessage {
     pub message: String,
 }
 impl ChatMessage {
@@ -1529,7 +1529,7 @@ impl Receive for ChatMessage {
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PleaseListContent {}
+struct PleaseListContent {}
 impl Receive for PleaseListContent {
     fn receive(
         self,
@@ -1568,7 +1568,7 @@ impl PleaseListContent {
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ContentList {
+struct ContentList {
     pub results: Vec<(String, u64)>,
 }
 impl Receive for ContentList {
@@ -1600,7 +1600,7 @@ impl Receive for ContentList {
 }
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
-pub struct EncryptedMessages {
+struct EncryptedMessages {
     #[serde_as(as = "Base64")]
     pub base64: Vec<u8>,
     pub noise_params: String,
@@ -1649,7 +1649,7 @@ impl Receive for EncryptedMessages {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[enum_dispatch]
-pub enum Message {
+enum Message {
     PleaseSendPeers(PleaseSendPeers),
     Peers(Peers),
     PleaseSendContent(PleaseSendContent),
@@ -1671,9 +1671,9 @@ pub enum Message {
 // this struct only exists to be able to get that VecSkipError in there.
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Messages(#[serde_as(as = "VecSkipError<_,ErrorInspector>")] Vec<Message>);
+struct Messages(#[serde_as(as = "VecSkipError<_,ErrorInspector>")] Vec<Message>);
 
-pub struct ErrorInspector;
+struct ErrorInspector;
 
 impl InspectError for ErrorInspector {
     fn inspect_error(error: impl serde::de::Error) {
