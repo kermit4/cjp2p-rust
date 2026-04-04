@@ -3,10 +3,12 @@ SHELL = /bin/bash -ue
 debug: target/debug/cjp2p
 target/debug/cjp2p: Makefile src/main.rs Cargo.toml
 	cargo build
+	rm -f target/*/libcjp
 
 release: target/release/cjp2p
 target/release/cjp2p:	Makefile src/main.rs Cargo.toml
 	cargo build --release
+	rm -f target/*/libcjp
 
 check: Makefile src/main.rs Cargo.toml
 	cargo check 
