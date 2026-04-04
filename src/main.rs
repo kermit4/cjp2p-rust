@@ -1,4 +1,10 @@
 use socket2::SockRef;
+use aes_gcm::{
+    aead::{Aead, AeadCore},
+    Aes256Gcm, Nonce, Key // Or `Aes128Gcm`
+};
+use rand::rngs::OsRng;
+
 //use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
 use chrono::{Timelike, Utc};
@@ -469,7 +475,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             if who.len() > 0 {
                 let message_out =
                     ChatMessage::new(&ps, who.clone().into_iter().next().unwrap(), arg2.clone());
-                if let Message::EncryptedMessages(_) = message_out[0] {
+                if let Message::EncryptedMessages2(_) = message_out[0] {
                     let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                     trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
                     for sa in who {
@@ -483,7 +489,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             }
         } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
             let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
-            if let Message::EncryptedMessages(_) = message_out[0] {
+            if let Message::EncryptedMessages2(_) = message_out[0] {
                 let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                 trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
                 ps.socket.send_to(&message_out_bytes, arg).ok();
@@ -779,7 +785,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     /*    if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
         message_out_bytes = serde_json::to_vec(
             &(vec![
-                          EncryptedMessages::new(their_pub, src, message_out_bytes),
+                          EncryptedMessages2::new(their_pub, src, message_out_bytes),
                           ]),
         )
         .unwrap();
@@ -1525,7 +1531,7 @@ impl ChatMessage {
         ];
         if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
             message_out = vec![
-                EncryptedMessages::new(their_pub, src, serde_json::to_vec(&message_out).unwrap()),
+                EncryptedMessages2::new(their_pub, src, serde_json::to_vec(&message_out).unwrap()),
                 ];
         }
         return message_out;
@@ -1626,28 +1632,27 @@ impl Receive for ContentList {
 }
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
-struct EncryptedMessages {
+struct EncryptedMessages2 {
     #[serde_as(as = "Base64")]
-    base64: Vec<u8>,
-    noise_params: String,
+    ciphertext: Vec<u8>,
+    aes_gcm_key: Vec<u8>,
+    nonce: u128,
 }
-impl EncryptedMessages {
-    fn new(their_pub: &Vec<u8>, src: SocketAddr, message: Vec<u8>) -> Message {
-        let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
-            .remote_public_key(their_pub)
-            .build_initiator()
-            .unwrap();
-        let mut buf = [0u8; 99999];
-        let len = noise.write_message(&message, &mut buf).unwrap();
-        let message_out = Message::EncryptedMessages(Self {
-            base64: buf[..len].to_vec(),
-            noise_params: NOISE_PARAMS.to_string(),
-        });
+impl EncryptedMessages2 {
+    fn new(their_pub: &Vec<u8>, src: SocketAddr, plaintext: Vec<u8>) -> Message {
+        let orng = OsRng::new();
+let aes_gcm_key = Aes256Gcm::generate_key(&mut orng);
+let cipher = Aes256Gcm::new(&aes_gcm_key);
+let nonce = Aes256Gcm::generate_nonce(&mut orng); // 96-bits; unique per message
+let ciphertext = cipher.encrypt(&nonce, plaintext).unwrap();
+
+
+        let message_out = Message::EncryptedMessages2(Self {
+            ciphertext, aes_gcm_key, nonce,});
         trace!("sending encrypted msg to {src}");
         return message_out;
-    }
-}
-impl Receive for EncryptedMessages {
+}}
+impl Receive for EncryptedMessages2 {
     fn receive(
         self,
         ps: &mut PeerState,
@@ -1655,15 +1660,12 @@ impl Receive for EncryptedMessages {
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
-            .local_private_key(&ps.keypair.private)
-            .build_responder()
-            .unwrap();
-        let mut buf = [0u8; 99999];
-        if let Ok(len) = noise.read_message(&self.base64, &mut buf) {
+let aes_gcm_key = Key::<Aes256Gcm>::from_slice(self.aes_gcm_key);
+let cipher = Aes256Gcm::new(&aes_gcm_key);
+        if let Ok(plaintext) = cipher.decrypt(&self.nonce, self.ciphertext){
             trace!("handling decrypted message from {src}: {}",
-             String::from_utf8_lossy(&buf[..len]));
-            let messages = serde_json::from_slice(&buf[..len]).unwrap();
+             String::from_utf8_lossy(plaintext));
+            let messages = serde_json::from_slice(plaintext).unwrap();
             *might_be_ip_spoofing &= ps.check_key(&messages, src);
             return ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
         } else {
@@ -1687,7 +1689,7 @@ enum Message {
     AlwaysReturned(AlwaysReturned),
     MyPublicKey(MyPublicKey),
     ChatMessage(ChatMessage),
-    EncryptedMessages(EncryptedMessages),
+    EncryptedMessages2(EncryptedMessages2),
     PleaseListContent(PleaseListContent),
     ContentList(ContentList),
     YouSouldSeeThis(YouSouldSeeThis),
