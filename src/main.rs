@@ -603,13 +603,13 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
 }
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
     let mut status_page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=3><title>{}</title></head><body><pre>\n\
-        {}\n\
-        ", 
+        {}\n\n", 
         env!("BUILD_VERSION"),
         env!("BUILD_VERSION"));
     for (_, i) in inbound_states {
-        status_page.push_str(&format!("{} {}/{}",i.id,i.bytes_complete,i.eof));
+        status_page += &format!("{} {}/{}\n",i.id,i.bytes_complete,i.eof);
     }
+    status_page += &format!("\n");
     for v in ps.peer_vec.iter().rev() {
         if let IpAddr::V4(ip) = v.ip() {
             let d = ps.peer_map[v].delay;
