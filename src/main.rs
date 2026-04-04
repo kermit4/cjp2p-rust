@@ -602,19 +602,28 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
     }
 }
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
-    let mut status_page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=3><title>{}</title></head><body><pre>\n\
+    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=3><title>{}</title></head><body><pre>\n\
         {}\n\n", 
         env!("BUILD_VERSION"),
         env!("BUILD_VERSION"));
     for (_, i) in inbound_states {
-        status_page += &format!("{} {}/{}\n",i.id,i.bytes_complete,i.eof);
+        page += &format!("{} {}/{}\n",i.id,i.bytes_complete,i.eof);
     }
-    status_page += &format!("\n");
+    page += &format!("\n");
+    page += &format!("{} total peers\n",ps.peer_map.len());
+    let mut unique_ips = HashSet::new();
+    page += &format!("========== all IPs\n");
+    for (k, _) in &ps.peer_map {
+        if unique_ips.insert(k.ip()) {
+            page+=&format!("{:21} {}\n",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
+        }
+    }
+    page += &format!("{} total unique IP peers\n",unique_ips.len());
     for v in ps.peer_vec.iter().rev() {
         if let IpAddr::V4(ip) = v.ip() {
             let d = ps.peer_map[v].delay;
             if d < Duration::from_secs(1) {
-                status_page += &format!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21}\n",
+                page += &format!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21}\n",
                     ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
                     v.port(),
                     d,
@@ -622,8 +631,8 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
             }
         }
     }
-    status_page += &format!("</pre><body></html>");
-    return status_page;
+    page += &format!("</pre><body></html>");
+    return page;
 }
 fn handle_web_request(
     web_server: &TcpListener,
