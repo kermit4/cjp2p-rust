@@ -619,7 +619,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
         }
     }
     page += &format!("{} total unique IP peers\n",unique_ips.len());
-    for v in ps.peer_vec.iter().rev() {
+    for v in ps.peer_vec.iter() {
         if let IpAddr::V4(ip) = v.ip() {
             let d = ps.peer_map[v].delay;
             if d < Duration::from_secs(1) {

@@ -18,6 +18,8 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 
 or watch Sintel http://127.0.0.1:24255/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
+or the status page (soon to be a WEB INTERFACE that looks like a console.) http://127.0.0.1:24255/
+
 or inlined images in HTML loaded live 
 - http://127.0.0.1:24255/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
 - http://127.0.0.1:24255/8714bb72411457c9e0c6ea00118690eb495eaba68df9c0404a7b00d286a1d8d1  ./html_slurp.sh https://commons.wikimedia.org/wiki/Category:Fossils  -- lots of images in an html page - the few broken images are due to issues with wget and possibly html_slurp.sh's handling of special characters in URLs, not this software
