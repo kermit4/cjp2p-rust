@@ -602,13 +602,34 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
 }
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
     let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>{}</title></head><body><pre>\n\
-    start a download: <form><input name=get></form>\n\
-        {}\n\n", 
+        {}\n\n\
+    start a download: <form><input name=get></form>\n\n\
+        ", 
         env!("BUILD_VERSION"),
         env!("BUILD_VERSION"));
     for (_, i) in inbound_states {
         page += &format!("{} {}/{}\n",i.id,i.bytes_complete,i.eof);
     }
+
+    let mut highly_recommended_content: HashMap<String, (i32, u64)> = HashMap::new();
+    for (_, v) in &ps.peer_map {
+        if let Some(p) = &v.you_should_see_this {
+            match highly_recommended_content.get_mut(&p.id) {
+                Some(h) => h.0 += 1,
+                None => {
+                    highly_recommended_content.insert(p.id.to_owned(), (1, p.length));
+                    ()
+                }
+            }
+        }
+    }
+    let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
+    sorted_list_results.sort_by_key(|&(_, b)| b.0);
+    page += &format!("most recommended content:\n");
+    for (k, v) in &sorted_list_results {
+        page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
+    }
+
     page += &format!("\n");
     page += &format!("{} total peers\n",ps.peer_map.len());
     let mut unique_ips = HashSet::new();
