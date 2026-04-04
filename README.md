@@ -43,7 +43,7 @@ or inlined images in HTML loaded live
 - thanks based reputation. auto-thanks on succesful get.
 - direct referal trust or public reputation..and is that the scarcity or something else like ipv4 addresses or work.
 - read this again https://howtofixtheweb.com/
-- 4x the CPU on to send/receive encrypted. why? 4x block size makes  it only 70% slower though, but it still seems somewhat high.  its because Noise is doing DH even for one-way communication which is silly.  using N type and "into_transport_mode" on both sides after the 1st message is fast, but i think it needs state on both sides, to hold ephemeral keys i assume.
+- 4x the CPU on to send/receive encrypted. why? 4x block size makes  it only 70% slower though, but it still seems somewhat high.  its because Noise is doing DH even for one-way communication which is silly.  using N type and "into_transport_mode" on both sides after the 1st message is fast, but i think it needs state on both sides, to hold ephemeral keys i assume.  maybe use https://docs.rs/aes-gcm/latest/aes_gcm/ instead of Noise
 ## near-real time things - may overlap 
 - news feed
 - once there is economics, sell services
