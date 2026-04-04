@@ -10,7 +10,7 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 
 # hints
 
-try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/libcjp
+try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
 or info/warn log levels
 
 Try /help
@@ -25,7 +25,6 @@ or inlined images in HTML loaded live
 - http://127.0.0.1:24255/fb132816910cda37494d2c1ec70b6bc92f9bc4b129842e7f4e9d16aac789ac3f wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON
 - http://127.0.0.1:24255/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth --wait 1   
 
-src/lib.rs is also at https://crates.io/crates/libcjp but this probably isn't useful as a crate, as it's examples to build from, not strict implementations, so it's probably better to copy or fork this repo than use it, as I don't see how you would arbitrarily override parts of a crate in Rust.  
 
 # TODO
 ## general 
@@ -49,7 +48,7 @@ src/lib.rs is also at https://crates.io/crates/libcjp but this probably isn't us
 - thanks based reputation. auto-thanks on succesful get.
 - direct referal trust or public reputation..and is that the scarcity or something else like ipv4 addresses or work.
 - read this again https://howtofixtheweb.com/
-- 4x the CPU on to send/receive encrypted. why? 4x block size makes  it only 70% slower though, but it still seems high
+- 4x the CPU on to send/receive encrypted. why? 4x block size makes  it only 70% slower though, but it still seems somewhat high.  its because Noise is doing DH even for one-way communication which is silly.  using N type and "into_transport_mode" on both sides after the 1st message is fast, but i think it needs state on both sides, to hold ephemeral keys i assume.
 ## near-real time things - may overlap 
 - news feed
 - once there is economics, sell services

@@ -257,6 +257,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "cjp2p"
+version = "0.3.0"
+dependencies = [
+ "base64",
+ "bincode",
+ "bitvec",
+ "chrono",
+ "dns-lookup",
+ "enum_dispatch",
+ "env_logger",
+ "getifaddrs",
+ "hex",
+ "infer",
+ "log",
+ "memmap2",
+ "nix",
+ "rand",
+ "scanf",
+ "serde",
+ "serde-big-array",
+ "serde_json",
+ "serde_with",
+ "sha2",
+ "snow",
+ "socket2",
+ "time-core",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -633,35 +662,6 @@ name = "libc"
 version = "0.2.180"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bcc35a38544a891a5f7c865aca548a982ccb3b8650a5b06d0fd33a10283c56fc"
-
-[[package]]
-name = "libcjp"
-version = "0.2.8"
-dependencies = [
- "base64",
- "bincode",
- "bitvec",
- "chrono",
- "dns-lookup",
- "enum_dispatch",
- "env_logger",
- "getifaddrs",
- "hex",
- "infer",
- "log",
- "memmap2",
- "nix",
- "rand",
- "scanf",
- "serde",
- "serde-big-array",
- "serde_json",
- "serde_with",
- "sha2",
- "snow",
- "socket2",
- "time-core",
-]
 
 [[package]]
 name = "log"
