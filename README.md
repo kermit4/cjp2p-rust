@@ -34,8 +34,7 @@ or inlined images in HTML loaded live
 - make it easy for other people to build on, even if they dont know rust? /on to add functionality? scriptable?
 ## UI
 -   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
-## cryptography related
-- more encryption? by default?   for debugging (tcpdump) its much easier to leave this off for now, but could be a command line option, and its a bit slow with Noise unless they save state.  maybe switch to something else 
+## cryptography or scarcity related
 - trust 
 - valuable numbers? (PoW?  or valuable just because the issuer, based on their public key, limits the issuance.  every person their own "coin" as value derived from their reputation?  reputation granting fungible negotiable scarcity? be your own CENTRAL bank!)
 - proof of latency? signature chain of somewhat verifiable latency?
@@ -43,7 +42,7 @@ or inlined images in HTML loaded live
 - thanks based reputation. auto-thanks on succesful get.
 - direct referal trust or public reputation..and is that the scarcity or something else like ipv4 addresses or work.
 - read this again https://howtofixtheweb.com/
-- 4x the CPU on to send/receive encrypted. why? 4x block size makes  it only 70% slower though, but it still seems somewhat high.  its because Noise is doing DH even for one-way communication which is silly.  using N type and "into_transport_mode" on both sides after the 1st message is fast, but i think it needs state on both sides, to hold ephemeral keys i assume.  maybe use https://docs.rs/aes-gcm/latest/aes_gcm/ instead of Noise
+- more encryption? by default?   for debugging (tcpdump) its much easier to leave this off for now, but could be a command line option.  and its a bit slow with Noise unless they save state, 4x the CPU on to send/receive encrypted.  why? 4x block size makes  it only 70% slower though, but it still seems somewhat high.  its because Noise is doing DH even for one-way communication which is silly.  using N type and "into_transport_mode" on both sides after the 1st message is fast, but i think it needs state on both sides, to hold ephemeral keys i assume.  maybe use https://docs.rs/aes-gcm/latest/aes_gcm/ instead of Noise
 ## near-real time things - may overlap 
 - news feed
 - once there is economics, sell services
