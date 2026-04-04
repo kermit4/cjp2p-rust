@@ -498,10 +498,10 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                     let d = ps.peer_map[v].delay;
                     if d < Duration::from_secs(1) {
                         println!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21}",
-ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
-v.port(),
-                        d,
-                        v);
+                            ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
+                            v.port(),
+                            d,
+                            v);
                     }
                 }
             }
@@ -601,7 +601,30 @@ v.port(),
         }
     }
 }
-
+fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
+    let mut status_page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=3><title>{}</title></head><body><pre>\n\
+        {}\n\
+        ", 
+        env!("BUILD_VERSION"),
+        env!("BUILD_VERSION"));
+    for (_, i) in inbound_states {
+        status_page.push_str(&format!("{} {}/{}",i.id,i.bytes_complete,i.eof));
+    }
+    for v in ps.peer_vec.iter().rev() {
+        if let IpAddr::V4(ip) = v.ip() {
+            let d = ps.peer_map[v].delay;
+            if d < Duration::from_secs(1) {
+                status_page += &format!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21}\n",
+                    ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
+                    v.port(),
+                    d,
+                    v);
+            }
+        }
+    }
+    status_page += &format!("</pre><body></html>");
+    return status_page;
+}
 fn handle_web_request(
     web_server: &TcpListener,
     inbound_states: &mut HashMap<String, InboundState>,
@@ -611,6 +634,16 @@ fn handle_web_request(
         if let Some(req) = parse_header(&mut stream) {
             let mut start: usize = 0;
             let mut end: usize = 0;
+            if req.path == "/" {
+                stream
+                    .write_all(status_page(inbound_states, ps).as_bytes())
+                    .ok();
+                return;
+            }
+            let id = &req.path[1..];
+            if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
+                return;
+            }
             if let Some(range) = req.headers.get("range") {
                 info!("got ranged http req {} range {:?}",req.path,range);
                 sscanf!(range, "bytes={}-{}",start,end).ok();
@@ -618,10 +651,6 @@ fn handle_web_request(
                 info!("got unranged http req {} {:?} ",req.path,req.headers);
             }
 
-            let id = &req.path[1..];
-            if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
-                return;
-            }
             debug!("http start end {start} {end}");
             if end == 0 {
                 end = start + 0x400000;
@@ -1498,11 +1527,7 @@ impl Receive for ChatMessage {
             self.message
         );
         if self.message.starts_with("/version") {
-            return Self::new(
-                ps,
-                src,
-                format!("VERSION Rust {}\n",env!("CARGO_PKG_VERSION")),
-            );
+            return Self::new(ps, src, format!("VERSION {}\n",env!("BUILD_VERSION")));
         }
         if self.message.starts_with("/ping") {
             return Self::new(ps, src, "PONG\n".to_string());

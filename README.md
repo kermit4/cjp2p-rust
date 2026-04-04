@@ -57,7 +57,7 @@ or inlined images in HTML loaded live
 - reviews of content
 -  some equivalent of wikipedia
 ## unnsorted
-- make it do what i actually do each day, check for news basically. /trending is all i really do. but, i may want to weight some sources higher. well, do that later. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
+- make it do what i actually do each day, check for news basically, from friends or weigthed by importance/distance. like /trending but scoped/weighted.  user defined algorithm. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
 - alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
-- need metadata for large files
+- need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming)
 - images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.
