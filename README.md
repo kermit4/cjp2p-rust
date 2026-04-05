@@ -55,5 +55,4 @@ or inlined images in HTML loaded live
 - alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
 - need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming)
 - images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.
-- everyone chat in web inteface
 - char by char chat, websockets for real time i think?
