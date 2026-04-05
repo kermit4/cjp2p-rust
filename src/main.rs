@@ -1,4 +1,6 @@
 use socket2::SockRef;
+use std::thread;
+use tungstenite::{accept, WebSocket};
 //use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
 use chrono::{Timelike, Utc};
@@ -130,6 +132,7 @@ struct PeerState {
     next_maintenance: Instant,
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
+    ws_map: HashMap<String, WebSocket<TcpStream>>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
@@ -183,6 +186,7 @@ impl PeerState {
             next_maintenance: Instant::now() - Duration::from_secs(99999),
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
+            ws_map: HashMap::new(),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -425,6 +429,9 @@ fn main() -> Result<(), std::io::Error> {
         let stdin = std::io::stdin();
         read_fds.insert(stdin.as_fd());
 
+        for (_, ws) in ps.ws_map.iter() {
+            read_fds.insert(ws.get_ref().as_fd());
+        }
         match select(
             None,
             &mut read_fds,
@@ -441,7 +448,17 @@ fn main() -> Result<(), std::io::Error> {
             }
         }
 
-        if read_fds.contains(stdin.as_fd()) {
+        let mut web_sockets_to_handle = vec![];
+        for (k, ws) in ps.ws_map.iter() {
+            if read_fds.contains(ws.get_ref().as_fd()) {
+                web_sockets_to_handle.push(k.to_owned());
+            }
+        }
+        if web_sockets_to_handle.len() > 0 {
+            for k in web_sockets_to_handle {
+                handle_websocket(&mut ps, &k);
+            }
+        } else if read_fds.contains(stdin.as_fd()) {
             handle_stdin(&mut ps, &mut inbound_states);
         } else if read_fds.contains(web_server.as_fd()) {
             handle_web_request(&web_server, &mut inbound_states, &mut ps);
@@ -449,6 +466,14 @@ fn main() -> Result<(), std::io::Error> {
             handle_network(&mut ps, &mut inbound_states);
         }
     }
+}
+
+fn handle_websocket(ps: &mut PeerState, their_pub_hex: &String) {
+    let ws = ps.ws_map.get_mut(their_pub_hex).unwrap();
+    if let Ok(msg) = ws.read() {
+        info!("websocket typed: {}",msg);
+        chat_to_pub(ps, &their_pub_hex, &msg.to_string());
+    };
 }
 
 fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
@@ -461,7 +486,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             println!("QUEING FILE {arg}");
             inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
         } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
-            chat_to_pub(ps, arg, &arg2);
+            chat_to_pub(ps, &arg, &arg2);
         } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
             let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
             if let Message::EncryptedMessages(_) = message_out[0] {
@@ -686,6 +711,24 @@ fn handle_web_request(
     ps: &mut PeerState,
 ) {
     if let Ok((mut stream, _)) = web_server.accept() {
+        let mut buf = [0; 16];
+        while if let Ok(len) = stream.peek(&mut buf) {
+            len < 5
+        } else {
+            false
+        } {
+            thread::sleep(Duration::from_millis(20));
+        }
+        if buf.starts_with(b"GET /ws") {
+            let mut ws = accept(stream).unwrap();
+            info!("websocket request:");
+            let mut their_pub_hex = ws.read().unwrap().to_string();
+            their_pub_hex.remove(0);
+            info!("websocket request: {}",their_pub_hex);
+            ps.ws_map.insert(their_pub_hex, ws);
+            return;
+        }
+
         let mut page = format!("");
         if let Some(req) = parse_header(&mut stream) {
             let mut start: usize = 0;
@@ -696,13 +739,45 @@ fn handle_web_request(
                     .ok();
                 return;
             }
+            if req.path.starts_with("/chat2/") {
+                let v = &req.path[6..];
+                let their_pub_hex = v.split('?').next().unwrap();
+                page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><title>cjp2p real time chat with {}</title></head><body>\n\
+                    <div style='display: flex; height: 100vh;'>
+                      <textarea id='input' style='width: 50%; height: 100%;'></textarea>
+                        <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
+                        </div>
+                        <script>
+						const url = new URL('/ws', window.location.href);
+						url.protocol = url.protocol.replace('http', 'ws');
+						const socket = new WebSocket(url.href);
+						const input = document.getElementById('input');
+						const output = document.getElementById('output');
+output.value=\"websocket connencting\";
+socket.onopen = () => {{ 
+						socket.send(\"{}\");
+}};
+output.value=\"websocket connected, type away\";
+						input.addEventListener('input', () => {{ socket.send(input.value); }});
+						socket.onmessage = event => {{ output.value = event.data; }};
+						</script>
+						"
+                    ,their_pub_hex
+                    ,their_pub_hex
+                    );
+
+                stream.write_all(page.as_bytes()).ok();
+                return;
+            }
             if req.path.starts_with("/chat/") {
                 let v = &req.path[6..];
                 let their_pub = v.split('?').next().unwrap();
                 page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ><title>cjp2p chat {}</title></head><body><pre>\n\
                     try /ping or /version. \n\
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
+                    <a href=/chat2/{}>click here</a> to switch to character-by-character mode\n\
                     "
+                    ,their_pub
                     ,their_pub
                     ,their_pub
                     );
@@ -724,7 +799,7 @@ fn handle_web_request(
                     let _ = parts.next().unwrap().to_string();
                     let msg_ = parts.next().unwrap().to_string();
                     let msg = urlencoding::decode(&msg_).unwrap().to_string();
-                    chat_to_pub(ps, their_pub.to_string(), &msg);
+                    chat_to_pub(ps, &their_pub.to_string(), &msg);
                     page += &format!("\n\n{} sent..",msg);
                     ps.recorded_chats.get_mut(their_pub).unwrap().push(msg);
                 }
@@ -1635,6 +1710,11 @@ impl Receive for ChatMessage {
             ps.all_chats
                 .push((their_pub_hex.to_string(), self.message.to_owned()));
         }
+        if let Some(ws) = ps.ws_map.get_mut(&their_pub_hex) {
+            if ws.write(self.message.clone().into()).is_ok() {
+                ws.flush().ok();
+            }
+        }
         if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
             if v.len() == 0 || v.last().unwrap() != &self.message {
                 v.push(self.message.to_owned());
@@ -1813,7 +1893,7 @@ trait Receive {
     ) -> Vec<Message>;
 }
 
-fn chat_to_pub(ps: &mut PeerState, arg: String, arg2: &String) -> () {
+fn chat_to_pub(ps: &mut PeerState, arg: &String, arg2: &String) -> () {
     let to = hex::decode(&arg).unwrap();
     let mut who: HashSet<SocketAddr> = HashSet::new();
     for (k, v) in &ps.peer_map {
