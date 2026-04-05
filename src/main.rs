@@ -630,7 +630,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
 
     page += &format!("\n{} total peers\n",ps.peer_map.len());
     let mut unique_pubs = HashSet::new();
-    page += &format!("--- active public keys (click on one to send it an encrypted message and see any replies.  try /ping or /version. ): \n");
+    page += &format!("--- active public keys (click on one to send it an encrypted message and see any replies.  try /ping or /version. ) Note that unless they have a tab open with you, they'll only see it in the console.: \n");
     for (k, v) in &ps.peer_map {
         if v.delay < Duration::from_millis(250) {
             if let Some(their_pub) = &v.ed25519 {
