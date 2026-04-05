@@ -582,7 +582,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
     }
 }
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
-    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>{}</title></head><body>\n\
+    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>cjp2p status {}</title></head><body>\n\
         {}\n\n\
         <div style='height: 200px; overflow: auto; border: 1px solid #ccc;'>",
         env!("BUILD_VERSION"),
@@ -699,10 +699,13 @@ fn handle_web_request(
             if req.path.starts_with("/chat/") {
                 let v = &req.path[6..];
                 let their_pub = v.split('?').next().unwrap();
-                page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ></head><body><pre>\n\
+                page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ><title>cjp2p chat {}</title></head><body><pre>\n\
                     try /ping or /version. \n\
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
-                    ",their_pub);
+                    "
+                    ,their_pub
+                    ,their_pub
+                    );
                 if !ps.recorded_chats.get_mut(their_pub).is_some() {
                     let mut past_chats = vec![];
                     for (their_pub_hex, msg) in &ps.all_chats {
