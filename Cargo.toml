@@ -30,4 +30,4 @@ infer = ">=0.0.0"
 enum_dispatch = ">=0.0.0"
 dns-lookup = ">=0.0.0"
 socket2 = ">=0.0.0"
-
+urlencoding = ">=0.0.0"

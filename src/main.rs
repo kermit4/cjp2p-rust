@@ -128,6 +128,7 @@ struct PeerState {
     list_time: Instant,
     p: PersistentState,
     next_maintenance: Instant,
+    recorded_chats: HashMap<String, Vec<String>>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
@@ -179,6 +180,7 @@ impl PeerState {
             list_time: Instant::now(),
             p: PersistentState::load(),
             next_maintenance: Instant::now() - Duration::from_secs(99999),
+            recorded_chats: HashMap::new(),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -628,7 +630,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
 
     page += &format!("\n{} total peers\n",ps.peer_map.len());
     let mut unique_pubs = HashSet::new();
-    page += &format!("--- active public keys: \n");
+    page += &format!("--- active public keys (click on one to send it an encrypted message and see any replies.  try /ping or /version. ): \n");
     for (k, v) in &ps.peer_map {
         if v.delay < Duration::from_millis(250) {
             if let Some(their_pub) = &v.ed25519 {
@@ -671,6 +673,7 @@ fn handle_web_request(
     ps: &mut PeerState,
 ) {
     if let Ok((mut stream, _)) = web_server.accept() {
+        let mut page = format!("");
         if let Some(req) = parse_header(&mut stream) {
             let mut start: usize = 0;
             let mut end: usize = 0;
@@ -682,16 +685,25 @@ fn handle_web_request(
             }
             if req.path.starts_with("/chat/") {
                 let v = &req.path[6..];
-                let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=8></head><body><pre>\n\
-    send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
-        ");
+                let their_pub = v.split('?').next().unwrap();
+                page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ></head><body><pre>\n\
+                    send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
+                    ",their_pub);
+                if let Some(chats) = ps.recorded_chats.get_mut(their_pub) {
+                    for m in chats {
+                        page += &format!("{}\n",m);
+                    }
+                } else {
+                    ps.recorded_chats.insert(their_pub.to_string(), vec![]);
+                }
                 if req.path.contains("?msg=") {
                     let mut parts = v.split("?msg=");
-                    let their_pub = parts.next().unwrap().to_string();
-                    let msg = parts.next().unwrap().to_string();
-                    chat_to_pub(ps, their_pub, &msg);
-                    page +=
-                        &format!("\n\n{} sent..but you'll only see replies in the console yet",msg);
+                    let _ = parts.next().unwrap().to_string();
+                    let msg_ = parts.next().unwrap().to_string();
+                    let msg = urlencoding::decode(&msg_).unwrap().to_string();
+                    chat_to_pub(ps, their_pub.to_string(), &msg);
+                    page += &format!("\n\n{} sent..",msg);
+                    ps.recorded_chats.get_mut(their_pub).unwrap().push(msg);
                 }
                 stream.write_all(page.as_bytes()).ok();
                 return;
@@ -1592,6 +1604,11 @@ impl Receive for ChatMessage {
             ps.peer_map[&src].delay,
             self.message
         );
+        if let Some(v) = ps.recorded_chats.get_mut(&hex::encode(
+            &ps.peer_map[&src].ed25519.clone().unwrap_or_default(),
+        )) {
+            v.push(self.message.to_owned());
+        }
         if self.message.starts_with("/version") {
             return Self::new(ps, src, format!("VERSION {}\n",env!("BUILD_VERSION")));
         }
