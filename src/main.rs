@@ -717,8 +717,10 @@ fn handle_web_request(
 ) {
     if let Ok((mut stream, _)) = web_server.accept() {
         let mut buf = [0; 16];
+        let mut peek_limit = 100;
         while if let Ok(len) = stream.peek(&mut buf) {
-            len < 5
+            peek_limit -= 1;
+            len < 5 && peek_limit > 0
         } else {
             false
         } {
