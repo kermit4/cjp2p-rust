@@ -641,9 +641,8 @@ msg);
 
     page += &format!("\n{} total peers\n",ps.peer_map.len());
     let mut unique_pubs = HashSet::new();
-    page += &format!("--- active public keys.  Click on one to send it an encrypted message\n\
-        and see any replies.  try /ping or /version. \n\
-        Note that unless they have a tab open with you, they'll only see it in the console.: \n");
+    page += &format!("--- active public keys.  Click on one to open an encrypted 2-way chat.\n\
+        Note that unless they have a tab open with you, they'll only see it in the console or status page: \n");
     for (k, v) in &ps.peer_map {
         if v.delay < Duration::from_millis(250) {
             if let Some(their_pub) = &v.ed25519 {
@@ -701,6 +700,7 @@ fn handle_web_request(
                 let v = &req.path[6..];
                 let their_pub = v.split('?').next().unwrap();
                 page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ></head><body><pre>\n\
+                    try /ping or /version. \n\
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
                     ",their_pub);
                 if !ps.recorded_chats.get_mut(their_pub).is_some() {
