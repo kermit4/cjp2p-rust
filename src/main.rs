@@ -470,9 +470,14 @@ fn main() -> Result<(), std::io::Error> {
 
 fn handle_websocket(ps: &mut PeerState, their_pub_hex: &String) {
     let ws = ps.ws_map.get_mut(their_pub_hex).unwrap();
-    if let Ok(msg) = ws.read() {
-        info!("websocket typed: {}",msg);
-        chat_to_pub(ps, &their_pub_hex, &msg.to_string());
+    match ws.read() {
+        Ok(msg) => {
+            info!("websocket typed: {}",msg);
+            chat_to_pub(ps, &their_pub_hex, &msg.to_string());
+        }
+        _ => {
+            ps.ws_map.remove(their_pub_hex);
+        }
     };
 }
 
