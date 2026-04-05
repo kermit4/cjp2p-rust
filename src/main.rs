@@ -129,6 +129,7 @@ struct PeerState {
     p: PersistentState,
     next_maintenance: Instant,
     recorded_chats: HashMap<String, Vec<String>>,
+    all_chats: Vec<(String, String)>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
@@ -181,6 +182,7 @@ impl PeerState {
             p: PersistentState::load(),
             next_maintenance: Instant::now() - Duration::from_secs(99999),
             recorded_chats: HashMap::new(),
+            all_chats: Vec::new(),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -580,12 +582,21 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
     }
 }
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
-    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>{}</title></head><body><pre>\n\
+    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>{}</title></head><body>\n\
         {}\n\n\
-    start a download: <form><input name=get></form>\n\n\
-        ", 
+        <div style='height: 200px; overflow: auto; border: 1px solid #ccc;'>",
         env!("BUILD_VERSION"),
         env!("BUILD_VERSION"));
+
+    for (their_pub_hex, msg) in &ps.all_chats {
+        page += &format!("<p><a href=/chat/{} target=_blank>0x{}</a> {}</p>\n",
+            their_pub_hex,
+            their_pub_hex,
+msg);
+    }
+
+    page += &format!("
+          </div><pre> start a download: <form><input name=get></form>\n\n");
     for (_, i) in inbound_states {
         page += &format!("{} {}/{}\n",i.id,i.bytes_complete,i.eof);
     }
@@ -636,10 +647,11 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
     for (k, v) in &ps.peer_map {
         if v.delay < Duration::from_millis(250) {
             if let Some(their_pub) = &v.ed25519 {
+                let their_pub_hex = hex::encode(v.ed25519.clone().unwrap_or_default());
                 if unique_pubs.insert(their_pub) {
                     page += &format!("{:21} <a href=/chat/{} target=_blank>0x{}</a> {}\n",k.ip(),
-            hex::encode(v.ed25519.clone().unwrap_or_default()),
-            hex::encode(v.ed25519.clone().unwrap_or_default()),
+            their_pub_hex,
+            their_pub_hex,
             if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()},
 );
                 }
@@ -1606,11 +1618,14 @@ impl Receive for ChatMessage {
             ps.peer_map[&src].delay,
             self.message
         );
-        if let Some(v) = ps.recorded_chats.get_mut(&hex::encode(
-            &ps.peer_map[&src].ed25519.clone().unwrap_or_default(),
-        )) {
-            if v.len()>0 && v.last().unwrap() != &self.message{
-            v.push(self.message.to_owned());
+        let their_pub_hex = &hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default());
+        if ps.all_chats.len() == 0 || ps.all_chats.last().unwrap().1 != self.message {
+            ps.all_chats
+                .push((their_pub_hex.to_string(), self.message.to_owned()));
+        }
+        if let Some(v) = ps.recorded_chats.get_mut(their_pub_hex) {
+            if v.len() == 0 || v.last().unwrap() != &self.message {
+                v.push(self.message.to_owned());
             }
         }
         if self.message.starts_with("/version") {
