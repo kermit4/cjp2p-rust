@@ -57,4 +57,3 @@ or inlined images in HTML loaded live
 - images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.
 - everyone chat in web inteface
 - char by char chat, websockets for real time i think?
-- web interface - show all messages from anyone in one big feed
