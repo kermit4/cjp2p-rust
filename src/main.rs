@@ -588,7 +588,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
         env!("BUILD_VERSION"),
         env!("BUILD_VERSION"));
 
-    for (their_pub_hex, msg) in &ps.all_chats {
+    for (their_pub_hex, msg) in (&ps.all_chats).into_iter().rev() {
         page += &format!("<p><a href=/chat/{} target=_blank>0x{}</a> {}</p>\n",
             their_pub_hex,
             their_pub_hex,
@@ -703,13 +703,19 @@ fn handle_web_request(
                 page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ></head><body><pre>\n\
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
                     ",their_pub);
-                if let Some(chats) = ps.recorded_chats.get_mut(their_pub) {
-                    for m in chats.into_iter().rev() {
-                        page += &format!("{}\n",m);
+                if !ps.recorded_chats.get_mut(their_pub).is_some() {
+                    let mut past_chats = vec![];
+                    for (their_pub_hex, msg) in &ps.all_chats {
+                        if their_pub_hex == their_pub {
+                            past_chats.push(msg.to_string());
+                        }
                     }
-                } else {
-                    ps.recorded_chats.insert(their_pub.to_string(), vec![]);
+                    ps.recorded_chats.insert(their_pub.to_string(), past_chats);
                 }
+                for m in (&ps.recorded_chats[their_pub]).into_iter().rev() {
+                    page += &format!("{}\n",m);
+                }
+
                 if req.path.contains("?msg=") {
                     let mut parts = v.split("?msg=");
                     let _ = parts.next().unwrap().to_string();
@@ -1618,12 +1624,15 @@ impl Receive for ChatMessage {
             ps.peer_map[&src].delay,
             self.message
         );
-        let their_pub_hex = &hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default());
-        if ps.all_chats.len() == 0 || ps.all_chats.last().unwrap().1 != self.message {
+        let their_pub_hex = hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default());
+        if ps.all_chats.len() == 0
+            || (ps.all_chats.last().unwrap().0 != their_pub_hex
+                || ps.all_chats.last().unwrap().1 != self.message)
+        {
             ps.all_chats
                 .push((their_pub_hex.to_string(), self.message.to_owned()));
         }
-        if let Some(v) = ps.recorded_chats.get_mut(their_pub_hex) {
+        if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
             if v.len() == 0 || v.last().unwrap() != &self.message {
                 v.push(self.message.to_owned());
             }
