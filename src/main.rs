@@ -692,7 +692,7 @@ fn handle_web_request(
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
                     ",their_pub);
                 if let Some(chats) = ps.recorded_chats.get_mut(their_pub) {
-                    for m in chats {
+                    for m in chats.into_iter().rev() {
                         page += &format!("{}\n",m);
                     }
                 } else {
@@ -1609,7 +1609,9 @@ impl Receive for ChatMessage {
         if let Some(v) = ps.recorded_chats.get_mut(&hex::encode(
             &ps.peer_map[&src].ed25519.clone().unwrap_or_default(),
         )) {
+            if v.len()>0 && v.last().unwrap() != &self.message{
             v.push(self.message.to_owned());
+            }
         }
         if self.message.starts_with("/version") {
             return Self::new(ps, src, format!("VERSION {}\n",env!("BUILD_VERSION")));
