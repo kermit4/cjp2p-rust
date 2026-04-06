@@ -52,12 +52,13 @@ macro_rules! BLOCK_SIZE {
 }
 
 // when this gets to millions of peers, consider keeping less info about the slower ones
+use serde_with::hex::Hex;
 #[serde_as]
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct PeerInfo {
     delay: Duration,
     anti_ip_spoofing_cookie_they_expect: Option<String>,
-    #[serde_as(as = "Option<Base64>")]
+    #[serde_as(as = "Option<Hex>")]
     ed25519: Option<Vec<u8>>,
     you_should_see_this: Option<YouSouldSeeThis>,
     i_just_saw_this: Option<IJustSawThis>,
@@ -306,7 +307,7 @@ impl PeerState {
     fn load_peers() -> HashMap<SocketAddr, PeerInfo> {
         let file = OpenOptions::new()
             .read(true)
-            .open("./cjp2p/state/peers.v6.json");
+            .open("./cjp2p/state/peers.v7.json");
         let mut map = HashMap::<SocketAddr, PeerInfo>::new();
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
             let json: Vec<(SocketAddr, PeerInfo)> =
@@ -327,7 +328,7 @@ impl PeerState {
             .create(true)
             .write(true)
             .truncate(true)
-            .open("./cjp2p/state/peers.v6.json")
+            .open("./cjp2p/state/peers.v7.json")
             .unwrap()
             .write_all(&serde_json::to_vec_pretty(&peers_to_save).unwrap())
             .ok();
@@ -717,10 +718,10 @@ fn handle_web_request(
 ) {
     if let Ok((mut stream, _)) = web_server.accept() {
         let mut buf = [0; 16];
-        let mut peek_limit = 100;
+        let mut attempts =  0;
         while if let Ok(len) = stream.peek(&mut buf) {
-            peek_limit -= 1;
-            len < 5 && peek_limit > 0
+            attempts += 1;
+            len < 7 && attempts < 100
         } else {
             false
         } {
@@ -750,6 +751,8 @@ fn handle_web_request(
                 let v = &req.path[6..];
                 let their_pub_hex = v.split('?').next().unwrap();
                 page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><title>cjp2p real time chat with {}</title></head><body>\n\
+                If they can't find you through main page, the URL they need to get here (not the same as yours) is 
+                <a href=http://127.0.0.1:24255/chat2/{}>http://127.0.0.1:24255/chat2/{}</a>
                     <div style='display: flex; height: 100vh;'>
                       <textarea id='input' style='width: 50%; height: 100%;'></textarea>
                         <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
@@ -770,6 +773,8 @@ output.value=\"websocket connected, type away\";
 						</script>
 						"
                     ,their_pub_hex
+                    ,hex::encode(&ps.keypair.public)
+                    ,hex::encode(&ps.keypair.public)
                     ,their_pub_hex
                     );
 
@@ -1904,7 +1909,7 @@ fn chat_to_pub(ps: &mut PeerState, arg: &String, arg2: &String) -> () {
     let to = hex::decode(&arg).unwrap();
     let mut who: HashSet<SocketAddr> = HashSet::new();
     for (k, v) in &ps.peer_map {
-        if v.delay < Duration::from_millis(300) {
+        if v.delay < Duration::from_millis(300) || who.len()<5 {
             if let Some(key) = &v.ed25519 {
                 if *key == to {
                     who.insert(*k);
