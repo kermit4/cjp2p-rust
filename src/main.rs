@@ -623,7 +623,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
         page += &format!("<p><a href=/chat/{} target=_blank>0x{}</a> {}</p>\n",
             their_pub_hex,
             their_pub_hex,
-msg);
+            msg);
     }
 
     page += &format!("
@@ -730,8 +730,7 @@ fn handle_web_request(
         if buf.starts_with(b"GET /ws") {
             let mut ws = accept(stream).unwrap();
             info!("websocket request:");
-            let mut their_pub_hex = ws.read().unwrap().to_string();
-            their_pub_hex.remove(0);
+            let their_pub_hex = ws.read().unwrap().to_string();
             info!("websocket request: {}",their_pub_hex);
             ps.ws_map.insert(their_pub_hex, ws);
             return;
@@ -748,13 +747,33 @@ fn handle_web_request(
                 return;
             }
             if req.path.starts_with("/chat2/") {
-                let v = &req.path[6..];
-                let their_pub_hex = v.split('?').next().unwrap();
+                let their_pub_hex = &req.path[7..];
+                if !ps.recorded_chats.get_mut(their_pub_hex).is_some() {
+                    let mut past_chats = vec![];
+                    for (their_pub_hex_maybe, msg) in &ps.all_chats {
+                        if their_pub_hex_maybe == their_pub_hex {
+                            past_chats.push(msg.to_string());
+                        }
+                    }
+                    ps.recorded_chats
+                        .insert(their_pub_hex.to_string(), past_chats);
+                }
                 page += &format!(concat!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n",include_str!("chat2.html"))
                     ,their_pub_hex
                     ,hex::encode(&ps.keypair.public)
                     ,hex::encode(&ps.keypair.public)
                     ,their_pub_hex
+                    ,their_pub_hex
+
+                , { let past = ps.recorded_chats.get(their_pub_hex).unwrap();
+                        if past.len()>0 {
+                            dbg!();
+                            warn!("javascript safe? {}",serde_json::to_string( past.last().unwrap() ).unwrap());
+                            serde_json::to_string( past.last().unwrap() ).unwrap()
+                        }
+                                else {
+                            dbg!();
+                                    "\"\"".to_string() }}
                     );
 
                 stream.write_all(page.as_bytes()).ok();
