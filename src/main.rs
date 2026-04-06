@@ -1724,12 +1724,12 @@ impl Receive for ChatMessage {
             self.message
         );
         let their_pub_hex = hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default());
-        if ps.all_chats.len() == 0
-            || (ps.all_chats.last().unwrap().0 != their_pub_hex
-                || ps.all_chats.last().unwrap().1 != self.message)
-        {
-            ps.all_chats
-                .push((their_pub_hex.to_string(), self.message.to_owned()));
+        if ( ps.all_chats.len() == 0
+            || ps.all_chats.last().unwrap().0 != their_pub_hex
+                || ps.all_chats.last().unwrap().1 != self.message
+                )  && self.message.len() > 0 {
+                ps.all_chats
+                .push((their_pub_hex.to_string(), self.message.to_owned())); 
         }
         if let Some(ws) = ps.ws_map.get_mut(&their_pub_hex) {
             if ws.write(self.message.clone().into()).is_ok() {
@@ -1737,7 +1737,8 @@ impl Receive for ChatMessage {
             }
         }
         if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
-            if v.len() == 0 || v.last().unwrap() != &self.message {
+            if ( v.len() == 0 || v.last().unwrap() != &self.message ) &&
+                self.message.len() > 0 {
                 v.push(self.message.to_owned());
             }
         }
