@@ -758,18 +758,33 @@ fn handle_web_request(
                         <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
                         </div>
                         <script>
+						let originalTitle = document.title;
+						let blinkInterval;
+						function notifyNewMessage() {{
+						  let blinkCount = 0;
+						  clearInterval(blinkInterval);
+						  blinkInterval = setInterval(() => {{
+							document.title = (blinkCount % 2 === 0) ? \"(New Message!) \" + originalTitle : originalTitle;
+							blinkCount++;
+						  }}, 1000);
+						}}
+						window.addEventListener('focus', () => {{
+						  clearInterval(blinkInterval);
+						  document.title = originalTitle;
+						}});
+
 						const url = new URL('/ws', window.location.href);
 						url.protocol = url.protocol.replace('http', 'ws');
 						const socket = new WebSocket(url.href);
 						const input = document.getElementById('input');
 						const output = document.getElementById('output');
-output.value=\"websocket connencting\";
-socket.onopen = () => {{ 
-						socket.send(\"{}\");
-}};
-output.value=\"websocket connected, type away\";
+						output.value=\"websocket connencting\";
+						socket.onopen = () => {{ socket.send(\"{}\"); }};
+						output.value=\"websocket connected, type away\";
 						input.addEventListener('input', () => {{ socket.send(input.value); }});
-						socket.onmessage = event => {{ output.value = event.data; }};
+						socket.onmessage = event => {{ 
+							notifyNewMessage();
+							output.value = event.data; }};
 						</script>
 						"
                     ,their_pub_hex
@@ -786,11 +801,16 @@ output.value=\"websocket connected, type away\";
                 let their_pub = v.split('?').next().unwrap();
                 page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ><title>cjp2p chat {}</title></head><body><pre>\n\
                     try /ping or /version. \n\
+                If they can't find you through main page, the URL they need to get here (not the same as yours) is 
+                <a href=http://127.0.0.1:24255/chat/{}>http://127.0.0.1:24255/chat/{}</a>
+
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
                     <a href=/chat2/{}>click here</a> to switch to character-by-character mode\n\
                     "
                     ,their_pub
                     ,their_pub
+                    ,hex::encode(&ps.keypair.public)
+                    ,hex::encode(&ps.keypair.public)
                     ,their_pub
                     );
                 if !ps.recorded_chats.get_mut(their_pub).is_some() {

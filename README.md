@@ -62,4 +62,4 @@ or inlined images in HTML loaded live
 - /list results should save to known sources disk file
 - really need working demo html pages
 - singre windom real time chat option
-- chat give them the url to give whoveer
+- browser tab activity notification for chat2
