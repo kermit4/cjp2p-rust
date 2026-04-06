@@ -6,12 +6,15 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 
 
 # building
+
 "cargo build" or "make"
+
+# running
+
+./target/debug/cjp2p
 
 # hints
 
-try running with RUST_BACKTRACE=1 RUST_LOG=debug ./target/debug/cjp2p
-or info/warn log levels
 
 Try /help
 Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its ubuntu-24.04.3-live-server-amd64.iso )
@@ -57,3 +60,6 @@ or inlined images in HTML loaded live
 - images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.
 - new inbound states should check the known sources from disk file, and trending and recommended
 - /list results should save to known sources disk file
+- really need working demo html pages
+- singre windom real time chat option
+- chat give them the url to give whoveer
