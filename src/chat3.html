@@ -5,12 +5,14 @@
         <p><a href=/chat/{}>click here</a> to switch to line by line mode</a>
         <p><a href=/chat2/{}>click here</a> to switch to dual window mode</a>
         <p>try /ping or /version
+        <p>Moving the cursor by any way other way than backspace has undefined results.
         <div style='display: flex; height: 100vh;'>
             <textarea id='input' style='width: 90%; height: 60%;'></textarea>
         </div>
         <script>
             let originalTitle = document.title;
             let blinkInterval;
+            let chars=0;
             function notifyNewMessage() {{
                 let blinkCount = 0;
                 clearInterval(blinkInterval);
@@ -29,23 +31,30 @@
             let socket;
             const input = document.getElementById('input');
             function connect() {{
-                input.value="websocket connencting";
                 socket = new WebSocket(url.href);
                 socket.onopen = () => {{ 
                     socket.send("{}"); 
                 }};
                 socket.onclose = () => {{
                     console.log('Socket closed. Reconnecting ...');
-                    input.value="websocket reconnencting";
                     setTimeout(connect, 120);
                 }};
                 socket.onmessage = event => {{ 
                     notifyNewMessage();
-                    input.value = input.value + event.data.at(-1); 
+                    chars+=1;
+                    if (event.data == "^H" )
+                    input.value=input.value.substring(0,chars-=2);
+                    else input.value = input.value + event.data.at(-1); 
                 }};
             }};
             connect();
-            input.addEventListener('input', () => {{ socket.send(input.value.at(-1)); }});
+            input.addEventListener('input', () => {{ 
+                if (input.value.length < chars) 
+                while(input.value.length < chars) {{
+                    socket.send("^H"); 
+                    chars--;
+                }} else  {{ chars++;
+                    socket.send(input.value.at(-1)); }} }});
         </script>
     </body>
 </html>
