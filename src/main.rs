@@ -414,6 +414,7 @@ fn main() -> Result<(), std::io::Error> {
         warn!("sndbuf  = {:?}",sndbuf);
     }
     println!("your ed25519 public key, stored in cjp2p/state/key.json, is:  0x{}",hex::encode(&ps.keypair.public));
+    println!("web console at        http://127.0.0.1:24255/");
     let mut args = env::args();
     args.next();
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
