@@ -718,7 +718,7 @@ fn handle_web_request(
 ) {
     if let Ok((mut stream, _)) = web_server.accept() {
         let mut buf = [0; 16];
-        let mut attempts =  0;
+        let mut attempts = 0;
         while if let Ok(len) = stream.peek(&mut buf) {
             attempts += 1;
             len < 7 && attempts < 100
@@ -1893,7 +1893,7 @@ fn chat_to_pub(ps: &mut PeerState, arg: &String, arg2: &String) -> () {
     let to = hex::decode(&arg).unwrap();
     let mut who: HashSet<SocketAddr> = HashSet::new();
     for (k, v) in &ps.peer_map {
-        if v.delay < Duration::from_millis(300) || who.len()<5 {
+        if v.delay < Duration::from_millis(300) || who.len() < 5 {
             if let Some(key) = &v.ed25519 {
                 if *key == to {
                     who.insert(*k);
