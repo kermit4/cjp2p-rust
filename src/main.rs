@@ -746,6 +746,20 @@ fn handle_web_request(
                     .ok();
                 return;
             }
+            if req.path.starts_with("/chat3/") {
+                let their_pub_hex = &req.path[7..];
+                page += &format!(concat!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n",include_str!("chat3.html"))
+                    ,their_pub_hex
+                    ,hex::encode(&ps.keypair.public)
+                    ,hex::encode(&ps.keypair.public)
+                    ,their_pub_hex
+                    ,their_pub_hex
+                    ,their_pub_hex
+                    );
+
+                stream.write_all(page.as_bytes()).ok();
+                return;
+            }
             if req.path.starts_with("/chat2/") {
                 let their_pub_hex = &req.path[7..];
                 if !ps.recorded_chats.get_mut(their_pub_hex).is_some() {
@@ -762,6 +776,7 @@ fn handle_web_request(
                     ,their_pub_hex
                     ,hex::encode(&ps.keypair.public)
                     ,hex::encode(&ps.keypair.public)
+                    ,their_pub_hex
                     ,their_pub_hex
                     ,their_pub_hex
 
