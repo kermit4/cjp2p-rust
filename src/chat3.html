@@ -1,0 +1,52 @@
+<html><head><title>cjp2p real time chat with {}</title></head>
+        <body>
+        If they can't find you through main page, the URL they need to get here (not the same as yours) is 
+        <p><a href=http://127.0.0.1:24255/chat2/{}>http://127.0.0.1:24255/chat2/{}</a>
+        <p><a href=/chat/{}>click here</a> to switch to line by line mode</a>
+        <p><a href=/chat2/{}>click here</a> to switch to dual window mode</a>
+        <p>try /ping or /version
+        <div style='display: flex; height: 100vh;'>
+            <textarea id='input' style='width: 90%; height: 60%;'></textarea>
+        </div>
+        <script>
+            let originalTitle = document.title;
+            let blinkInterval;
+            function notifyNewMessage() {{
+                let blinkCount = 0;
+                clearInterval(blinkInterval);
+                blinkInterval = setInterval(() => {{
+                    document.title = (blinkCount % 2 === 0) ? "(New Message!) " + originalTitle : originalTitle;
+                    blinkCount++;
+                }}, 1000);
+            }};
+            window.addEventListener('focus', () => {{
+                clearInterval(blinkInterval);
+                document.title = originalTitle;
+            }});
+
+            const url = new URL('/ws', window.location.href);
+            url.protocol = url.protocol.replace('http', 'ws');
+            let socket;
+            const input = document.getElementById('input');
+            function connect() {{
+                input.value="websocket connencting";
+                socket = new WebSocket(url.href);
+                socket.onopen = () => {{ 
+                    socket.send("{}"); 
+                }};
+                socket.onclose = () => {{
+                    console.log('Socket closed. Reconnecting ...');
+                    input.value="websocket reconnencting";
+                    setTimeout(connect, 120);
+                }};
+                socket.onmessage = event => {{ 
+                    notifyNewMessage();
+                    input.value = input.value + event.data.at(-1); 
+                }};
+            }};
+            connect();
+            input.addEventListener('input', () => {{ socket.send(input.value.at(-1)); }});
+        </script>
+    </body>
+</html>
+
