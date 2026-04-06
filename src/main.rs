@@ -750,43 +750,7 @@ fn handle_web_request(
             if req.path.starts_with("/chat2/") {
                 let v = &req.path[6..];
                 let their_pub_hex = v.split('?').next().unwrap();
-                page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><title>cjp2p real time chat with {}</title></head><body>\n\
-                If they can't find you through main page, the URL they need to get here (not the same as yours) is 
-                <a href=http://127.0.0.1:24255/chat2/{}>http://127.0.0.1:24255/chat2/{}</a>
-                    <div style='display: flex; height: 100vh;'>
-                      <textarea id='input' style='width: 50%; height: 100%;'></textarea>
-                        <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
-                        </div>
-                        <script>
-						let originalTitle = document.title;
-						let blinkInterval;
-						function notifyNewMessage() {{
-						  let blinkCount = 0;
-						  clearInterval(blinkInterval);
-						  blinkInterval = setInterval(() => {{
-							document.title = (blinkCount % 2 === 0) ? \"(New Message!) \" + originalTitle : originalTitle;
-							blinkCount++;
-						  }}, 1000);
-						}}
-						window.addEventListener('focus', () => {{
-						  clearInterval(blinkInterval);
-						  document.title = originalTitle;
-						}});
-
-						const url = new URL('/ws', window.location.href);
-						url.protocol = url.protocol.replace('http', 'ws');
-						const socket = new WebSocket(url.href);
-						const input = document.getElementById('input');
-						const output = document.getElementById('output');
-						output.value=\"websocket connencting\";
-						socket.onopen = () => {{ socket.send(\"{}\"); }};
-						output.value=\"websocket connected, type away\";
-						input.addEventListener('input', () => {{ socket.send(input.value); }});
-						socket.onmessage = event => {{ 
-							notifyNewMessage();
-							output.value = event.data; }};
-						</script>
-						"
+                page += &format!(concat!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n",include_str!("chat2.html"))
                     ,their_pub_hex
                     ,hex::encode(&ps.keypair.public)
                     ,hex::encode(&ps.keypair.public)
