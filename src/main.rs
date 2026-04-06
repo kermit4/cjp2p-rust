@@ -273,11 +273,11 @@ impl PeerState {
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(self.please_always_return(sa));
-            if let Some(i_just_saw_this) = &self.p.i_just_saw_this {
-                message_out.push(Message::IJustSawThis(i_just_saw_this.clone()));
+            if let Some(v) = &self.p.i_just_saw_this {
+                message_out.push(Message::IJustSawThis(v.clone()));
             }
-            if let Some(you_should_see_this) = &self.p.you_should_see_this {
-                message_out.push(Message::YouSouldSeeThis(you_should_see_this.clone()));
+            if let Some(v) = &self.p.you_should_see_this {
+                message_out.push(Message::YouSouldSeeThis(v.clone()));
             }
             message_out.push(Message::MyPublicKey(MyPublicKey {
                 ed25519: self.keypair.public.clone(),
@@ -420,7 +420,7 @@ fn main() -> Result<(), std::io::Error> {
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     for v in args {
         info!("queing inbound file {:?}", v);
-        inbound_states.insert(v.to_string(), InboundState::new(&v, &ps));
+        inbound_states.insert(v.to_string(), InboundState::new(&v));
     }
 
     loop {
@@ -491,7 +491,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
         let mut arg2: String = "".to_string();
         if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
             println!("QUEING FILE {arg}");
-            inbound_states.insert(arg.clone(), InboundState::new(&arg, &ps));
+            inbound_states.insert(arg.clone(), InboundState::new(&arg));
         } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
             chat_to_pub(ps, &arg, &arg2);
         } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
@@ -833,7 +833,7 @@ fn handle_web_request(
             }
             if req.path.starts_with("/?get=") {
                 let v = &req.path[6..];
-                inbound_states.insert(v.to_string(), InboundState::new(v, &ps));
+                inbound_states.insert(v.to_string(), InboundState::new(v));
                 println!("http requested ordinary download of {}",v);
                 let response = format!(
                             "HTTP/1.0 301 OK\r\n\
@@ -879,7 +879,7 @@ fn handle_web_request(
                 let i = match inbound_states.get_mut(id) {
                     Some(i) => i,
                     _ => {
-                        let new_i = InboundState::new(id, &ps);
+                        let new_i = InboundState::new(id);
                         info!("http scheduling inbound file {:?}", id);
                         inbound_states.insert(id.to_string(), new_i);
                         inbound_states.get_mut(id).unwrap()
@@ -1073,11 +1073,17 @@ impl Receive for IJustSawThis {
         ps: &mut PeerState,
         src: SocketAddr,
         might_be_ip_spoofing: &mut bool,
-        _: &mut HashMap<String, InboundState>,
+        inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
+        if let Some(i) = inbound_states.get_mut(&self.id) {
+            i.peers.insert(src);
+        } else {
+            InboundState::send_content_peers_from_disk(&self.id, might_be_ip_spoofing, &src);
+        }
         if !*might_be_ip_spoofing && src.port() == 24254 {
             ps.peer_map.get_mut(&src).unwrap().i_just_saw_this = Some(self);
         }
+
         return vec![];
     }
 }
@@ -1092,8 +1098,13 @@ impl Receive for YouSouldSeeThis {
         ps: &mut PeerState,
         src: SocketAddr,
         might_be_ip_spoofing: &mut bool,
-        _: &mut HashMap<String, InboundState>,
+        inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
+        if let Some(i) = inbound_states.get_mut(&self.id) {
+            i.peers.insert(src);
+        } else {
+            InboundState::send_content_peers_from_disk(&self.id, might_be_ip_spoofing, &src);
+        }
         if !*might_be_ip_spoofing && src.port() == 24254 {
             ps.peer_map.get_mut(&src).unwrap().you_should_see_this = Some(self);
         }
@@ -1172,7 +1183,7 @@ impl Receive for PleaseSendContent {
             message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
         }
         if message_out.len() == 0
-            || (!*might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 23 == 0)
+            || (!*might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 43 == 0)
         // if the file is small, they dont need more peers
         // and if its big they'll hit this random often
         {
@@ -1312,21 +1323,19 @@ struct InboundState {
 }
 
 impl InboundState {
-    fn new(id: &str, ps: &PeerState) -> Self {
+    fn new(id: &str) -> Self {
         fs::create_dir("./cjp2p/incoming").ok();
-        let mut peers = HashSet::new();
-        for (k, v) in &ps.peer_map {
-            if let Some(p) = &v.you_should_see_this {
-                if p.id == id {
-                    peers.insert(*k);
-                }
-            }
-            if let Some(p) = &v.i_just_saw_this {
-                if p.id == id {
-                    peers.insert(*k);
-                }
-            }
-        }
+        let peers = if let Message::MaybeTheyHaveSome(p) =
+            &InboundState::send_content_peers_from_disk(
+                &id.to_string(),
+                &mut false,
+                &"127.0.0.1:24254".parse().unwrap(),
+            )[0]
+        {
+            p.peers.clone()
+        } else {
+            HashSet::new()
+        };
         return Self {
             mmap: None,
             next_block: 0,
@@ -1449,7 +1458,6 @@ impl InboundState {
         }
         let at_most = 3 + 45 * !*might_be_ip_spoofing as usize;
 
-        // TODO check peer_map, unless im already saving those to disk
         return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
             id: id.to_owned(),
             peers: peers.iter().take(at_most).cloned().collect(),
@@ -1724,12 +1732,13 @@ impl Receive for ChatMessage {
             self.message
         );
         let their_pub_hex = hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default());
-        if ( ps.all_chats.len() == 0
+        if (ps.all_chats.len() == 0
             || ps.all_chats.last().unwrap().0 != their_pub_hex
-                || ps.all_chats.last().unwrap().1 != self.message
-                )  && self.message.len() > 0 {
-                ps.all_chats
-                .push((their_pub_hex.to_string(), self.message.to_owned())); 
+            || ps.all_chats.last().unwrap().1 != self.message)
+            && self.message.len() > 0
+        {
+            ps.all_chats
+                .push((their_pub_hex.to_string(), self.message.to_owned()));
         }
         if let Some(ws) = ps.ws_map.get_mut(&their_pub_hex) {
             if ws.write(self.message.clone().into()).is_ok() {
@@ -1737,8 +1746,7 @@ impl Receive for ChatMessage {
             }
         }
         if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
-            if ( v.len() == 0 || v.last().unwrap() != &self.message ) &&
-                self.message.len() > 0 {
+            if (v.len() == 0 || v.last().unwrap() != &self.message) && self.message.len() > 0 {
                 v.push(self.message.to_owned());
             }
         }
@@ -1799,10 +1807,9 @@ impl Receive for ContentList {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        _: &mut bool,
-        _: &mut HashMap<String, InboundState>,
+        might_be_ip_spoofing: &mut bool,
+        inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        // TODO call maybetheyhavesome?
         for (id, size) in &self.results {
             trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
             Utc::now().to_rfc3339(),
@@ -1810,6 +1817,11 @@ impl Receive for ContentList {
             ps.peer_map[&src].delay,
             self.results
         );
+            if let Some(i) = inbound_states.get_mut(id) {
+                i.peers.insert(src);
+            } else {
+                InboundState::send_content_peers_from_disk(&id, might_be_ip_spoofing, &src);
+            }
             match ps.list_results.get_mut(&id.to_owned()) {
                 Some(h) => h.0 += 1,
                 None => {
