@@ -33,6 +33,7 @@
                 socket = new WebSocket(url.href);
                 socket.onopen = () => {{ 
                     socket.send("{}"); 
+                    input.value={};
                 }};
                 socket.onclose = () => {{
                     console.log('Socket closed. Reconnecting ...');
@@ -45,7 +46,7 @@
             }};
             connect();
             input.addEventListener('input', () => {{ 
-                    socket.send(input.value); }});
+                socket.send(input.value); }});
         </script>
     </body>
 </html>

@@ -747,21 +747,7 @@ fn handle_web_request(
                     .ok();
                 return;
             }
-            if req.path.starts_with("/chat3/") {
-                let their_pub_hex = &req.path[7..];
-                page += &format!(concat!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n",include_str!("chat3.html"))
-                    ,their_pub_hex
-                    ,hex::encode(&ps.keypair.public)
-                    ,hex::encode(&ps.keypair.public)
-                    ,their_pub_hex
-                    ,their_pub_hex
-                    ,their_pub_hex
-                    );
-
-                stream.write_all(page.as_bytes()).ok();
-                return;
-            }
-            if req.path.starts_with("/chat2/") {
+            if req.path.starts_with("/chat3/") || req.path.starts_with("/chat2/") {
                 let their_pub_hex = &req.path[7..];
                 if !ps.recorded_chats.get_mut(their_pub_hex).is_some() {
                     let mut past_chats = vec![];
@@ -773,24 +759,28 @@ fn handle_web_request(
                     ps.recorded_chats
                         .insert(their_pub_hex.to_string(), past_chats);
                 }
-                page += &format!(concat!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n",include_str!("chat2.html"))
-                    ,their_pub_hex
-                    ,hex::encode(&ps.keypair.public)
-                    ,hex::encode(&ps.keypair.public)
-                    ,their_pub_hex
-                    ,their_pub_hex
-                    ,their_pub_hex
-
-                , { let past = ps.recorded_chats.get(their_pub_hex).unwrap();
-                        if past.len()>0 {
-                            dbg!();
-                            warn!("javascript safe? {}",serde_json::to_string( past.last().unwrap() ).unwrap());
-                            serde_json::to_string( past.last().unwrap() ).unwrap()
-                        }
-                                else {
-                            dbg!();
-                                    "\"\"".to_string() }}
-                    );
+                let past = ps.recorded_chats.get(their_pub_hex).unwrap();
+                let fill = if past.len() > 0 {
+                    serde_json::to_string(past.last().unwrap()).unwrap()
+                } else {
+                    "\"\"".to_string()
+                };
+                page += "HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n";
+                if req.path.starts_with("/chat3/") {
+                    page += &format!(
+                            include_str!("chat3.html")
+                            ,their_pub_hex
+                            ,hex::encode(&ps.keypair.public) ,hex::encode(&ps.keypair.public)
+                            ,their_pub_hex ,their_pub_hex ,their_pub_hex
+                            ,fill);
+                } else {
+                    page += &format!(
+                            include_str!("chat2.html")
+                            ,their_pub_hex
+                            ,hex::encode(&ps.keypair.public) ,hex::encode(&ps.keypair.public)
+                            ,their_pub_hex ,their_pub_hex ,their_pub_hex
+                            ,fill);
+                };
 
                 stream.write_all(page.as_bytes()).ok();
                 return;

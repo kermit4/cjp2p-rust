@@ -48,7 +48,8 @@
                 }};
             }};
             connect();
-            input.addEventListener('input', () => {{ socket.send(input.value); }});
+            input.addEventListener('input', () => {{ 
+                socket.send(input.value); }});
         </script>
     </body>
 </html>
