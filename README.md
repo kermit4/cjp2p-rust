@@ -13,6 +13,11 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 
 ./target/debug/cjp2p
 
+or 
+
+RUST_LOG=info ./target/debug/cjp2p
+
+
 This uses 10KB/s at idle (almost 1GB/day).  It seems to not use a lot of battery but I haven't done long tests and there's still a small risk it'll spin net/cpu due to some bug, as the only version is currently very experimental.
 
 You can copy cjp2p/state/key.json to another system/phone if you want and it should do what you'd expect.
