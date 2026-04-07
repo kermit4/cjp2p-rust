@@ -1328,17 +1328,17 @@ struct InboundState {
 impl InboundState {
     fn new(id: &str) -> Self {
         fs::create_dir("./cjp2p/incoming").ok();
-        let peers = if let Message::MaybeTheyHaveSome(p) =
-            &InboundState::send_content_peers_from_disk(
-                &id.to_string(),
-                &mut false,
-                &"127.0.0.1:24254".parse().unwrap(),
-            )[0]
-        {
-            p.peers.clone()
-        } else {
-            HashSet::new()
-        };
+        let mut peers: HashSet<SocketAddr> = HashSet::new();
+        let peers_from_disk = InboundState::send_content_peers_from_disk(
+            &id.to_string(),
+            &mut false,
+            &"127.0.0.1:24254".parse().unwrap(),
+        );
+        if peers_from_disk.len() > 0 {
+            if let Message::MaybeTheyHaveSome(p) = &peers_from_disk[0] {
+                peers.extend(&p.peers);
+            }
+        }
         return Self {
             mmap: None,
             next_block: 0,
