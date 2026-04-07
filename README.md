@@ -15,7 +15,9 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 
 or 
 
-RUST_LOG=info ./target/debug/cjp2p
+RUST_BACKTRACE=1 RUST_LOG=info ./target/debug/cjp2p
+
+for some noise
 
 
 This uses 10KB/s at idle (almost 1GB/day).  It seems to not use a lot of battery but I haven't done long tests and there's still a small risk it'll spin net/cpu due to some bug, as the only version is currently very experimental.
