@@ -20,9 +20,11 @@ RUST_BACKTRACE=1 RUST_LOG=info ./target/debug/cjp2p
 for some noise
 
 
-This uses 10KB/s at idle (almost 1GB/day).  It seems to not use a lot of battery but I haven't done long tests and there's still a small risk it'll spin net/cpu due to some bug, as the only version is currently very experimental.
+This uses 10KB/s at idle (almost 1GB/day).  It seems to not use a lot of battery but I haven't done long tests, and there's still a small risk of bugs that will spin net/cpu.
 
-You can copy cjp2p/state/key.json to another system/phone if you want and it should do what you'd expect.
+You can copy cjp2p/state/key.json to other sysetems if you want and it should receive messages directed to it on all systems.
+
+This also works on Android.
 
 # hints
 
