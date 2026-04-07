@@ -1,4 +1,4 @@
-This implements everything in spotted and listed in the https://github.com/kermit4/cjp2p protocol repo, plus some other things.   The primary purpose of this repo, is to demonstrate sample use cases of the CJP2P protocol.
+This implements everything in spotted and listed in the https://github.com/kermit4/cjp2p protocol repo, plus some other things.   The primary purpose of this repo, is to demonstrate sample use cases connectionless JSON (externally tagged) P2P aka the CJP2P protocol.
 
 It's functional for end users, but the current target audience is p2p devs, so the UI IS minimal and not clearly documented.
 
