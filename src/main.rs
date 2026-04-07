@@ -849,11 +849,10 @@ fn handle_web_request(
             }
 
             debug!("http start end {start} {end}");
-            if end == 0 {
-                end = start + 0x400000;
-            }
-
             if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &id) {
+                if end == 0 || end - start > 0x800000 {
+                    end = start + 0x800000;
+                }
                 let mut buf = vec![0; end-start ];
                 let length = file.read_at(&mut buf, start as u64).unwrap();
                 buf.truncate(length);
@@ -887,6 +886,9 @@ fn handle_web_request(
                 };
                 i.http_time = Instant::now();
                 i.http_start = start;
+                if end == 0 || end - start > i.http_preferred_block_size {
+                    end = start + i.http_preferred_block_size;
+                }
                 i.http_end = end;
                 i.http_socket = Some(stream);
                 if i.eof >= i.http_end && !i.serve_http_if_any_is_ready() {
@@ -1139,7 +1141,7 @@ impl PleaseSendContent {
             i.next_block = i.http_start as usize / BLOCK_SIZE!();
         }
         while {
-            if i.next_block * BLOCK_SIZE!() >= i.eof {
+            if i.next_block * BLOCK_SIZE!() >= i.eof && i.bytes_complete > 0 {
                 // %EOF
                 info!( "\x1b[36m{} almost done {}/{}/{}  blocks done/remaining/next \x1b[m", i.id, i.bytes_complete / BLOCK_SIZE!(), (i.eof - i.bytes_complete) / BLOCK_SIZE!(), i.next_block);
                 if log_enabled!(Level::Trace) {
@@ -1151,7 +1153,7 @@ impl PleaseSendContent {
                 //                i.next_block = 0;
                 return vec![];
             }
-            i.bitmap[i.next_block]
+            i.bytes_complete > 0 && i.bitmap[i.next_block]
         } {
             i.next_block += 1;
         }
@@ -1320,6 +1322,7 @@ struct InboundState {
     http_start: usize,
     http_end: usize,
     http_socket: Option<TcpStream>,
+    http_preferred_block_size: usize,
 }
 
 impl InboundState {
@@ -1350,6 +1353,7 @@ impl InboundState {
             http_start: 0,
             http_end: 0,
             http_socket: None,
+            http_preferred_block_size: 0x400000,
         };
     }
 
@@ -1540,9 +1544,16 @@ impl InboundState {
                              Accept-Range: bytes\r\n\
                             Content-Range: bytes {}-{}/{}\r\n"
             ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof);
-        match infer::get_from_path("./cjp2p/incoming/".to_string() + &self.id) {
-            Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
-            _ => warn!("HTTP unknown mime type for {}",&self.id),
+        if self.http_start == 0 {
+            match infer::get_from_path("./cjp2p/incoming/".to_string() + &self.id) {
+                Ok(Some(t)) => {
+                    response += &format!("Content-Type: {}\r\n",t.mime_type());
+                    if t.mime_type().contains("video") {
+                        self.http_preferred_block_size = 0x40000;
+                    }
+                }
+                _ => warn!("HTTP unknown mime type for {}",&self.id),
+            }
         }
         response += "\r\n";
         debug!("http response {}",response);

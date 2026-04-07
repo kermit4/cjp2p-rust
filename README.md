@@ -69,4 +69,3 @@ or HTML pages with many page components, individually downloaded from the networ
 - images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.
 - really need working demo html pages
 - reputation, ip-time?
-- 4M is a slow seek, let it serve some before its all there? will it render early though? or just chop 256k for video only for fast seeks..etry it and see how it improves
