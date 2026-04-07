@@ -27,12 +27,13 @@ or watch Sintel http://127.0.0.1:24255/43a39a05ce426151da3c706ab570932b550065ab4
 
 or the status page (soon to be a WEB INTERFACE that looks like a console.) http://127.0.0.1:24255/
 
-or inlined images in HTML loaded live 
+or HTML pages with many page components, individually downloaded from the network live (unless you already did.)
 - http://127.0.0.1:24255/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
 - http://127.0.0.1:24255/8714bb72411457c9e0c6ea00118690eb495eaba68df9c0404a7b00d286a1d8d1  ./html_slurp.sh https://commons.wikimedia.org/wiki/Category:Fossils  -- lots of images in an html page - the few broken images are due to issues with wget and possibly html_slurp.sh's handling of special characters in URLs, not this software
 - http://127.0.0.1:24255/96b375185bb9cb1ff8aecea12480b0663749d0afb1e8ffa8f32b8d6e48b90f10 1000 random img src
 - http://127.0.0.1:24255/fb132816910cda37494d2c1ec70b6bc92f9bc4b129842e7f4e9d16aac789ac3f wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON
-- http://127.0.0.1:24255/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth --wait 1   
+- http://127.0.0.1:24255/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth 
+- http://127.0.0.1:24255/380e9e5a09e5b0564e442a17f3bf054a07046323237bd60f2cd6834bbb45d14e  https://en.wikipedia.org/wiki/Geological_history_of_Earth
 
 
 # TODO
@@ -63,5 +64,5 @@ or inlined images in HTML loaded live
 - need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming)
 - images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.
 - really need working demo html pages
-- include some super everyone-has-it file for fun?
 - reputation, ip-time?
+- 4M is a slow seek, let it serve some before its all there? will it render early though? or just chop 256k for video only for fast seeks..etry it and see how it improves
