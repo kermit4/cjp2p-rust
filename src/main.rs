@@ -1938,11 +1938,12 @@ trait Receive {
     ) -> Vec<Message>;
 }
 
-fn chat_to_pub(ps: &mut PeerState, arg: &String, arg2: &String) -> () {
-    let to = hex::decode(&arg).unwrap();
+fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {
+    let to = hex::decode(&their_pub_hex).unwrap();
     let mut who: HashSet<SocketAddr> = HashSet::new();
-    for (k, v) in &ps.peer_map {
-        if v.delay < Duration::from_millis(300) || who.len() < 5 {
+    for k in &ps.peer_vec {
+        let v = &ps.peer_map[k];
+        if v.delay < Duration::from_millis(3000 / (who.len() + 1) as u64) {
             if let Some(key) = &v.ed25519 {
                 if *key == to {
                     who.insert(*k);
@@ -1950,19 +1951,18 @@ fn chat_to_pub(ps: &mut PeerState, arg: &String, arg2: &String) -> () {
             }
         }
     }
-    if who.len() > 0 {
-        let message_out =
-            ChatMessage::new(&ps, who.clone().into_iter().next().unwrap(), arg2.clone());
-        if let Message::EncryptedMessages(_) = message_out[0] {
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
-            for sa in who {
-                ps.socket.send_to(&message_out_bytes, sa).ok();
-            }
-        } else {
-            println!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+    if who.len() == 0 {
+        error!("user {} not found",their_pub_hex);
+        return;
+    }
+    let message_out = ChatMessage::new(&ps, who.clone().into_iter().next().unwrap(), msg.clone());
+    if let Message::EncryptedMessages(_) = message_out[0] {
+        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+        trace!( "sending message {:?} to {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
+        for sa in who {
+            ps.socket.send_to(&message_out_bytes, sa).ok();
         }
     } else {
-        println!("not found");
+        error!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
     }
 }
