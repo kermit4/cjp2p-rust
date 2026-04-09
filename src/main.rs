@@ -426,7 +426,18 @@ impl PeerState {
         //seek.ok display before done, just dont RELAY before done.
         //but if its in motion, no, our window is huge
     }
-}
+fn handle_websocket(&mut self, their_pub_hex: &String) {
+    let ws = self.ws_map.get_mut(their_pub_hex).unwrap();
+    match ws.read() {
+        Ok(msg) => {
+            info!("websocket typed: {}",msg);
+            chat_to_pub(self, &their_pub_hex, &msg.to_string());
+        }
+        _ => {
+            self.ws_map.remove(their_pub_hex);
+        }
+    };
+}}
 
 #[derive(Debug)]
 struct HttpRequest {
@@ -514,7 +525,7 @@ fn main() -> Result<(), std::io::Error> {
         for (k, ws) in ps.ws_map.iter() {
             if read_fds.contains(ws.get_ref().as_fd()) {
                 let k_ = k.to_owned();
-                handle_websocket(&mut ps, &k_);
+                ps.handle_websocket(&k_);
                 continue 'main;
             }
         }
@@ -535,18 +546,7 @@ fn main() -> Result<(), std::io::Error> {
     }
 }
 
-fn handle_websocket(ps: &mut PeerState, their_pub_hex: &String) {
-    let ws = ps.ws_map.get_mut(their_pub_hex).unwrap();
-    match ws.read() {
-        Ok(msg) => {
-            info!("websocket typed: {}",msg);
-            chat_to_pub(ps, &their_pub_hex, &msg.to_string());
-        }
-        _ => {
-            ps.ws_map.remove(their_pub_hex);
-        }
-    };
-}
+
 
 fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
     let mut line = String::new();
