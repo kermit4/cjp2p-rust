@@ -340,10 +340,10 @@ impl PeerState {
     }
 
     fn best_peers(&self, how_many: i32, quality: i32) -> HashSet<SocketAddr> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
         for _ in 0..how_many {
-            let i = ((rng.gen_range(0.0..1.0) as f64).powi(quality) * (self.peer_vec.len() as f64))
+            let i = ((rng.random_range(0.0..1.0) as f64).powi(quality) * (self.peer_vec.len() as f64))
                 as usize;
             if i >= self.peer_vec.len() {
                 continue;
@@ -1189,7 +1189,7 @@ impl Receive for PleaseSendContent {
             message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
         }
         if message_out.len() == 0
-            || (!*might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 43 == 0)
+            || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0)
         // if the file is small, they dont need more peers
         // and if its big they'll hit this random often
         {
@@ -1212,7 +1212,7 @@ impl Content {
         might_be_ip_spoofing: &mut bool,
         ps: &mut PeerState,
     ) -> Vec<Message> {
-        if *might_be_ip_spoofing && rand::thread_rng().gen::<u32>() % 27 == 0 {
+        if *might_be_ip_spoofing && rand::rng().random::<u32>() % 27 == 0 {
             info!("randomly ignoring unverified source IPs for {} so ba dumb client doesn't get stuck in a loop",req.id);
 
             return vec![];
@@ -1261,8 +1261,8 @@ impl Receive for Content {
                 self.id, self.offset / BLOCK_SIZE!());
             return vec![];
         }
-        //if (rand::thread_rng().gen::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
-        if (rand::thread_rng().gen::<u32>() % 101) == 0 {
+        //if (rand::rng().random::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
+        if (rand::rng().random::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
@@ -1658,7 +1658,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         ps.content_gateways.remove(*tr);
     }
     ps.next_maintenance =
-        Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(911..1234));
+        Instant::now() + Duration::from_millis(rand::rng().random_range(911..1234));
     ps.sort();
     if Utc::now().second() / 3 + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();
@@ -1695,7 +1695,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         i.request_blocks(ps, ps.best_peers(50 * try_harder as i32, 6));
         // TODO the longer its been stuck, the more it should be ignored to try others, instead of
         // this pure random
-        if rand::thread_rng().gen::<u32>() % 2 == 0 {
+        if rand::rng().random::<u32>() % 2 == 0 {
             break;
         }
     }

@@ -27,6 +27,7 @@ serde_with = { version = "3.15.1", features = ["base64","hex","alloc"] }
 time-core = ">=0.1.0"
 memmap2 = ">=0.0.0"
 infer = ">=0.0.0"
+tree_magic = ">=0.0.0"
 enum_dispatch = ">=0.0.0"
 dns-lookup = ">=0.0.0"
 socket2 = ">=0.0.0"
