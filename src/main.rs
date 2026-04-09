@@ -482,7 +482,7 @@ fn main() -> Result<(), std::io::Error> {
         inbound_states.insert(v.to_string(), InboundState::new(&v));
     }
 
-    loop {
+'main:    loop {
         let mut read_fds = FdSet::new();
         let mut write_fds = FdSet::new();
         maintenance(&mut inbound_states, &mut ps);
@@ -504,30 +504,22 @@ fn main() -> Result<(), std::io::Error> {
         let tv_1 = &mut (nix::sys::time::TimeVal::new(1, 0));
         select(None, &mut read_fds, &mut write_fds, &mut error_fds, tv_1).unwrap();
 
-        let mut content_gateways_to_handle = vec![];
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if write_fds.contains(cg.http_socket.as_fd()) {
-                content_gateways_to_handle.push(index.to_owned());
+                ps.serve_http_content(&mut inbound_states, index);
+                continue 'main;
             }
         }
 
-        let mut web_sockets_to_handle = vec![];
         for (k, ws) in ps.ws_map.iter() {
             if read_fds.contains(ws.get_ref().as_fd()) {
-                web_sockets_to_handle.push(k.to_owned());
+                let k_ = k.to_owned();
+                handle_websocket(&mut ps, &k_);
+                continue 'main;
             }
         }
 
-        if content_gateways_to_handle.len() > 0 {
-            debug!("handling content {} gateways",content_gateways_to_handle.len());
-            for index in content_gateways_to_handle {
-                ps.serve_http_content(&mut inbound_states, index);
-            }
-        } else if web_sockets_to_handle.len() > 0 {
-            for k in web_sockets_to_handle {
-                handle_websocket(&mut ps, &k);
-            }
-        } else if read_fds.contains(stdin.as_fd()) {
+        if read_fds.contains(stdin.as_fd()) {
             debug!("handling stdin");
             handle_stdin(&mut ps, &mut inbound_states);
         } else if read_fds.contains(web_server.as_fd()) {
@@ -1288,7 +1280,6 @@ impl Receive for Content {
                 self.id, self.offset / BLOCK_SIZE!());
             return vec![];
         }
-        let i = inbound_states.get_mut(&self.id).unwrap();
         //if (rand::thread_rng().gen::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
         if (rand::thread_rng().gen::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
