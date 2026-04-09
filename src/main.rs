@@ -192,6 +192,9 @@ impl PeerState {
             content_gateways: Vec::new(),
         };
         ps.socket.set_broadcast(true).ok();
+        SockRef::from(&ps.socket)
+            .set_recv_buffer_size(0x100000)
+            .ok();
         ps.socket
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
@@ -374,28 +377,36 @@ impl PeerState {
         inbound_states: &mut HashMap<String, InboundState>,
         cg_index: usize,
     ) {
-        let cg = &mut (self.content_gateways[cg_index]);
-        if cg.http_done {
-            cg.waiting_for_browser = false;
-            return;
+        {
+            let cg = &mut (self.content_gateways[cg_index]);
+            if cg.http_done {
+                cg.waiting_for_browser = false;
+                return;
+            }
+
+            if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &cg.id) {
+                cg.serve_content_from_disk(&file);
+                //            } else
+                return;
+            }
         }
 
-        if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &cg.id) {
-            cg.serve_content_from_disk(&file);
-            //            } else
-            return;
-        }
-
-        let i = match inbound_states.get_mut(&cg.id) {
+        let id = self.content_gateways[cg_index].id.clone();
+        let i = match inbound_states.get_mut(&id) {
             Some(i) => i,
             _ => {
-                let new_i = InboundState::new(&cg.id);
-                info!("http scheduling inbound file {:?}", cg.id);
-                inbound_states.insert(cg.id.to_string(), new_i);
-                inbound_states.get_mut(&cg.id).unwrap()
+                let mut new_i = InboundState::new(&id);
+                info!("http scheduling inbound file {:?}", id);
+                for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
+                    new_i.request_blocks(self, new_i.peers.clone()); // resume (un-stall)
+                }
+                new_i.request_blocks(self, self.best_peers(250, 6));
+                inbound_states.insert(id.to_string(), new_i);
+                inbound_states.get_mut(&id).unwrap()
             }
         };
 
+        let cg = &mut (self.content_gateways[cg_index]);
         cg.serve_content_from_inbound_state(i);
         /*            if i.peers.len() > 0 {
             for _ in 0..(1 + 50 / i.peers.len()) {
@@ -1279,7 +1290,7 @@ impl Receive for Content {
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
         //if (rand::thread_rng().gen::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
-        if (rand::thread_rng().gen::<u32>() % 101) == 0 || i.bytes_complete_since_stall < 0x4000 {
+        if (rand::thread_rng().gen::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
@@ -1338,7 +1349,6 @@ struct InboundState {
     id: String,
     eof: usize,
     bytes_complete: usize,
-    bytes_complete_since_stall: usize,
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
     hash_failures: i32,
@@ -1514,7 +1524,6 @@ impl InboundState {
             id: id.to_string(),
             eof: 1 << 18,
             bytes_complete: 0,
-            bytes_complete_since_stall: 0,
             peers: peers,
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
@@ -1554,7 +1563,6 @@ impl InboundState {
             self.mmap.as_mut().unwrap()[content.offset..content.base64.len() + content.offset]
                 .copy_from_slice(content.base64.as_ref());
             self.bytes_complete += content.base64.len();
-            self.bytes_complete_since_stall += content.base64.len();
             self.bitmap.set(block_number, true);
             for cg in &mut ps.content_gateways {
                 if cg.id == self.id {
@@ -1710,7 +1718,6 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         }
         if i.next_block != 0 {
             debug!("stalled {}", i.id);
-            i.bytes_complete_since_stall = 0;
         }
         i.next_block = 0;
     }
@@ -1719,18 +1726,20 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
             continue;
         }
         info!("{} stalled, restarting", i.id);
-        let mut tries = 10;
+        let mut try_harder = 1;
         for cg in &ps.content_gateways {
             // try harder if user is actively waiting
             if !cg.http_done && cg.id == i.id {
-                tries *= 10;
+                try_harder = 5;
                 break;
             }
         }
-        for _ in 0..(1 + tries / i.peers.len()) {
+        for _ in 0..(1 + try_harder / (1 + i.peers.len())) {
             i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
         }
-        i.request_blocks(ps, ps.best_peers(tries as i32, 6));
+        i.request_blocks(ps, ps.best_peers(50 * try_harder as i32, 6));
+        // TODO the longer its been stuck, the more it should be ignored to try others, instead of
+        // this pure random
         if rand::thread_rng().gen::<u32>() % 2 == 0 {
             break;
         }

@@ -7,11 +7,11 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 
 # building
 
-"cargo build" or "make"
+make release
 
 # running
 
-./target/debug/cjp2p
+./target/release/cjp2p
 
 or 
 
