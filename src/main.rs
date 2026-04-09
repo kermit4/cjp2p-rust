@@ -8,7 +8,7 @@ use enum_dispatch::enum_dispatch;
 use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
-use memmap2::{Mmap, MmapMut};
+use memmap2::MmapMut;
 use std::net::IpAddr;
 //use nix::NixPath;
 use serde::{Deserialize, Serialize};
@@ -343,8 +343,8 @@ impl PeerState {
         let mut rng = rand::rng();
         let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
         for _ in 0..how_many {
-            let i = ((rng.random_range(0.0..1.0) as f64).powi(quality) * (self.peer_vec.len() as f64))
-                as usize;
+            let i = ((rng.random_range(0.0..1.0) as f64).powi(quality)
+                * (self.peer_vec.len() as f64)) as usize;
             if i >= self.peer_vec.len() {
                 continue;
             }
@@ -381,8 +381,11 @@ impl PeerState {
         if cg.http_done {
             return;
         }
-
-        if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &cg.id) {
+        if let Ok(file) = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("./cjp2p/public/".to_owned() + &cg.id)
+        {
             let cg = &mut (self.content_gateways[cg_index]);
             cg.serve_content_from_disk(&file);
             //            } else
@@ -784,6 +787,8 @@ fn handle_web_request(
         }
 
         let mut page = format!("");
+        // just connecting to the http port and not saying anything DOS's this whole thing, and
+        // occationally browsers seem to do that.
         if let Some(req) = parse_header(&mut stream) {
             let mut start: usize = 0;
             let mut end: usize = 0;
@@ -906,6 +911,7 @@ fn handle_web_request(
                 waiting_for_browser: false,
                 http_done: false,
                 sent_header: false,
+                eof: 0,
             };
             cg.http_socket.set_nonblocking(true).unwrap();
             ps.content_gateways.push(cg);
@@ -1327,78 +1333,39 @@ struct InboundState {
 }
 struct ContentGateway {
     id: String,
-    //http_time: Instant,
+    ///http_time: Instant,
     http_start: usize,
     http_end: usize,
     http_socket: TcpStream,
     waiting_for_browser: bool,
     http_done: bool,
     sent_header: bool,
+    eof: usize,
 }
 impl ContentGateway {
     fn serve_content_from_disk(&mut self, file: &File) {
-        let eof = file.metadata().unwrap().len() as usize;
-        if self.http_end == 0 || eof < self.http_end {
-            self.http_end = eof;
+        if self.eof == 0 {
+            self.eof = file.metadata().unwrap().len() as usize;
         }
-        if !self.sent_header {
-            let mut response = format!(
-                                "HTTP/1.1 206 Partial Content\r\n\
-                                 Content-Length: {}\r\n\
-                                 Content-Disposition: inline\r\n\
-                                 Accept-Range: bytes\r\n\
-                                 Content-Range: bytes {}-{}/{}\r\n"
-            ,self.http_end-self.http_start,self.http_start,self.http_end-1, eof);
-            if self.http_start == 0 {
-                match infer::get_from_path("./cjp2p/public/".to_owned() + &self.id) {
-                    Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
-                    _ => warn!("HTTP unknown mime type for {}",&self.id),
-                }
-            }
-            response += "\r\n";
-            info!("http from disk response {}",response);
-            match self.http_socket.write_all(response.as_bytes()) {
-                Ok(_) => (),
-                Err(_) => {
-                    self.http_done = true;
-                    self.waiting_for_browser = false;
-                }
-            }
-            self.sent_header = true;
+        if self.http_end == 0 || self.eof < self.http_end {
+            self.http_end = self.eof;
         }
-
-        let mmap = unsafe { Mmap::map(file).unwrap() };
-        match self
-            .http_socket
-            .write(&mmap[self.http_start..self.http_end])
-        {
-            Ok(sent) => self.http_start += sent,
-            Err(err) => {
-                warn!("http client error {err}");
-                self.http_done = true;
-                self.waiting_for_browser = false;
-                return;
-            }
-        }
-        if self.http_start != self.http_end {
-            debug!("http from disk sent up to {} ..wanted to send up to {}",self.http_start,self.http_end);
-        } else {
-            debug!("http from disk sent up to {} ",self.http_start);
-        }
-        self.http_done = self.http_start == self.http_end;
-        self.waiting_for_browser = self.http_start != self.http_end;
+        // i couldnt figure out how to get serve_mmap to take both Mmap or MmapMut.
+        let mmap = unsafe { MmapMut::map_mut(file).unwrap() };
+        self.serve_mmap(&mmap, self.http_end);
     }
 
     fn serve_content_from_inbound_state(&mut self, i: &mut InboundState) {
         if self.http_done || i.bytes_complete == 0 {
             return;
         }
-        if self.http_end == 0 || i.eof < self.http_end {
-            self.http_end = i.eof;
+        self.eof = i.eof;
+        if self.http_end == 0 || self.eof < self.http_end {
+            self.http_end = self.eof;
         }
         let mut available_end = self.http_end;
-        if let Some(not_available) = i.bitmap
-            [(self.http_start / BLOCK_SIZE!())..((self.http_end + 4095) / BLOCK_SIZE!())]
+        if let Some(not_available) = i.bitmap[(self.http_start / BLOCK_SIZE!())
+            ..((self.http_end + (BLOCK_SIZE!() - 1)) / BLOCK_SIZE!())]
             .first_zero()
         {
             available_end = (not_available + self.http_start / BLOCK_SIZE!()) * BLOCK_SIZE!();
@@ -1407,29 +1374,25 @@ impl ContentGateway {
             self.waiting_for_browser = false;
             return;
         }
+        let mmap = &i.mmap.as_mut().unwrap();
+        self.serve_mmap(mmap, available_end);
+    }
+    fn serve_mmap(&mut self, mmap: &MmapMut, available_end: usize) {
         if !self.sent_header {
-            let mut response = format!(
+            let mime_type = mimetype_detector::detect(&mmap[0..]);
+            let response = format!(
                                 "HTTP/1.1 206 Partial Content\r\n\
                                  Content-Length: {}\r\n\
                                  Content-Disposition: inline\r\n\
                                  Accept-Range: bytes\r\n\
-                                 Content-Range: bytes {}-{}/{}\r\n"
-            ,self.http_end-self.http_start,self.http_start,self.http_end-1, i.eof);
-            if self.http_start == 0 {
-                match infer::get_from_path("./cjp2p/incoming/".to_string() + &self.id) {
-                    Ok(Some(t)) => {
-                        response += &format!("Content-Type: {}\r\n",t.mime_type());
-                    }
-                    _ => warn!("HTTP unknown mime type for {}",&self.id),
-                }
-            }
-            response += "\r\n";
-            info!("http response {}",response);
+                                 Content-Range: bytes {}-{}/{}\r\n\
+                                 Content-Type: {}\r\n\r\n"
+            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof, mime_type.mime());
             match self.http_socket.write_all(response.as_bytes()) {
                 Ok(_) => (),
                 Err(e) => {
                     warn!("http failed to write header {}",e);
-                    self.http_done = true;
+                    self.http_done = true; // give up, that shouldnt happen
                     self.waiting_for_browser = false;
                 }
             }
@@ -1438,7 +1401,7 @@ impl ContentGateway {
 
         match self
             .http_socket
-            .write(&i.mmap.as_mut().unwrap()[self.http_start..available_end])
+            .write(&mmap[self.http_start..available_end])
         {
             Ok(sent) => self.http_start += sent,
             Err(err) => {
