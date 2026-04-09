@@ -9,7 +9,7 @@
 
 <button id="connect-btn">Connect an Ethereum Wallet</button> to 
 <button id="sign-btn">Sign your ed25519 public key</button>
-<span id="verify">sender not verified yet</span>
+sender: <span id="verify">not verified yet</span>
         <div style='display: flex; height: 100vh;'>
             <textarea id='input' style='width: 50%; height: 60%;'></textarea>
             <textarea id='output' style='width: 50%; height: 60%;' readonly></textarea>
@@ -77,13 +77,12 @@
                     setTimeout(connect, 120);
                 }};
                 const verify = document.getElementById('verify');
-                socket.onmessage = event => {{ 
+                socket.onmessage = async(event) => {{ 
                     notifyNewMessage();
                     const parts = event.data.split(':');
                    if (parts[0] == "EDSIGN") {{
-                        alert(parts[1]);
-                       await window.ethereum.request({{ method: 'personal_ecRecover', params: ["my ed25519 public key is {}",parts[1]] }});
-                   }} // else 
+                       verify.innerText = await window.ethereum.request({{ method: 'personal_ecRecover', params: ["my ed25519 public key is {}",parts[1]] }});
+                   }} else 
                     output.value = event.data; 
                 }};
             }}
