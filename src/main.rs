@@ -825,11 +825,17 @@ fn handle_web_request(
                             ,their_pub_hex ,their_pub_hex ,their_pub_hex
                             ,fill);
                 } else {
+                            let my_pub_hex = hex::encode(&ps.keypair.public);
                     page += &format!(
                             include_str!("chat2.html")
                             ,their_pub_hex
-                            ,hex::encode(&ps.keypair.public) ,hex::encode(&ps.keypair.public)
-                            ,their_pub_hex ,their_pub_hex ,their_pub_hex
+                            ,my_pub_hex
+                            ,my_pub_hex
+                            ,their_pub_hex 
+                            ,their_pub_hex 
+                            ,my_pub_hex
+                            ,my_pub_hex
+                            ,their_pub_hex
                             ,fill);
                 };
 

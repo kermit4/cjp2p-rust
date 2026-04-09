@@ -9,6 +9,16 @@
             <textarea id='input' style='width: 50%; height: 60%;'></textarea>
             <textarea id='output' style='width: 50%; height: 60%;' readonly></textarea>
         </div>
+	
+
+
+<button id="connect-btn">Connect Wallet</button>
+<button id="sign-btn">Sign your ED25519 public key {} with your Eth key</button>
+
+
+
+
+<script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
         <script>
             let originalTitle = document.title;
             let blinkInterval;
@@ -24,6 +34,33 @@
                 clearInterval(blinkInterval);
                 document.title = originalTitle;
             }});
+
+  let account;
+
+  document.getElementById('connect-btn').addEventListener('click', async () => {{
+    if (!window.ethereum) {{
+      alert('Install MetaMask!');
+      return;
+    }}
+    const accounts = await window.ethereum.request({{ method: 'eth_requestAccounts' }});
+    account = accounts[0];
+    document.getElementById('connect-btn').disabled = true;
+    document.getElementById('sign-btn').disabled = false;
+  }});
+
+  document.getElementById('sign-btn').addEventListener('click', async () => {{
+    const message = '{} really is me.';
+    const signature = await window.ethereum.request({{
+      method: 'personal_sign',
+      params: [message, account],
+    }});
+    input.value=signature;
+  }});
+
+
+
+
+
 
             const url = new URL('/ws', window.location.href);
             url.protocol = url.protocol.replace('http', 'ws');
