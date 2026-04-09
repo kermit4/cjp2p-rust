@@ -8,7 +8,7 @@ use enum_dispatch::enum_dispatch;
 use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
-use memmap2::MmapMut;
+use memmap2::{Mmap, MmapMut};
 use std::net::IpAddr;
 //use nix::NixPath;
 use serde::{Deserialize, Serialize};
@@ -375,6 +375,17 @@ impl PeerState {
         cg_index: usize,
     ) {
         let cg = &mut (self.content_gateways[cg_index]);
+        if cg.http_done {
+            cg.waiting_for_browser = false;
+            return;
+        }
+
+        if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &cg.id) {
+            cg.serve_content_from_disk(&file);
+            //            } else
+            return;
+        }
+
         let i = match inbound_states.get_mut(&cg.id) {
             Some(i) => i,
             _ => {
@@ -468,6 +479,7 @@ fn main() -> Result<(), std::io::Error> {
         read_fds.insert(web_server.as_fd());
         let stdin = std::io::stdin();
         read_fds.insert(stdin.as_fd());
+        let mut error_fds = read_fds.clone();
 
         for cg in &ps.content_gateways {
             let fd = cg.http_socket.as_fd();
@@ -479,7 +491,7 @@ fn main() -> Result<(), std::io::Error> {
             read_fds.insert(ws.get_ref().as_fd());
         }
         let tv_1 = &mut (nix::sys::time::TimeVal::new(1, 0));
-        select(None, &mut read_fds, &mut write_fds, None, tv_1).unwrap();
+        select(None, &mut read_fds, &mut write_fds, &mut error_fds, tv_1).unwrap();
 
         let mut content_gateways_to_handle = vec![];
         for (index, cg) in ps.content_gateways.iter().enumerate() {
@@ -496,6 +508,7 @@ fn main() -> Result<(), std::io::Error> {
         }
 
         if content_gateways_to_handle.len() > 0 {
+            debug!("handling content {} gateways",content_gateways_to_handle.len());
             for index in content_gateways_to_handle {
                 ps.serve_http_content(&mut inbound_states, index);
             }
@@ -504,10 +517,16 @@ fn main() -> Result<(), std::io::Error> {
                 handle_websocket(&mut ps, &k);
             }
         } else if read_fds.contains(stdin.as_fd()) {
+            debug!("handling stdin");
             handle_stdin(&mut ps, &mut inbound_states);
         } else if read_fds.contains(web_server.as_fd()) {
+            debug!("handling http");
             handle_web_request(&web_server, &mut inbound_states, &mut ps);
         } else if read_fds.contains(ps.socket.as_fd()) {
+            trace!("handling network");
+            handle_network(&mut ps, &mut inbound_states);
+        } else if error_fds.contains(ps.socket.as_fd()) {
+            warn!("error_fds.contains(ps.socket.as_fd()");
             handle_network(&mut ps, &mut inbound_states);
         }
     }
@@ -893,33 +912,6 @@ fn handle_web_request(
             }
 
             info!("http start end {start} {end}");
-            if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &id) {
-                if end == 0 || end - start > 0x400000 {
-                    end = start + 0x400000;
-                }
-                let mut buf = vec![0; end-start ];
-                let length = file.read_at(&mut buf, start as u64).unwrap();
-                buf.truncate(length);
-                let mut response = format!(
-                            "HTTP/1.1 206 Partial Content\r\n\
-                             Content-Length: {}\r\n\
-                             Content-Disposition: inline\r\n\
-                             Accept-Range: bytes\r\n\
-                            Content-Range: bytes {}-{}/{}\r\n"
-                            ,length,start,start+length-1,
-                            file.metadata().unwrap().len());
-                match infer::get_from_path("./cjp2p/public/".to_owned() + &id) {
-                    Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
-                    _ => warn!("HTTP unknown mime type for {}",&id),
-                }
-                response += "\r\n";
-                info!("http response {}",response);
-                //stream.set_write_timeout(Some(Duration::new(1, 0)))?
-                // it should fit in the buffer though
-                stream.write_all(response.as_bytes()).ok();
-                stream.write_all(&buf).ok();
-                return;
-            }
             let index = ps.content_gateways.len();
             let cg = ContentGateway {
                 id: id.to_string(),
@@ -1156,16 +1148,16 @@ impl PleaseSendContent {
     fn new_messages(i: &mut InboundState, ps: &PeerState) -> Vec<Message> {
         for cg in &ps.content_gateways {
             let new_next_block = cg.http_start as usize / BLOCK_SIZE!();
-            if !cg.http_done
-                && !cg.waiting_for_browser
-                && cg.id == i.id
-                && new_next_block != i.next_block
-                && (i.next_block * BLOCK_SIZE!() < cg.http_start
-                    || i.next_block * BLOCK_SIZE!() >= cg.http_start + 0x400000
-                    || i.next_block * BLOCK_SIZE!() > cg.http_end)
-            {
-                info!("http {} ressetting next_block from {} to {} !",line!(), i.next_block,new_next_block);
-                i.next_block = new_next_block;
+            if !cg.http_done && !cg.waiting_for_browser && cg.id == i.id {
+                if new_next_block != i.next_block
+                    && (i.next_block * BLOCK_SIZE!() < cg.http_start
+                        || i.next_block * BLOCK_SIZE!() >= cg.http_start + 0x400000
+                        || i.next_block * BLOCK_SIZE!() > cg.http_end)
+                {
+                    info!("http {} ressetting next_block from {} to {} !",line!(), i.next_block,new_next_block);
+                    i.next_block = new_next_block;
+                }
+                break;
             }
         }
         while {
@@ -1362,11 +1354,65 @@ struct ContentGateway {
     sent_header: bool,
 }
 impl ContentGateway {
+    fn serve_content_from_disk(&mut self, file: &File) {
+        let eof = file.metadata().unwrap().len() as usize;
+        if self.http_end == 0 || eof < self.http_end {
+            self.http_end = eof;
+        }
+        if !self.sent_header {
+            let mut response = format!(
+                                "HTTP/1.1 206 Partial Content\r\n\
+                                 Content-Length: {}\r\n\
+                                 Content-Disposition: inline\r\n\
+                                 Accept-Range: bytes\r\n\
+                                 Content-Range: bytes {}-{}/{}\r\n"
+            ,self.http_end-self.http_start,self.http_start,self.http_end-1, eof);
+            if self.http_start == 0 {
+                match infer::get_from_path("./cjp2p/public/".to_owned() + &self.id) {
+                    Ok(Some(t)) => response += &format!("Content-Type: {}\r\n",t.mime_type()),
+                    _ => warn!("HTTP unknown mime type for {}",&self.id),
+                }
+            }
+            response += "\r\n";
+            info!("http from disk response {}",response);
+            match self.http_socket.write_all(response.as_bytes()) {
+                Ok(_) => (),
+                Err(_) => {
+                    self.http_done = true;
+                }
+            }
+            self.sent_header = true;
+        }
+
+        let mmap = unsafe { Mmap::map(file).unwrap() };
+        match self
+            .http_socket
+            .write(&mmap[self.http_start..self.http_end])
+        {
+            Ok(sent) => self.http_start += sent,
+            Err(err) => {
+                warn!("http client error {err}");
+                self.waiting_for_browser = false;
+                self.http_done = true;
+                return;
+            }
+        }
+        if self.http_start != self.http_end {
+            debug!("http from disk sent up to {} ..wanted to send up to {}",self.http_start,self.http_end);
+        } else {
+            debug!("http from disk sent up to {} ",self.http_start);
+        }
+        self.waiting_for_browser = self.http_start != self.http_end;
+        self.http_done = self.http_start == self.http_end;
+    }
+
     fn serve_content_from_inbound_state(&mut self, i: &mut InboundState) {
         if self.http_done {
+            self.waiting_for_browser = false;
             return;
         }
         if i.bytes_complete == 0 {
+            self.waiting_for_browser = false;
             return;
         }
         if self.http_end == 0 {
@@ -1395,6 +1441,7 @@ impl ContentGateway {
                }
         */
         if available_end <= self.http_start {
+            self.waiting_for_browser = false;
             return;
         }
         if !self.sent_header && i.bytes_complete > 0 {
@@ -1415,7 +1462,12 @@ impl ContentGateway {
             }
             response += "\r\n";
             info!("http response {}",response);
-            self.http_socket.write_all(response.as_bytes()).unwrap();
+            match self.http_socket.write_all(response.as_bytes()) {
+                Ok(_) => (),
+                Err(_) => {
+                    self.http_done = true;
+                }
+            }
             self.sent_header = true;
         }
 
@@ -1437,7 +1489,7 @@ impl ContentGateway {
             debug!("http sent up to {} ",self.http_start);
         }
         self.waiting_for_browser = self.http_start != available_end;
-        self.http_done = available_end == self.http_end;
+        self.http_done = self.http_start == self.http_end;
     }
 }
 impl InboundState {
