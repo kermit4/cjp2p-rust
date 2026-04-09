@@ -928,7 +928,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let messages: Messages = match serde_json::from_slice(message_in_bytes) {
         Ok(r) => r,
         Err(e) => {
-            warn!( "could not deserialize incoming messages  {e}  :  {}",
+            warn!( "could not deserialize incoming messages from {} {e}  :  {}",src,
                     String::from_utf8_lossy(message_in_bytes));
             return;
         }
