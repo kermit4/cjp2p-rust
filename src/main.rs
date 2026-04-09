@@ -134,6 +134,7 @@ struct PeerState {
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
     ws_map: HashMap<String, WebSocket<TcpStream>>,
+    content_gateways: Vec<ContentGateway>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
@@ -188,6 +189,7 @@ impl PeerState {
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
             ws_map: HashMap::new(),
+            content_gateways: Vec::new(),
         };
         ps.socket.set_broadcast(true).ok();
         ps.socket
@@ -367,6 +369,41 @@ impl PeerState {
         }
         return message_out;
     }
+    fn serve_http_content(
+        &mut self,
+        inbound_states: &mut HashMap<String, InboundState>,
+        cg_index: usize,
+    ) {
+        let cg = &mut (self.content_gateways[cg_index]);
+        let i = match inbound_states.get_mut(&cg.id) {
+            Some(i) => i,
+            _ => {
+                let new_i = InboundState::new(&cg.id);
+                info!("http scheduling inbound file {:?}", cg.id);
+                inbound_states.insert(cg.id.to_string(), new_i);
+                inbound_states.get_mut(&cg.id).unwrap()
+            }
+        };
+
+        cg.serve_content_from_inbound_state(i);
+        /*            if i.peers.len() > 0 {
+            for _ in 0..(1 + 50 / i.peers.len()) {
+                i.request_blocks(self, i.peers.clone());
+            }
+        } else {
+            let to_try = self.best_peers(500, 20);
+            info!("http starting search  with {} hosts",to_try.len());
+            i.request_blocks(self, self.best_peers(500, 20));
+        } */
+
+        //but now we have to block but not block until content is hree if its not
+        // but why if  im doing 256k blocks anyway, or b locks of 256k blocks
+        //bit its still sorta the same, the bits are just 256k not 4k
+        //so write it and add the layer in after
+        //if each seek needs 256k though and the window is 0.. thats like 1.5s
+        //seek.ok display before done, just dont RELAY before done.
+        //but if its in motion, no, our window is huge
+    }
 }
 
 #[derive(Debug)]
@@ -425,28 +462,29 @@ fn main() -> Result<(), std::io::Error> {
 
     loop {
         let mut read_fds = FdSet::new();
+        let mut write_fds = FdSet::new();
         maintenance(&mut inbound_states, &mut ps);
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
         let stdin = std::io::stdin();
         read_fds.insert(stdin.as_fd());
 
+        for cg in &ps.content_gateways {
+            let fd = cg.http_socket.as_fd();
+            if cg.waiting_for_browser {
+                write_fds.insert(fd);
+            }
+        }
         for (_, ws) in ps.ws_map.iter() {
             read_fds.insert(ws.get_ref().as_fd());
         }
-        match select(
-            None,
-            &mut read_fds,
-            None,
-            None,
-            &mut (nix::sys::time::TimeVal::new(1, 0)),
-        ) {
-            Ok(n) => {
-                trace!("select: {n}");
-            }
-            Err(e) => {
-                warn!("select {:?}",e);
-                continue;
+        let tv_1 = &mut (nix::sys::time::TimeVal::new(1, 0));
+        select(None, &mut read_fds, &mut write_fds, None, tv_1).unwrap();
+
+        let mut content_gateways_to_handle = vec![];
+        for (index, cg) in ps.content_gateways.iter().enumerate() {
+            if write_fds.contains(cg.http_socket.as_fd()) {
+                content_gateways_to_handle.push(index.to_owned());
             }
         }
 
@@ -456,7 +494,12 @@ fn main() -> Result<(), std::io::Error> {
                 web_sockets_to_handle.push(k.to_owned());
             }
         }
-        if web_sockets_to_handle.len() > 0 {
+
+        if content_gateways_to_handle.len() > 0 {
+            for index in content_gateways_to_handle {
+                ps.serve_http_content(&mut inbound_states, index);
+            }
+        } else if web_sockets_to_handle.len() > 0 {
             for k in web_sockets_to_handle {
                 handle_websocket(&mut ps, &k);
             }
@@ -841,17 +884,18 @@ fn handle_web_request(
                 stream.write_all(response.as_bytes()).ok();
                 return;
             }
+
             if let Some(range) = req.headers.get("range") {
                 info!("got ranged http req {} range {:?}",req.path,range);
                 sscanf!(range, "bytes={}-{}",start,end).ok();
             } else {
-                info!("got unranged http req {} {:?} ",req.path,req.headers);
+                info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
             }
 
-            debug!("http start end {start} {end}");
+            info!("http start end {start} {end}");
             if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &id) {
-                if end == 0 || end - start > 0x800000 {
-                    end = start + 0x800000;
+                if end == 0 || end - start > 0x400000 {
+                    end = start + 0x400000;
                 }
                 let mut buf = vec![0; end-start ];
                 let length = file.read_at(&mut buf, start as u64).unwrap();
@@ -869,49 +913,27 @@ fn handle_web_request(
                     _ => warn!("HTTP unknown mime type for {}",&id),
                 }
                 response += "\r\n";
-                debug!("http response {}",response);
+                info!("http response {}",response);
                 //stream.set_write_timeout(Some(Duration::new(1, 0)))?
                 // it should fit in the buffer though
                 stream.write_all(response.as_bytes()).ok();
                 stream.write_all(&buf).ok();
-            } else {
-                let i = match inbound_states.get_mut(id) {
-                    Some(i) => i,
-                    _ => {
-                        let new_i = InboundState::new(id);
-                        info!("http scheduling inbound file {:?}", id);
-                        inbound_states.insert(id.to_string(), new_i);
-                        inbound_states.get_mut(id).unwrap()
-                    }
-                };
-                i.http_time = Instant::now();
-                i.http_start = start;
-                if end == 0 || end - start > i.http_preferred_block_size {
-                    end = start + i.http_preferred_block_size;
-                }
-                i.http_end = end;
-                i.http_socket = Some(stream);
-                if i.eof >= i.http_end && !i.serve_http_if_any_is_ready() {
-                    i.next_block = start as usize / BLOCK_SIZE!();
-                    if i.peers.len() > 0 {
-                        for _ in 0..(1 + 50 / i.peers.len()) {
-                            i.request_blocks(ps, i.peers.clone());
-                        }
-                    } else {
-                        let to_try = ps.best_peers(500, 20);
-                        debug!("http starting search  with {} hosts",to_try.len());
-                        i.request_blocks(ps, ps.best_peers(500, 20));
-                    }
-                }
-
-                //but now we have to block but not block until content is hree if its not
-                // but why if  im doing 256k blocks anyway, or b locks of 256k blocks
-                //bit its still sorta the same, the bits are just 256k not 4k
-                //so write it and add the layer in after
-                //if each seek needs 256k though and the window is 0.. thats like 1.5s
-                //seek.ok display before done, just dont RELAY before done.
-                //but if its in motion, no, our window is huge
+                return;
             }
+            let index = ps.content_gateways.len();
+            let cg = ContentGateway {
+                id: id.to_string(),
+                //                http_time: Instant::now(),
+                http_start: start,
+                http_end: end,
+                http_socket: stream,
+                waiting_for_browser: false,
+                http_done: false,
+                sent_header: false,
+            };
+            cg.http_socket.set_nonblocking(true).unwrap();
+            ps.content_gateways.push(cg);
+            ps.serve_http_content(inbound_states, index);
         }
     }
 }
@@ -1080,7 +1102,7 @@ impl Receive for IJustSawThis {
         if let Some(i) = inbound_states.get_mut(&self.id) {
             i.peers.insert(src);
         } else {
-            InboundState::send_content_peers_from_disk(&self.id, might_be_ip_spoofing, &src);
+            InboundState::send_content_peers_from_disk(&self.id, 1, &src);
         }
         if !*might_be_ip_spoofing && src.port() == 24254 {
             ps.peer_map.get_mut(&src).unwrap().i_just_saw_this = Some(self);
@@ -1105,7 +1127,7 @@ impl Receive for YouSouldSeeThis {
         if let Some(i) = inbound_states.get_mut(&self.id) {
             i.peers.insert(src);
         } else {
-            InboundState::send_content_peers_from_disk(&self.id, might_be_ip_spoofing, &src);
+            InboundState::send_content_peers_from_disk(&self.id, 1, &src);
         }
         if !*might_be_ip_spoofing && src.port() == 24254 {
             ps.peer_map.get_mut(&src).unwrap().you_should_see_this = Some(self);
@@ -1131,14 +1153,20 @@ struct Content {
 }
 
 impl PleaseSendContent {
-    fn new_messages(i: &mut InboundState) -> Vec<Message> {
-        if i.http_socket.is_some()
-            && (i.next_block * BLOCK_SIZE!() > i.http_end
-                || i.next_block * BLOCK_SIZE!() < i.http_start)
-        // try harder if user is waiting
-        {
-            info!("http trying harder!");
-            i.next_block = i.http_start as usize / BLOCK_SIZE!();
+    fn new_messages(i: &mut InboundState, ps: &PeerState) -> Vec<Message> {
+        for cg in &ps.content_gateways {
+            let new_next_block = cg.http_start as usize / BLOCK_SIZE!();
+            if !cg.http_done
+                && !cg.waiting_for_browser
+                && cg.id == i.id
+                && new_next_block != i.next_block
+                && (i.next_block * BLOCK_SIZE!() < cg.http_start
+                    || i.next_block * BLOCK_SIZE!() >= cg.http_start + 0x400000
+                    || i.next_block * BLOCK_SIZE!() > cg.http_end)
+            {
+                info!("http {} ressetting next_block from {} to {} !",line!(), i.next_block,new_next_block);
+                i.next_block = new_next_block;
+            }
         }
         while {
             if i.next_block * BLOCK_SIZE!() >= i.eof && i.bytes_complete > 0 {
@@ -1191,7 +1219,7 @@ impl Receive for PleaseSendContent {
         {
             message_out.append(&mut InboundState::send_content_peers_from_disk(
                 &self.id,
-                might_be_ip_spoofing,
+                3 + 45 * !*might_be_ip_spoofing as usize,
                 &src,
             ));
         }
@@ -1258,9 +1286,8 @@ impl Receive for Content {
             return vec![];
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
-        if (rand::thread_rng().gen::<u32>() % (if i.http_socket.is_some() { 7 } else { 101 })) == 0
-            || self.offset == 0
-        {
+        //if (rand::thread_rng().gen::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
+        if (rand::thread_rng().gen::<u32>() % 101) == 0 || i.bytes_complete_since_stall < 0x4000 {
             for (_, i) in inbound_states.iter_mut() {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
@@ -1275,7 +1302,7 @@ impl Receive for Content {
         i.peers.insert(src);
         let block_number = self.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
-        let mut message_out = i.receive_content(&self);
+        let mut message_out = i.receive_content(&self, ps);
         if self.eof.is_some() {
             ps.p.i_just_saw_this = Some(IJustSawThis {
                 id: self.id.to_owned(),
@@ -1283,7 +1310,11 @@ impl Receive for Content {
             });
         }
         if i.finished() {
-            i.serve_http_if_any_is_ready(); // TODO force this to not care how much is left
+            for cg in &mut ps.content_gateways {
+                if cg.id == self.id {
+                    cg.serve_content_from_inbound_state(i);
+                }
+            }
             inbound_states.remove(&self.id);
         }
         if message_out.len() == 0 {
@@ -1291,7 +1322,7 @@ impl Receive for Content {
                 if i.next_block * BLOCK_SIZE!() >= i.eof {
                     continue;
                 }
-                message_out = PleaseSendContent::new_messages(i);
+                message_out = PleaseSendContent::new_messages(i, ps);
                 i.next_block += 1;
                 break;
             }
@@ -1299,7 +1330,7 @@ impl Receive for Content {
         if message_out.len() == 0 {
             if let Some(i) = inbound_states.get_mut(&self.id) {
                 i.next_block = 0;
-                message_out = PleaseSendContent::new_messages(i);
+                message_out = PleaseSendContent::new_messages(i, ps);
                 i.next_block += 1;
             }
         }
@@ -1315,28 +1346,113 @@ struct InboundState {
     id: String,
     eof: usize,
     bytes_complete: usize,
+    bytes_complete_since_stall: usize,
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
     hash_failures: i32,
-    http_time: Instant,
+}
+struct ContentGateway {
+    id: String,
+    //http_time: Instant,
     http_start: usize,
     http_end: usize,
-    http_socket: Option<TcpStream>,
-    http_preferred_block_size: usize,
+    http_socket: TcpStream,
+    waiting_for_browser: bool,
+    http_done: bool,
+    sent_header: bool,
 }
+impl ContentGateway {
+    fn serve_content_from_inbound_state(&mut self, i: &mut InboundState) {
+        if self.http_done {
+            return;
+        }
+        if i.bytes_complete == 0 {
+            return;
+        }
+        if self.http_end == 0 {
+            self.http_end = i.eof;
+        }
+        if i.eof < self.http_end {
+            self.http_end = i.eof;
+        }
+        let mut available_end = self.http_end;
+        if let Some(not_available) = i.bitmap
+            [(self.http_start / BLOCK_SIZE!())..((self.http_end + 4095) / BLOCK_SIZE!())]
+            .first_zero()
+        {
+            available_end = (not_available + self.http_start / BLOCK_SIZE!()) * BLOCK_SIZE!();
+        }
+        /*        let waited = self.http_time.elapsed();
+               let txt = format!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
+               if waited > Duration::from_millis(250) {
+                   warn!("\x1b[7;31m {} ",txt);
+               } else if waited > Duration::from_millis(120) {
+                   info!("{}",txt);
+               } else if waited > Duration::from_millis(60) {
+                   debug!("{}",txt);
+               } else {
+                   trace!("{}",txt);
+               }
+        */
+        if available_end <= self.http_start {
+            return;
+        }
+        if !self.sent_header && i.bytes_complete > 0 {
+            let mut response = format!(
+                                "HTTP/1.1 206 Partial Content\r\n\
+                                 Content-Length: {}\r\n\
+                                 Content-Disposition: inline\r\n\
+                                 Accept-Range: bytes\r\n\
+                                 Content-Range: bytes {}-{}/{}\r\n"
+            ,self.http_end-self.http_start,self.http_start,self.http_end-1, i.eof);
+            if self.http_start == 0 {
+                match infer::get_from_path("./cjp2p/incoming/".to_string() + &self.id) {
+                    Ok(Some(t)) => {
+                        response += &format!("Content-Type: {}\r\n",t.mime_type());
+                    }
+                    _ => warn!("HTTP unknown mime type for {}",&self.id),
+                }
+            }
+            response += "\r\n";
+            info!("http response {}",response);
+            self.http_socket.write_all(response.as_bytes()).unwrap();
+            self.sent_header = true;
+        }
 
+        match self
+            .http_socket
+            .write(&i.mmap.as_mut().unwrap()[self.http_start..available_end])
+        {
+            Ok(sent) => self.http_start += sent,
+            Err(err) => {
+                warn!("http client error {err}");
+                self.waiting_for_browser = false;
+                self.http_done = true;
+                return;
+            }
+        }
+        if self.http_start != available_end {
+            debug!("http sent up to {} ..wanted to send up to {}",self.http_start,available_end);
+        } else {
+            debug!("http sent up to {} ",self.http_start);
+        }
+        self.waiting_for_browser = self.http_start != available_end;
+        self.http_done = available_end == self.http_end;
+    }
+}
 impl InboundState {
     fn new(id: &str) -> Self {
         fs::create_dir("./cjp2p/incoming").ok();
         let mut peers: HashSet<SocketAddr> = HashSet::new();
         let peers_from_disk = InboundState::send_content_peers_from_disk(
             &id.to_string(),
-            &mut false,
+            999999999,
             &"127.0.0.1:24254".parse().unwrap(),
         );
         if peers_from_disk.len() > 0 {
             if let Message::MaybeTheyHaveSome(p) = &peers_from_disk[0] {
                 peers.extend(&p.peers);
+                info!("{} loadedd {} peers frorm disk",id,p.peers.len());
             }
         }
         return Self {
@@ -1346,18 +1462,14 @@ impl InboundState {
             id: id.to_string(),
             eof: 1 << 18,
             bytes_complete: 0,
+            bytes_complete_since_stall: 0,
             peers: peers,
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
-            http_time: Instant::now(),
-            http_start: 0,
-            http_end: 0,
-            http_socket: None,
-            http_preferred_block_size: 0x400000,
         };
     }
 
-    fn receive_content(&mut self, content: &Content) -> Vec<Message> {
+    fn receive_content(&mut self, content: &Content, ps: &mut PeerState) -> Vec<Message> {
         let this_eof = match content.eof {
             Some(n) => n,
             None => content.offset + content.base64.len() + 1,
@@ -1378,6 +1490,7 @@ impl InboundState {
         }
 
         if content.offset >= self.eof {
+            warn!("{} got data at {}, past EOF {}!",self.id,content.offset,self.eof);
             return vec![];
         }
         let block_number = content.offset / BLOCK_SIZE!();
@@ -1389,19 +1502,24 @@ impl InboundState {
             self.mmap.as_mut().unwrap()[content.offset..content.base64.len() + content.offset]
                 .copy_from_slice(content.base64.as_ref());
             self.bytes_complete += content.base64.len();
+            self.bytes_complete_since_stall += content.base64.len();
             self.bitmap.set(block_number, true);
-            self.serve_http_if_any_is_ready();
+            for cg in &mut ps.content_gateways {
+                if cg.id == self.id {
+                    cg.serve_content_from_inbound_state(self);
+                }
+            }
         }
         self.last_activity = Instant::now();
-        let message_out = PleaseSendContent::new_messages(self);
+        let message_out = PleaseSendContent::new_messages(self, ps);
         self.next_block += 1;
         return message_out;
     }
 
-    fn request_blocks(&mut self, ps: &PeerState, some_peers: HashSet<SocketAddr>) {
+    fn request_blocks(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
         for sa in some_peers {
             let mut message_out: Vec<Message> = Vec::new();
-            for m in PleaseSendContent::new_messages(self) {
+            for m in PleaseSendContent::new_messages(self, ps) {
                 message_out.push(m);
             }
             if message_out.len() < 1 {
@@ -1431,11 +1549,7 @@ impl InboundState {
             )
             .ok();
     }
-    fn send_content_peers_from_disk(
-        id: &String,
-        might_be_ip_spoofing: &mut bool,
-        src: &SocketAddr,
-    ) -> Vec<Message> {
+    fn send_content_peers_from_disk(id: &String, at_most: usize, src: &SocketAddr) -> Vec<Message> {
         let filename = "./cjp2p/metadata/".to_owned() + &id + ".json";
         let mut file = OpenOptions::new()
             .create(true)
@@ -1460,7 +1574,6 @@ impl InboundState {
         if peers.len() == 0 {
             return vec![];
         }
-        let at_most = 3 + 45 * !*might_be_ip_spoofing as usize;
 
         return vec![Message::MaybeTheyHaveSome(MaybeTheyHaveSome {
             id: id.to_owned(),
@@ -1513,63 +1626,6 @@ impl InboundState {
         self.bytes_complete = 0;
         return false;
     }
-    fn serve_http_if_any_is_ready(&mut self) -> bool {
-        if self.http_socket.is_none() {
-            return true;
-        }
-        if self.eof < self.http_end {
-            self.http_end = self.eof;
-        }
-        if self.bitmap[(self.http_start / BLOCK_SIZE!())..((self.http_end + 4095) / BLOCK_SIZE!())]
-            .first_zero()
-            .is_some()
-        {
-            return false;
-        }
-        let waited = self.http_time.elapsed();
-        let txt = format!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
-        if waited > Duration::from_millis(250) {
-            warn!("\x1b[7;31m {} ",txt);
-        } else if waited > Duration::from_millis(120) {
-            info!("{}",txt);
-        } else if waited > Duration::from_millis(60) {
-            debug!("{}",txt);
-        } else {
-            trace!("{}",txt);
-        }
-        let mut response = format!(
-                            "HTTP/1.1 206 Partial Content\r\n\
-                             Content-Length: {}\r\n\
-                             Content-Disposition: inline\r\n\
-                             Accept-Range: bytes\r\n\
-                            Content-Range: bytes {}-{}/{}\r\n"
-            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof);
-        if self.http_start == 0 {
-            match infer::get_from_path("./cjp2p/incoming/".to_string() + &self.id) {
-                Ok(Some(t)) => {
-                    response += &format!("Content-Type: {}\r\n",t.mime_type());
-                    if t.mime_type().contains("video") {
-                        self.http_preferred_block_size = 0x40000;
-                    }
-                }
-                _ => warn!("HTTP unknown mime type for {}",&self.id),
-            }
-        }
-        response += "\r\n";
-        debug!("http response {}",response);
-        self.http_socket
-            .as_mut()
-            .unwrap()
-            .write_all(response.as_bytes())
-            .ok();
-        self.http_socket
-            .as_mut()
-            .unwrap()
-            .write_all(&self.mmap.as_mut().unwrap()[self.http_start..self.http_end])
-            .ok();
-        self.http_socket = None;
-        return true;
-    }
 }
 
 fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
@@ -1577,6 +1633,15 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         return;
     }
     debug!("maintenance");
+    let mut to_remove = vec![];
+    for (index, cg) in ps.content_gateways.iter().enumerate() {
+        if cg.http_done {
+            to_remove.push(index);
+        }
+    }
+    for tr in to_remove.iter().rev() {
+        ps.content_gateways.remove(*tr);
+    }
     ps.next_maintenance =
         Instant::now() + Duration::from_millis(rand::thread_rng().gen_range(911..1234));
     ps.sort();
@@ -1593,6 +1658,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         }
         if i.next_block != 0 {
             debug!("stalled {}", i.id);
+            i.bytes_complete_since_stall = 0;
         }
         i.next_block = 0;
     }
@@ -1600,9 +1666,19 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         if i.last_activity.elapsed() <= Duration::from_secs(1) {
             continue;
         }
-        debug!("restarting {}", i.id);
-        i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
-        i.request_blocks(ps, ps.best_peers(50, 6));
+        info!("{} stalled, restarting", i.id);
+        let mut tries = 10;
+        for cg in &ps.content_gateways {
+            // try harder if user is actively waiting
+            if !cg.http_done && cg.id == i.id {
+                tries *= 10;
+                break;
+            }
+        }
+        for _ in 0..(1 + tries / i.peers.len()) {
+            i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
+        }
+        i.request_blocks(ps, ps.best_peers(tries as i32, 6));
         if rand::thread_rng().gen::<u32>() % 2 == 0 {
             break;
         }
@@ -1627,7 +1703,7 @@ impl Receive for MaybeTheyHaveSome {
     fn receive(
         self,
         ps: &mut PeerState,
-        _: SocketAddr,
+        src: SocketAddr,
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
@@ -1638,6 +1714,7 @@ impl Receive for MaybeTheyHaveSome {
         for p in self.peers {
             if i.peers.insert(p) {
                 // new possible source? try it
+                info!("{} trying new peer {} suggested by {}",self.id,p,src);
                 i.request_blocks(ps, HashSet::from([p]));
             }
         }
@@ -1818,7 +1895,7 @@ impl Receive for ContentList {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        might_be_ip_spoofing: &mut bool,
+        _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         for (id, size) in &self.results {
@@ -1831,7 +1908,7 @@ impl Receive for ContentList {
             if let Some(i) = inbound_states.get_mut(id) {
                 i.peers.insert(src);
             } else {
-                InboundState::send_content_peers_from_disk(&id, might_be_ip_spoofing, &src);
+                InboundState::send_content_peers_from_disk(&id, 1, &src);
             }
             match ps.list_results.get_mut(&id.to_owned()) {
                 Some(h) => h.0 += 1,

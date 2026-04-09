@@ -74,3 +74,8 @@ or HTML pages with many page components, individually downloaded from the networ
 - really need working demo html pages
 - reputation, ip-time? web of trust? what would i actually use this for
 - polls, approval voting style..which need some kind of scarcity
+drop in socket connect replacement thta takes keysznot ips?
+- shared chat by ID or shared and approve members, so basically a chat room where the first is ops
+- more mmaps, replace open file cache, and use for http content servce
+- autoscroll dual window
+- use secp256k1 public keys.. abandon the ed25519 or support both?
