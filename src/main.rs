@@ -377,21 +377,19 @@ impl PeerState {
         inbound_states: &mut HashMap<String, InboundState>,
         cg_index: usize,
     ) {
-        {
-            let cg = &mut (self.content_gateways[cg_index]);
-            if cg.http_done {
-                cg.waiting_for_browser = false;
-                return;
-            }
-
-            if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &cg.id) {
-                cg.serve_content_from_disk(&file);
-                //            } else
-                return;
-            }
+        let cg = &(self.content_gateways[cg_index]);
+        if cg.http_done {
+            return;
         }
 
-        let id = self.content_gateways[cg_index].id.clone();
+        if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &cg.id) {
+            let cg = &mut (self.content_gateways[cg_index]);
+            cg.serve_content_from_disk(&file);
+            //            } else
+            return;
+        }
+
+        let id = cg.id.clone();
         let i = match inbound_states.get_mut(&id) {
             Some(i) => i,
             _ => {
@@ -408,36 +406,21 @@ impl PeerState {
 
         let cg = &mut (self.content_gateways[cg_index]);
         cg.serve_content_from_inbound_state(i);
-        /*            if i.peers.len() > 0 {
-            for _ in 0..(1 + 50 / i.peers.len()) {
-                i.request_blocks(self, i.peers.clone());
-            }
-        } else {
-            let to_try = self.best_peers(500, 20);
-            info!("http starting search  with {} hosts",to_try.len());
-            i.request_blocks(self, self.best_peers(500, 20));
-        } */
-
-        //but now we have to block but not block until content is hree if its not
-        // but why if  im doing 256k blocks anyway, or b locks of 256k blocks
-        //bit its still sorta the same, the bits are just 256k not 4k
-        //so write it and add the layer in after
-        //if each seek needs 256k though and the window is 0.. thats like 1.5s
-        //seek.ok display before done, just dont RELAY before done.
-        //but if its in motion, no, our window is huge
     }
-fn handle_websocket(&mut self, their_pub_hex: &String) {
-    let ws = self.ws_map.get_mut(their_pub_hex).unwrap();
-    match ws.read() {
-        Ok(msg) => {
-            info!("websocket typed: {}",msg);
-            chat_to_pub(self, &their_pub_hex, &msg.to_string());
-        }
-        _ => {
-            self.ws_map.remove(their_pub_hex);
-        }
-    };
-}}
+
+    fn handle_websocket(&mut self, their_pub_hex: &String) {
+        let ws = self.ws_map.get_mut(their_pub_hex).unwrap();
+        match ws.read() {
+            Ok(msg) => {
+                info!("websocket typed: {}",msg);
+                chat_to_pub(self, &their_pub_hex, &msg.to_string());
+            }
+            _ => {
+                self.ws_map.remove(their_pub_hex);
+            }
+        };
+    }
+}
 
 #[derive(Debug)]
 struct HttpRequest {
@@ -545,8 +528,6 @@ fn main() -> Result<(), std::io::Error> {
         }
     }
 }
-
-
 
 fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
     let mut line = String::new();
@@ -1380,6 +1361,7 @@ impl ContentGateway {
                 Ok(_) => (),
                 Err(_) => {
                     self.http_done = true;
+                    self.waiting_for_browser = false;
                 }
             }
             self.sent_header = true;
@@ -1393,8 +1375,8 @@ impl ContentGateway {
             Ok(sent) => self.http_start += sent,
             Err(err) => {
                 warn!("http client error {err}");
-                self.waiting_for_browser = false;
                 self.http_done = true;
+                self.waiting_for_browser = false;
                 return;
             }
         }
@@ -1403,23 +1385,15 @@ impl ContentGateway {
         } else {
             debug!("http from disk sent up to {} ",self.http_start);
         }
-        self.waiting_for_browser = self.http_start != self.http_end;
         self.http_done = self.http_start == self.http_end;
+        self.waiting_for_browser = self.http_start != self.http_end;
     }
 
     fn serve_content_from_inbound_state(&mut self, i: &mut InboundState) {
-        if self.http_done {
-            self.waiting_for_browser = false;
+        if self.http_done || i.bytes_complete == 0 {
             return;
         }
-        if i.bytes_complete == 0 {
-            self.waiting_for_browser = false;
-            return;
-        }
-        if self.http_end == 0 {
-            self.http_end = i.eof;
-        }
-        if i.eof < self.http_end {
+        if self.http_end == 0 || i.eof < self.http_end {
             self.http_end = i.eof;
         }
         let mut available_end = self.http_end;
@@ -1429,23 +1403,11 @@ impl ContentGateway {
         {
             available_end = (not_available + self.http_start / BLOCK_SIZE!()) * BLOCK_SIZE!();
         }
-        /*        let waited = self.http_time.elapsed();
-               let txt = format!("{} relaying inbound state to http {} {} THEY WAITED {:?}\x1b[m",self.id,self.http_start ,self.http_end,waited);
-               if waited > Duration::from_millis(250) {
-                   warn!("\x1b[7;31m {} ",txt);
-               } else if waited > Duration::from_millis(120) {
-                   info!("{}",txt);
-               } else if waited > Duration::from_millis(60) {
-                   debug!("{}",txt);
-               } else {
-                   trace!("{}",txt);
-               }
-        */
         if available_end <= self.http_start {
             self.waiting_for_browser = false;
             return;
         }
-        if !self.sent_header && i.bytes_complete > 0 {
+        if !self.sent_header {
             let mut response = format!(
                                 "HTTP/1.1 206 Partial Content\r\n\
                                  Content-Length: {}\r\n\
@@ -1465,8 +1427,10 @@ impl ContentGateway {
             info!("http response {}",response);
             match self.http_socket.write_all(response.as_bytes()) {
                 Ok(_) => (),
-                Err(_) => {
+                Err(e) => {
+                    warn!("http failed to write header {}",e);
                     self.http_done = true;
+                    self.waiting_for_browser = false;
                 }
             }
             self.sent_header = true;
@@ -1479,8 +1443,8 @@ impl ContentGateway {
             Ok(sent) => self.http_start += sent,
             Err(err) => {
                 warn!("http client error {err}");
-                self.waiting_for_browser = false;
                 self.http_done = true;
+                self.waiting_for_browser = false;
                 return;
             }
         }
@@ -1489,8 +1453,8 @@ impl ContentGateway {
         } else {
             debug!("http sent up to {} ",self.http_start);
         }
-        self.waiting_for_browser = self.http_start != available_end;
         self.http_done = self.http_start == self.http_end;
+        self.waiting_for_browser = self.http_start != available_end;
     }
 }
 impl InboundState {
