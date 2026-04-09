@@ -482,7 +482,7 @@ fn main() -> Result<(), std::io::Error> {
         inbound_states.insert(v.to_string(), InboundState::new(&v));
     }
 
-'main:    loop {
+    'main: loop {
         let mut read_fds = FdSet::new();
         let mut write_fds = FdSet::new();
         maintenance(&mut inbound_states, &mut ps);
