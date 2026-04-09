@@ -798,50 +798,7 @@ fn handle_web_request(
                     .ok();
                 return;
             }
-            if req.path.starts_with("/chat3/") || req.path.starts_with("/chat2/") {
-                let their_pub_hex = &req.path[7..];
-                if !ps.recorded_chats.get_mut(their_pub_hex).is_some() {
-                    let mut past_chats = vec![];
-                    for (their_pub_hex_maybe, msg) in &ps.all_chats {
-                        if their_pub_hex_maybe == their_pub_hex {
-                            past_chats.push(msg.to_string());
-                        }
-                    }
-                    ps.recorded_chats
-                        .insert(their_pub_hex.to_string(), past_chats);
-                }
-                let past = ps.recorded_chats.get(their_pub_hex).unwrap();
-                let fill = if past.len() > 0 {
-                    serde_json::to_string(past.last().unwrap()).unwrap()
-                } else {
-                    "\"\"".to_string()
-                };
-                page += "HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n";
-                if req.path.starts_with("/chat3/") {
-                    page += &format!(
-                            include_str!("chat3.html")
-                            ,their_pub_hex
-                            ,hex::encode(&ps.keypair.public) ,hex::encode(&ps.keypair.public)
-                            ,their_pub_hex ,their_pub_hex ,their_pub_hex
-                            ,fill);
-                } else {
-                            let my_pub_hex = hex::encode(&ps.keypair.public);
-                    page += &format!(
-                            include_str!("chat2.html")
-                            ,their_pub_hex
-                            ,my_pub_hex
-                            ,my_pub_hex
-                            ,their_pub_hex 
-                            ,their_pub_hex 
-                            ,my_pub_hex
-                            ,my_pub_hex
-                            ,their_pub_hex
-                            ,fill);
-                };
 
-                stream.write_all(page.as_bytes()).ok();
-                return;
-            }
             if req.path.starts_with("/chat/") {
                 let v = &req.path[6..];
                 let their_pub = v.split('?').next().unwrap();
@@ -881,6 +838,62 @@ fn handle_web_request(
                     page += &format!("\n\n{} sent..",msg);
                     ps.recorded_chats.get_mut(their_pub).unwrap().push(msg);
                 }
+                stream.write_all(page.as_bytes()).ok();
+                return;
+            }
+            if req.path.starts_with("/chat") {
+                let their_pub_hex = &req.path[7..];
+                if !ps.recorded_chats.get_mut(their_pub_hex).is_some() {
+                    let mut past_chats = vec![];
+                    for (their_pub_hex_maybe, msg) in &ps.all_chats {
+                        if their_pub_hex_maybe == their_pub_hex {
+                            past_chats.push(msg.to_string());
+                        }
+                    }
+                    ps.recorded_chats
+                        .insert(their_pub_hex.to_string(), past_chats);
+                }
+                let past = ps.recorded_chats.get(their_pub_hex).unwrap();
+                let fill = if past.len() > 0 {
+                    serde_json::to_string(past.last().unwrap()).unwrap()
+                } else {
+                    "\"\"".to_string()
+                };
+                page += "HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n";
+                let my_pub_hex = hex::encode(&ps.keypair.public);
+                if req.path.starts_with("/chat3/") {
+                    page += &format!(
+                            include_str!("chat3.html")
+                            ,their_pub_hex
+                            ,my_pub_hex
+                            ,my_pub_hex
+                            ,their_pub_hex ,their_pub_hex ,their_pub_hex
+                            ,fill);
+                } else if req.path.starts_with("/chat4/") {
+                    page += &format!(
+                            include_str!("chat4.html")
+                            ,their_pub_hex
+                            ,my_pub_hex
+                            ,my_pub_hex
+                            ,their_pub_hex
+                            ,their_pub_hex
+                            ,their_pub_hex
+                            ,my_pub_hex
+                            ,fill
+                           ,their_pub_hex
+                            );
+                } else if req.path.starts_with("/chat2/") {
+                    page += &format!(
+                            include_str!("chat2.html")
+                            ,their_pub_hex
+                            ,my_pub_hex
+                            ,my_pub_hex
+                            ,their_pub_hex
+                            ,their_pub_hex
+                            ,their_pub_hex
+                            ,fill);
+                };
+
                 stream.write_all(page.as_bytes()).ok();
                 return;
             }
@@ -1782,6 +1795,7 @@ impl ChatMessage {
             Message::MyPublicKey(MyPublicKey { ed25519: ps.keypair.public.clone(), }),
             Message::ChatMessage(Self { message: message }),
         ];
+        message_out.append(&mut ps.always_returned(src));
         if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
             message_out = vec![
                 EncryptedMessages::new(their_pub, src, serde_json::to_vec(&message_out).unwrap()),
@@ -1795,9 +1809,13 @@ impl Receive for ChatMessage {
         self,
         ps: &mut PeerState,
         src: SocketAddr,
-        _: &mut bool,
+        might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
+        if *might_be_ip_spoofing {
+            error!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
+            return vec![];
+        }
         println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
@@ -2017,14 +2035,11 @@ fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {
         error!("user {} not found",their_pub_hex);
         return;
     }
-    let message_out = ChatMessage::new(&ps, who.clone().into_iter().next().unwrap(), msg.clone());
-    if let Message::EncryptedMessages(_) = message_out[0] {
-        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        trace!( "sending message {:?} to {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
         for sa in who {
+            let message_out =
+                ChatMessage::new(&ps, sa, msg.clone());
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
-    } else {
-        error!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
-    }
 }

@@ -1,14 +1,21 @@
 <html><head><title>cjp2p real time chat with {}</title></head>
         <body>
+            <p><a href=/>return to network status page</a>
         If they can't find you through main page, the URL they need to get here (not the same as yours) is 
         <p><a href=http://127.0.0.1:24255/chat2/{}>http://127.0.0.1:24255/chat2/{}</a>
         <p><a href=/chat/{}>click here</a> to switch to line by line mode</a>
         <p><a href=/chat3/{}>click here</a> to switch to single window mode</a>
         <p>try /ping or /version
+
+<button id="connect-btn">Connect an Ethereum Wallet</button> to 
+<button id="sign-btn">Sign your ed25519 public key</button>
+<span id="verify">sender not verified yet</span>
         <div style='display: flex; height: 100vh;'>
             <textarea id='input' style='width: 50%; height: 60%;'></textarea>
             <textarea id='output' style='width: 50%; height: 60%;' readonly></textarea>
         </div>
+	
+<script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
         <script>
             let originalTitle = document.title;
             let blinkInterval;
@@ -24,6 +31,33 @@
                 clearInterval(blinkInterval);
                 document.title = originalTitle;
             }});
+
+  let account;
+
+  document.getElementById('connect-btn').addEventListener('click', async () => {{
+    if (!window.ethereum) {{
+      alert('Install MetaMask!');
+      return;
+    }}
+    const accounts = await window.ethereum.request({{ method: 'eth_requestAccounts' }});
+    account = accounts[0];
+    document.getElementById('connect-btn').disabled = true;
+  }});
+
+
+
+  document.getElementById('sign-btn').addEventListener('click', async () => {{
+    let edsign = "EDSIGN:" + await window.ethereum.request({{
+      method: 'personal_sign',
+      params: ["my ed25519 public key is {}",account],
+    }});
+    socket.send(edsign);
+  }});
+
+
+
+
+
 
             const url = new URL('/ws', window.location.href);
             url.protocol = url.protocol.replace('http', 'ws');
@@ -42,11 +76,17 @@
                     output.value="websocket reconnencting";
                     setTimeout(connect, 120);
                 }};
+                const verify = document.getElementById('verify');
                 socket.onmessage = event => {{ 
                     notifyNewMessage();
+                    const parts = event.data.split(':');
+                   if (parts[0] == "EDSIGN") {{
+                        alert(parts[1]);
+                       await window.ethereum.request({{ method: 'personal_ecRecover', params: ["my ed25519 public key is {}",parts[1]] }});
+                   }} // else 
                     output.value = event.data; 
                 }};
-            }};
+            }}
             connect();
             input.addEventListener('input', () => {{ 
                 socket.send(input.value); }});
