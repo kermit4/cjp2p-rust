@@ -1800,14 +1800,15 @@ impl Receive for OnePlusOneMemberships {
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         let mut memberships_to_send=vec![];
+        let my_pub_hex = hex::encode(&ps.keypair.public);
         for id in self.id {
             if ! ps.p.oneplusone.contains_key(&id) {
                 continue;
             }
             if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
                 let s = ps.p.oneplusone.get_mut(&id).unwrap();
-                if s.is_none() {
-                    let their_pub_hex = hex::encode(their_pub);
+                let their_pub_hex = hex::encode(their_pub);
+                if s.is_none() && their_pub_hex != my_pub_hex {
                     *s=Some(their_pub_hex);
                     memberships_to_send.push(id);
                 }
