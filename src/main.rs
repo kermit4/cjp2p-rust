@@ -89,6 +89,10 @@ struct Keypair {
     public: Vec<u8>,
     #[serde_as(as = "Base64")]
     private: Vec<u8>,
+    #[serde_as(as = "Option<Hex>")]
+    public_hex: Option<Vec<u8>>,
+    #[serde_as(as = "Option<Hex>")]
+    private_hex: Option<Vec<u8>>,
 }
 impl Keypair {
     fn load_key() -> Self {
@@ -98,25 +102,31 @@ impl Keypair {
             .read(true)
             .open("./cjp2p/state/key.json");
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
-            let saved: Self = serde_json::from_reader(&file.unwrap()).unwrap();
-            return Self {
-                public: saved.public,
-                private: saved.private,
-            };
-        } else {
-            let keypair_ = Builder::new(NOISE_PARAMS.parse().unwrap())
-                .generate_keypair()
-                .unwrap();
-            let keypair = Self {
-                public: keypair_.public,
-                private: keypair_.private,
-            };
-            file.as_ref()
-                .unwrap()
-                .write_all(&serde_json::to_vec_pretty(&keypair).unwrap())
-                .ok();
-            return keypair;
+            let mut f = file.as_ref().unwrap();
+            let mut saved: Self = serde_json::from_reader(f).unwrap();
+            if saved.public_hex.is_none() {
+                saved.public_hex = Some(saved.public.clone());
+                saved.private_hex = Some(saved.private.clone());
+                f.seek(SeekFrom::Start(0)).ok();
+                f.write_all(&serde_json::to_vec_pretty(&saved).unwrap())
+                    .ok();
+            }
+            return saved;
         }
+        let keypair_ = Builder::new(NOISE_PARAMS.parse().unwrap())
+            .generate_keypair()
+            .unwrap();
+        let keypair = Self {
+            public: keypair_.public.clone(),
+            private: keypair_.private.clone(),
+            public_hex: Some(keypair_.public),
+            private_hex: Some(keypair_.private),
+        };
+        file.as_ref()
+            .unwrap()
+            .write_all(&serde_json::to_vec_pretty(&keypair).unwrap())
+            .ok();
+        return keypair;
     }
 }
 
