@@ -889,6 +889,14 @@ fn handle_web_request(
                             ,their_pub_hex
                             ,their_pub_hex
                             ,fill);
+                } else if req.path.starts_with("/chat5/") {
+                    page += &format!(
+                            include_str!("chat5.html")
+                            ,my_pub_hex
+                            ,their_pub_hex
+                            ,fill
+                           ,their_pub_hex
+                            );
                 } else if req.path.starts_with("/chat4/") {
                     if !ps.p.oneplusone.contains_key(&their_pub_hex) {
                         ps.p.oneplusone.insert(their_pub_hex.to_owned(), None);
