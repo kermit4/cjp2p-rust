@@ -895,7 +895,7 @@ fn handle_web_request(
                     }
                     page += &format!(
                             include_str!("chat4.html")
-                            ,their_pub_hex
+                            ,my_pub_hex
                             ,their_pub_hex
                             ,fill
                            ,their_pub_hex
