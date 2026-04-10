@@ -140,7 +140,8 @@ struct PeerState {
 struct PersistentState {
     you_should_see_this: Option<YouSouldSeeThis>,
     i_just_saw_this: Option<IJustSawThis>,
-    oneplusone: HashMap<String, Option<String>>,
+    #[serde(default)]
+    oneplusone: HashMap<String,Option<String>>,
 }
 impl PersistentState {
     fn save(&self) {
@@ -289,11 +290,11 @@ impl PeerState {
             message_out.push(Message::MyPublicKey(MyPublicKey {
                 ed25519: self.keypair.public.clone(),
             }));
-            if self.p.oneplusone.len() > 0 {
-                message_out.push(Message::OnePlusOneMemberships(OnePlusOneMemberships {
-                    id: self.p.oneplusone.keys().cloned().collect(),
-                }));
-            }
+            if self.p.oneplusone.len()>0{
+
+            message_out.push (Message::OnePlusOneMemberships(OnePlusOneMemberships{id: self.p.oneplusone.keys().cloned().collect()
+
+            })); }
             message_out.append(&mut self.always_returned(sa));
             message_out.push(PleaseReturnThisMessage::new(self));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -877,18 +878,19 @@ fn handle_web_request(
                             ,their_pub_hex ,their_pub_hex ,their_pub_hex
                             ,fill);
                 } else if req.path.starts_with("/chat4/") {
-                    if !ps.p.oneplusone.contains_key(&their_pub_hex) {
-                        ps.p.oneplusone.insert(their_pub_hex.to_owned(), None);
-                    }
-                    if let Some(peer) = &ps.p.oneplusone[&their_pub_hex] {
-                        their_pub_hex = peer.to_owned();
-                    } else {
-                        // TODO actually search
-                        page += &"<html><head><meta http-equiv=refresh content=4><title>searching</title></head><body>\n\
+                    if ! ps.p.oneplusone.contains_key(&their_pub_hex) {
+                        ps.p.oneplusone.insert(their_pub_hex.to_owned(),None);
+                        }
+                    if let Some(peer) =  &ps.p.oneplusone[&their_pub_hex] {
+                            their_pub_hex = peer.to_owned();
+                            }
+                        else {
+                            // TODO actually search
+                            page += &"<html><head><meta http-equiv=refresh content=4><title>searching</title></head><body>\n\
                             searching for the peer";
-                        stream.write_all(page.as_bytes()).ok();
-                        return;
-                    }
+                stream.write_all(page.as_bytes()).ok();
+                return;
+                }
                     page += &format!(
                             include_str!("chat4.html")
                             ,their_pub_hex
@@ -1787,7 +1789,7 @@ impl Receive for ReturnedMessage {
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct OnePlusOneMemberships {
-    id: Vec<String>,
+    id: Vec<String>
 }
 impl Receive for OnePlusOneMemberships {
     fn receive(
@@ -1797,21 +1799,21 @@ impl Receive for OnePlusOneMemberships {
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        let mut memberships_to_send = vec![];
+        let mut memberships_to_send=vec![];
         for id in self.id {
-            if !ps.p.oneplusone.contains_key(&id) {
+            if ! ps.p.oneplusone.contains_key(&id) {
                 continue;
             }
             if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
                 let s = ps.p.oneplusone.get_mut(&id).unwrap();
                 if s.is_none() {
                     let their_pub_hex = hex::encode(their_pub);
-                    *s = Some(their_pub_hex);
+                    *s=Some(their_pub_hex);
                     memberships_to_send.push(id);
                 }
             }
         }
-        if memberships_to_send.len() == 0 {
+        if memberships_to_send.len() == 0{
             return vec![];
         }
         return vec![Message::OnePlusOneMemberships(OnePlusOneMemberships{id: memberships_to_send})];
@@ -2088,10 +2090,11 @@ fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {
         error!("user {} not found",their_pub_hex);
         return;
     }
-    for sa in who {
-        let message_out = ChatMessage::new(&ps, sa, msg.clone());
-        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
-        ps.socket.send_to(&message_out_bytes, sa).ok();
-    }
+        for sa in who {
+            let message_out =
+                ChatMessage::new(&ps, sa, msg.clone());
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
+            ps.socket.send_to(&message_out_bytes, sa).ok();
+        }
 }
