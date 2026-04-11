@@ -46,7 +46,7 @@ use std::fmt;
 const NOISE_PARAMS: &str = "Noise_NK_25519_AESGCM_SHA256";
 enum Source {
     // <'a> {
-    None, // W(&'a WebSocket<TcpStream>), // borrow checker, this really has to be the index, or taken out of peerstate
+    None, // W(&'a WebSocket<TcpStream>), // borrow checker, this really has to be the index, or taken out of peerstate, or maybe just pass the IP/port of the websocket instead of an index, make that the index
     S(SocketAddr),
 }
 
