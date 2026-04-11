@@ -81,35 +81,31 @@ owners.forEach(function(v,k)   { if (v.toUpperCase()!=my_eth_address.toUpperCase
             function connect() {
                 output.value="websocket connencting";
                 socket = new WebSocket(url.href);
-                socket.onopen = () => { 
-                    socket.send("0x123"); 
-                };
                 socket.onclose = () => {
                     console.log('Socket closed. Reconnecting ...');
                     output.value="websocket reconnencting";
                     setTimeout(connect, 120);
                 };
-                const verify = document.getElementById('verify');
-                socket.onmessage = async(event) => { 
-   //                 const parts = event.data.split(':');
-//                   if (parts[0] == "EDSIGN") {
- //                      verify.innerText = await window.ethereum.request({ method: 'personal_ecRecover', params: ["my ed25519 public key is ",parts[1]] });
-  //                 } else 
-     {
-let messages = JSON.parse(event.data);
-         for (i in messages) {
-             if ("ChatMessage" in messages[i]) {
-                 output.value = messages[i].ChatMessage.message
-  }
-}
-                    notifyNewMessage();
-}
+const verify = document.getElementById('verify');
+socket.onmessage = async(event) => { 
+    //                 const parts = event.data.split(':');
+    //                   if (parts[0] == "EDSIGN") {
+    //                      verify.innerText = await window.ethereum.request({ method: 'personal_ecRecover', params: ["my ed25519 public key is ",parts[1]] });
+    //                 } else 
+    {
+        let messages = JSON.parse(event.data);
+        for (i in messages) {
+            if ("ChatMessage" in messages[i]) {
+                output.value = messages[i].ChatMessage.message
+            }
+        }
+        notifyNewMessage();
+    }
                 };
             }
             connect();
             input.addEventListener('input', () => { 
-                socket.send(JSON.stringify([{ChatMessage:{message:input.value}}]  )); });
+                socket.send(JSON.stringify([{Forward:{to_ed25519:"3f9d6e5c6615f42800be38f07b7a78f5057ac35d1341f4c3a4e8a601312a4343",messages:[{ChatMessage:{message:input.value}}]}}]  )); });
         </script>
     </body>
 </html>
-

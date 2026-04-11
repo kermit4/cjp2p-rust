@@ -216,7 +216,10 @@ impl PeerState {
         for bootstrap in ["148.71.89.128:24254", "159.69.54.127:24254"] {
             let mut pi = PeerInfo::new();
             pi.delay = Duration::from_millis(20);
-            ps.peer_map.insert(bootstrap.parse().unwrap(), pi);
+            let sa: SocketAddr = bootstrap.parse().unwrap();
+            if !ps.peer_map.contains_key(&sa) {
+                ps.peer_map.insert(bootstrap.parse().unwrap(), pi);
+            }
         }
         return ps;
     }
@@ -431,14 +434,28 @@ impl PeerState {
         cg.serve_content_from_inbound_state(i);
     }
 
-    fn handle_websocket2(&mut self, index: usize, _: &mut HashMap<String, InboundState>) {
+    fn handle_websocket2(
+        &mut self,
+        index: usize,
+        inbound_states: &mut HashMap<String, InboundState>,
+    ) {
+        info!("handling {} websockets",self.ws_vec.len());
         let ws = &mut self.ws_vec[index];
         match ws.read() {
-            Ok(msg) => {
-                //    self.handle_messages(msg, "0.0.0.0:0", &mut false, inbound_states);
-                info!("websocket typed: {}",msg);
+            Ok(buf) => {
                 //dbg!(msg);
-                //                chat_to_pub(self, &their_pub_hex, &msg.to_string());
+                info!("websocket typed: {}",buf);
+                if buf.len() > 0 {
+                    let messages = serde_json::from_slice(&buf.into_data()).unwrap();
+                    self.handle_messages(
+                        messages,
+                        "1.0.0.0:1".parse().unwrap(),
+                        &mut false,
+                        inbound_states,
+                    );
+                    //msgs_to_pub(self, &msg.their_ed25519, msg.message);
+                    //                        msgs_to_pub(self, &"0x3f9d6e5c6615f42800be38f07b7a78f5057ac35d1341f4c3a4e8a601312a4343".to_string(), msg);
+                }
             }
             _ => {
                 self.ws_vec.remove(index);
@@ -1054,7 +1071,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     /*    if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
         message_out_bytes = serde_json::to_vec(
             &(vec![
-                          EncryptedMessages::new(their_pub, src, message_out_bytes),
+                          EncryptedMessages::new(their_pub, message_out_bytes),
                           ]),
         )
         .unwrap();
@@ -1839,6 +1856,27 @@ impl Receive for ReturnedMessage {
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
+struct Forward {
+    to_ed25519: String,
+    messages: Vec<serde_json::Value>,
+}
+impl Receive for Forward {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        _: SocketAddr,
+        _: &mut bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        info!("websocket asked me to forward {:?} to {} ",
+            &self.messages
+            ,&self.to_ed25519);
+        msgs_to_pub(ps, &self.to_ed25519, &self.messages);
+        return vec![];
+    }
+}
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug)]
 struct OnePlusOneMemberships {
     id: Vec<String>,
 }
@@ -1909,7 +1947,7 @@ impl ChatMessage {
         message_out.append(&mut ps.always_returned(dst));
         if let Some(their_pub) = &ps.peer_map[&dst].ed25519 {
             message_out = vec![
-                EncryptedMessages::new(their_pub, dst, serde_json::to_vec(&message_out).unwrap()),
+                EncryptedMessages::new(their_pub, serde_json::to_vec(&message_out).unwrap()),
                 ];
         }
         return message_out;
@@ -2043,7 +2081,7 @@ struct EncryptedMessages {
     noise_params: String,
 }
 impl EncryptedMessages {
-    fn new(their_pub: &Vec<u8>, src: SocketAddr, message: Vec<u8>) -> Message {
+    fn new(their_pub: &Vec<u8>, message: Vec<u8>) -> Message {
         let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
             .remote_public_key(their_pub)
             .build_initiator()
@@ -2054,7 +2092,6 @@ impl EncryptedMessages {
             base64: buf[..len].to_vec(),
             noise_params: NOISE_PARAMS.to_string(),
         });
-        trace!("sending encrypted msg to {src}");
         return message_out;
     }
 }
@@ -2115,6 +2152,7 @@ enum Message {
     YouSouldSeeThis(YouSouldSeeThis),
     IJustSawThis(IJustSawThis),
     OnePlusOneMemberships(OnePlusOneMemberships),
+    Forward(Forward),
 }
 
 // this struct only exists to be able to get that VecSkipError in there.
@@ -2141,13 +2179,64 @@ trait Receive {
     ) -> Vec<Message>;
 }
 
+fn msgs_to_pub(
+    ps: &mut PeerState,
+    their_pub_hex: &String,
+    messages: &Vec<serde_json::Value>,
+) -> () {
+    let to = hex::decode(&their_pub_hex).unwrap();
+    let mut who: HashSet<SocketAddr> = HashSet::new();
+    for k in &ps.peer_vec {
+        let v = &ps.peer_map[k];
+        trace!("looing for {} trying {} at {:?} ",their_pub_hex,k,v.delay);
+        if v.delay < Duration::from_millis(3000 / (who.len() + 1) as u64) {
+            if let Some(key) = &v.ed25519 {
+                trace!("looing for {} trying {} at {:?} for {}",their_pub_hex,k,v.delay, hex::encode(key));
+                if *key == to {
+                    who.insert(*k);
+                }
+            }
+        }
+    }
+    if who.len() == 0 {
+        error!("user {} not found",their_pub_hex);
+        return;
+    }
+    let mut message_out: Vec<serde_json::Value> = vec![];
+    message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
+    message_out.push(
+        serde_json::to_value(Message::MyPublicKey(MyPublicKey {
+            ed25519: ps.keypair.public.clone(),
+        }))
+        .unwrap(),
+    );
+    for m in messages {
+        message_out.push(serde_json::to_value(m).unwrap());
+    }
+    message_out = vec![
+            serde_json::to_value(&EncryptedMessages::new(&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
+            ];
+    for sa in who {
+        let c = ps.always_returned(sa);
+        if c.len() > 0 {
+            message_out.push(serde_json::to_value(&c[0]).unwrap());
+        }
+        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+        message_out.pop();
+        trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
+        ps.socket.send_to(&message_out_bytes, sa).ok();
+    }
+}
+
 fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {
     let to = hex::decode(&their_pub_hex).unwrap();
     let mut who: HashSet<SocketAddr> = HashSet::new();
     for k in &ps.peer_vec {
         let v = &ps.peer_map[k];
+        trace!("looing for {} trying {} at {:?} ",their_pub_hex,k,v.delay);
         if v.delay < Duration::from_millis(3000 / (who.len() + 1) as u64) {
             if let Some(key) = &v.ed25519 {
+                trace!("looing for {} trying {} at {:?} for {}",their_pub_hex,k,v.delay, hex::encode(key));
                 if *key == to {
                     who.insert(*k);
                 }
