@@ -43,7 +43,7 @@ use std::{io, str};
 use std::fmt;
 //use std::io::copy;
 
-const NOISE_PARAMS: &str = "Noise_NK_25519_AESGCM_SHA256";
+const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
 enum Source {
     // <'a> {
     None, // W(&'a WebSocket<TcpStream>), // borrow checker, this really has to be the index, or taken out of peerstate, or maybe just pass the IP/port of the websocket instead of an index, make that the index
@@ -1098,7 +1098,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     /*    if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
         message_out_bytes = serde_json::to_vec(
             &(vec![
-                          EncryptedMessages::new(their_pub, message_out_bytes),
+                          EncryptedMessages::new(ps,their_pub, message_out_bytes),
                           ]),
         )
         .unwrap();
@@ -2016,7 +2016,7 @@ impl ChatMessage {
         message_out.append(&mut ps.always_returned(dst));
         if let Some(their_pub) = &ps.peer_map[&dst].ed25519 {
             message_out = vec![
-                EncryptedMessages::new(their_pub, serde_json::to_vec(&message_out).unwrap()),
+                EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
                 ];
         }
         return message_out;
@@ -2154,8 +2154,9 @@ struct EncryptedMessages {
     noise_params: String,
 }
 impl EncryptedMessages {
-    fn new(their_pub: &Vec<u8>, message: Vec<u8>) -> Message {
+    fn new(ps: &PeerState, their_pub: &Vec<u8>, message: Vec<u8>) -> Message {
         let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
+            .local_private_key(&ps.keypair.private)
             .remote_public_key(their_pub)
             .build_initiator()
             .unwrap();
@@ -2303,7 +2304,7 @@ fn msgs_to_pub(
         message_out.push(serde_json::to_value(m).unwrap());
     }
     message_out = vec![
-            serde_json::to_value(&EncryptedMessages::new(&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
+            serde_json::to_value(&EncryptedMessages::new(ps,&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
             ];
     for sa in who {
         let c = ps.always_returned(sa);
