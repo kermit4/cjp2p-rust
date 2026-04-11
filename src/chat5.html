@@ -4,7 +4,6 @@
         <p>try /ping or /version
 
 <button id="connect-btn">Connect an Ethereum Wallet</button> to 
-<button id="sign-btn">Sign your ed25519 public key</button>
 sender: <span id="verify">not verified yet</span>
         <div style='display: flex; height: 100vh;'>
             <textarea id='input' style='width: 50%; height: 60%;'></textarea>
@@ -13,99 +12,108 @@ sender: <span id="verify">not verified yet</span>
 	
 <script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
-        <script>
-// No import needed. ethers is now window.ethers
-const parts = window.location.href.split('?');
-const SAFE_ADDRESS = parts[1];
-async function getSigners() {
-const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-const my_eth_address = accounts[0];
-  const provider = new ethers.BrowserProvider(window.ethereum)
-  const abi = ["function getOwners() view returns (address[])"]
-  const safe = new ethers.Contract(SAFE_ADDRESS, abi, provider)
-  const owners = await safe.getOwners()
-owners.forEach(function(v,k)   { if (v.toUpperCase()!=my_eth_address.toUpperCase()) alert("their eth addr"+v) } );
-  document.body.innerHTML += owners.join("<br>")
-  document.body.innerHTML += "<br>yours: ";
-  document.body.innerHTML += my_eth_address;
-}
-
-            let originalTitle = document.title;
-            let blinkInterval;
-            function notifyNewMessage() {
-                let blinkCount = 0;
-                clearInterval(blinkInterval);
-                blinkInterval = setInterval(() => {
-                    document.title = (blinkCount % 2 === 0) ? "(New Message!) " + originalTitle : originalTitle;
-                    blinkCount++;
-                }, 1000);
-            };
-            window.addEventListener('focus', () => {
-                clearInterval(blinkInterval);
-                document.title = originalTitle;
-            });
-
-  let account;
-
-  document.getElementById('connect-btn').addEventListener('click', async () => {
-    if (!window.ethereum) {
-      alert('Install MetaMask!');
-      return;
+<script>
+    // No import needed. ethers is now window.ethers
+    const parts = window.location.href.split('?');
+    const SAFE_ADDRESS = parts[1];
+    let their_eth_addr = null;
+    let their_ed25519 = null;
+    let my_eth_address = null;
+    async function getSigners() {
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        my_eth_address = accounts[0];
+        const provider = new ethers.BrowserProvider(window.ethereum)
+        const abi = ["function getOwners() view returns (address[])"]
+        const safe = new ethers.Contract(SAFE_ADDRESS, abi, provider)
+        const owners = await safe.getOwners()
+        owners.forEach(function(v,k)  { 
+            if (v.toUpperCase()!=my_eth_address.toUpperCase()) {
+                their_eth_addr = v;
+//                socket.send(JSON.stringify([{GetPubByEth:{addr:their_eth_addr}}]  )); 
+            }
+        } );
     }
-    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-    account = accounts[0];
-    document.getElementById('connect-btn').disabled = true;
-	getSigners();
-  });
 
-
-
-  document.getElementById('sign-btn').addEventListener('click', async () => {
-    let edsign = "EDSIGN:" + await window.ethereum.request({
-      method: 'personal_sign',
-      params: ["my ed25519 public key is ",account],
+    let originalTitle = document.title;
+    let blinkInterval;
+    function notifyNewMessage() {
+        let blinkCount = 0;
+        clearInterval(blinkInterval);
+        blinkInterval = setInterval(() => {
+            document.title = (blinkCount % 2 === 0) ? "(New Message!) " + originalTitle : originalTitle;
+            blinkCount++;
+        }, 1000);
+    };
+    window.addEventListener('focus', () => {
+        clearInterval(blinkInterval);
+        document.title = originalTitle;
     });
-    socket.send(edsign);
-  });
 
+    let my_ed25519_to_sign = null;
 
-
-
-
-
-            const url = new URL('/wt', window.location.href);
-            url.protocol = url.protocol.replace('http', 'ws');
-            let socket;
-            const input = document.getElementById('input');
-            const output = document.getElementById('output');
-            function connect() {
-                output.value="websocket connencting";
-                socket = new WebSocket(url.href);
-                socket.onclose = () => {
-                    console.log('Socket closed. Reconnecting ...');
-                    output.value="websocket reconnencting";
-                    setTimeout(connect, 120);
-                };
-const verify = document.getElementById('verify');
-socket.onmessage = async(event) => { 
-    //                 const parts = event.data.split(':');
-    //                   if (parts[0] == "EDSIGN") {
-    //                      verify.innerText = await window.ethereum.request({ method: 'personal_ecRecover', params: ["my ed25519 public key is ",parts[1]] });
-    //                 } else 
-    {
-        let messages = JSON.parse(event.data);
-        for (i in messages) {
-            if ("ChatMessage" in messages[i]) {
-                output.value = messages[i].ChatMessage.message
-            }
+    document.getElementById('connect-btn').addEventListener('click', async () => {
+        if (!window.ethereum) {
+            alert('Install MetaMask!');
+            return;
         }
-        notifyNewMessage();
-    }
-                };
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        my_eth_address = accounts[0];
+        if ( my_ed25519_to_sign  != null ) {
+            let sig = await window.ethereum.request({
+                method: 'personal_sign',
+                params: ["my ed25519 public key is " + my_ed25519_to_sign,my_eth_address],
+            });
+            socket.send(JSON.stringify([{SignedPub:{ed25519:my_ed25519_to_sign,signature:sig}}]  )); 
+        }
+        getSigners();
+        document.getElementById('connect-btn').disabled = true;
+    });
+
+    const url = new URL('/wt', window.location.href);
+    url.protocol = url.protocol.replace('http', 'ws');
+    let socket;
+    const input = document.getElementById('input');
+    const output = document.getElementById('output');
+    function connect() {
+        output.value="websocket connencting";
+        socket = new WebSocket(url.href);
+        socket.onclose = () => {
+            console.log('Socket closed. Reconnecting ...');
+            output.value="websocket reconnencting";
+            setTimeout(connect, 120);
+        };
+        const verify = document.getElementById('verify');
+        socket.onmessage = async(event) => { 
+            let messages = JSON.parse(event.data);
+            for (i in messages) {
+                if ("MyPublicKey" in messages[i]) {
+                    let mpk=messages[i].MyPublicKey;
+                    output.value = "got mypublickey\nmyeth " + my_eth_address;
+                    output.value += "\ntheir eth " + their_eth_addr;
+                    let sig = mpk.ed25519_eth_signed;
+                    output.value +=  "\nsig: " + sig;
+                    let ed25519 = mpk.ed25519h;
+                    output.value +=  "\ned25519: " + ed25519;
+                    let eth_addr = await window.ethereum.request({ method: 'personal_ecRecover', params: ["my ed25519 public key is " + ed25519 ,sig] });
+                    output.value +=  "\neth_addr: " + eth_addr;
+                    if (eth_addr.toUpperCase() == their_eth_addr.toUpperCase()) {
+                        their_ed25519 = ed25519; 
+                        output.value +=  "\n\n****** their ed25519 " + their_ed25519 + " signed by eth_addr: " + eth_addr;
+                    }
+                }
+                if ("PleaseSignYourPub" in messages[i]) {
+                    my_ed25519_to_sign = messages[i].PleaseSignYourPub.ed25519
+                }
+                if ("ChatMessage" in messages[i]) {
+                    output.value = messages[i].ChatMessage.message
+                }
             }
-            connect();
-            input.addEventListener('input', () => { 
-                socket.send(JSON.stringify([{Forward:{to_ed25519:"3f9d6e5c6615f42800be38f07b7a78f5057ac35d1341f4c3a4e8a601312a4343",messages:[{ChatMessage:{message:input.value}}]}}]  )); });
-        </script>
+            notifyNewMessage();
+        };
+    }
+    connect();
+    input.addEventListener('input', () => { 
+        socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519,messages:[{ChatMessage:{message:input.value}}]}}]  )); });
+</script>
     </body>
 </html>

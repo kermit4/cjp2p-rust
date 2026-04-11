@@ -85,7 +85,11 @@ struct PeerInfo {
     anti_ip_spoofing_cookie_they_expect: Option<String>,
     #[serde_as(as = "Option<Hex>")]
     ed25519: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ed25519_eth_signed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     you_should_see_this: Option<YouSouldSeeThis>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     i_just_saw_this: Option<IJustSawThis>,
 }
 impl PeerInfo {
@@ -94,6 +98,7 @@ impl PeerInfo {
             delay: Duration::from_millis(200),
             anti_ip_spoofing_cookie_they_expect: None,
             ed25519: None,
+            ed25519_eth_signed: None,
             you_should_see_this: Some(YouSouldSeeThis {
                 id: "43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1".to_owned(),
                 length: 105277987,
@@ -114,10 +119,8 @@ struct Keypair {
     public: Vec<u8>,
     #[serde_as(as = "Base64")]
     private: Vec<u8>,
-    #[serde_as(as = "Option<Hex>")]
-    public_hex: Option<Vec<u8>>,
-    #[serde_as(as = "Option<Hex>")]
-    private_hex: Option<Vec<u8>>,
+    public_hex: Option<String>,
+    private_hex: Option<String>,
 }
 impl Keypair {
     fn load_key() -> Self {
@@ -130,8 +133,8 @@ impl Keypair {
             let mut f = file.as_ref().unwrap();
             let mut saved: Self = serde_json::from_reader(f).unwrap();
             if saved.public_hex.is_none() {
-                saved.public_hex = Some(saved.public.clone());
-                saved.private_hex = Some(saved.private.clone());
+                saved.public_hex = Some(hex::encode(saved.public.to_owned()));
+                saved.private_hex = Some(hex::encode(saved.private.to_owned()));
                 f.seek(SeekFrom::Start(0)).ok();
                 f.write_all(&serde_json::to_vec_pretty(&saved).unwrap())
                     .ok();
@@ -144,8 +147,8 @@ impl Keypair {
         let keypair = Self {
             public: keypair_.public.clone(),
             private: keypair_.private.clone(),
-            public_hex: Some(keypair_.public),
-            private_hex: Some(keypair_.private),
+            public_hex: Some(hex::encode(keypair_.public)),
+            private_hex: Some(hex::encode(keypair_.private)),
         };
         file.as_ref()
             .unwrap()
@@ -177,7 +180,7 @@ struct PersistentState {
     you_should_see_this: Option<YouSouldSeeThis>,
     i_just_saw_this: Option<IJustSawThis>,
     #[serde(default)]
-    oneplusone: HashMap<String, Option<String>>,
+    my_ed25519_signed_by_web_wallet: Option<String>,
 }
 impl PersistentState {
     fn save(&self) {
@@ -203,7 +206,7 @@ impl PersistentState {
             return Self {
                 you_should_see_this: None,
                 i_just_saw_this: None,
-                oneplusone: HashMap::new(),
+                my_ed25519_signed_by_web_wallet: Some("".to_string()),
             };
         }
     }
@@ -327,14 +330,7 @@ impl PeerState {
             if let Some(v) = &self.p.you_should_see_this {
                 message_out.push(Message::YouSouldSeeThis(v.clone()));
             }
-            message_out.push(Message::MyPublicKey(MyPublicKey {
-                ed25519: self.keypair.public.clone(),
-            }));
-            if self.p.oneplusone.len() > 0 {
-                message_out.push(Message::OnePlusOneMemberships(OnePlusOneMemberships {
-                    id: self.p.oneplusone.keys().cloned().collect(),
-                }));
-            }
+            message_out.push(MyPublicKey::new(self));
             message_out.append(&mut self.always_returned(sa));
             message_out.push(PleaseReturnThisMessage::new(self));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -469,8 +465,18 @@ impl PeerState {
             Ok(buf) => {
                 //dbg!(msg);
                 info!("websocket typed: {}",buf);
-                if buf.len() > 0 {
-                    let messages = serde_json::from_slice(&buf.into_data()).unwrap();
+                let message_in_bytes = buf.into_data();
+                if message_in_bytes.len() > 0 {
+                    let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            warn!( "could not deserialize incoming messages from websocket {e}  :  {}",
+                    String::from_utf8_lossy(&message_in_bytes));
+                            return;
+                        }
+                    };
+                    let messages = messages.0;
+
                     let message_out =
                         self.handle_messages(messages, &Source::None, &mut false, inbound_states);
                     if message_out.len() == 0 {
@@ -552,7 +558,7 @@ fn main() -> Result<(), std::io::Error> {
     if sndbuf < 0x40000 {
         warn!("sndbuf  = {:?}",sndbuf);
     }
-    println!("your ed25519 public key, stored in cjp2p/state/key.json, is:  0x{}",hex::encode(&ps.keypair.public));
+    println!("your ed25519 public key, stored in cjp2p/state/key.json, is:  0x{}",ps.keypair.public_hex.clone().unwrap());
     println!("web console at        http://127.0.0.1:24255/");
     let mut args = env::args();
     args.next();
@@ -871,8 +877,14 @@ fn handle_web_request(
             thread::sleep(Duration::from_millis(20));
         }
         if buf.starts_with(b"GET /wt") {
-            let ws = accept(stream).unwrap();
+            let mut ws = accept(stream).unwrap();
             info!("websocket2 request:");
+            if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
+                let message =
+                format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]",ps.keypair.public_hex.clone().unwrap());
+                info!("asking to be signed: {}",message);
+                ws.write(message.into()).unwrap();
+            }
             ps.ws_vec.push(ws);
             return;
         }
@@ -941,7 +953,7 @@ fn handle_web_request(
                 return;
             }
             if req.path.starts_with("/chat") {
-                let mut their_pub_hex = req.path[7..].to_string();
+                let their_pub_hex = req.path[7..].to_string();
                 if !ps.recorded_chats.get_mut(&their_pub_hex).is_some() {
                     let mut past_chats = vec![];
                     for (their_pub_hex_maybe, msg) in &ps.all_chats {
@@ -972,27 +984,6 @@ fn handle_web_request(
                             ,fill);
                 } else if req.path.starts_with("/chat5/") {
                     page += include_str!("chat5.html");
-                } else if req.path.starts_with("/chat4/") {
-                    if !ps.p.oneplusone.contains_key(&their_pub_hex) {
-                        ps.p.oneplusone.insert(their_pub_hex.to_owned(), None);
-                    }
-                    if let Some(peer) = &ps.p.oneplusone[&their_pub_hex] {
-                        info!("{} peer {} ",their_pub_hex,peer);
-                        their_pub_hex = peer.to_owned();
-                    } else {
-                        // TODO actually search
-                        page += &"<html><head><meta http-equiv=refresh content=4><title>searching</title></head><body>\n\
-                            searching for the peer";
-                        stream.write_all(page.as_bytes()).ok();
-                        return;
-                    }
-                    page += &format!(
-                            include_str!("chat4.html")
-                            ,my_pub_hex
-                            ,their_pub_hex
-                            ,fill
-                           ,their_pub_hex
-                            );
                 } else if req.path.starts_with("/chat2/") {
                     page += &format!(
                             include_str!("chat2.html")
@@ -1054,7 +1045,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
 
     let (message_in_len, src) = ps.socket.recv_from(&mut buf).unwrap();
     let message_in_bytes = &buf[0..message_in_len];
-    trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
+    trace!( "incoming message {} from {src}", String::from_utf8_lossy(message_in_bytes));
     for ws in &mut ps.ws_vec {
         trace!( "sending message {} to websocket", 
                    String::from_utf8_lossy(message_in_bytes));
@@ -1282,6 +1273,7 @@ struct Content {
     offset: usize,
     #[serde_as(as = "Base64")]
     base64: Vec<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     eof: Option<usize>,
 }
 
@@ -1906,7 +1898,52 @@ impl Receive for ReturnedMessage {
         return vec![];
     }
 }
+/*
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug)]
+struct GetPubByEth {
+    addr: String,
+}
+impl Receive for GetPubByEth {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: &Source,
+        _: &mut bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        if let Some(s) = p.ed25519_eth_signed {
+            if s==self.addr{
+Message::MyPublicKey(MyPublicKey{ ed25519: self.addr,
+ed25519_eth_signed: p.ed25519_eth_signed,
+}}}
 
+        return vec![];
+    }
+}
+*/
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug)]
+struct SignedPub {
+    signature: String,
+}
+impl Receive for SignedPub {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: &Source,
+        _: &mut bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        if let Source::S(_) = src {
+            return vec![];
+        }
+        info!("websocket sent signed {:?} to ",
+            &self.signature);
+        ps.p.my_ed25519_signed_by_web_wallet = Some(self.signature);
+        return vec![];
+    }
+}
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct Forward {
@@ -1933,50 +1970,19 @@ impl Receive for Forward {
 }
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
-struct OnePlusOneMemberships {
-    id: Vec<String>,
-}
-impl Receive for OnePlusOneMemberships {
-    fn receive(
-        self,
-        ps: &mut PeerState,
-        src: &Source,
-        _: &mut bool,
-        _: &mut HashMap<String, InboundState>,
-    ) -> Vec<Message> {
-        if let Source::S(src) = *src {
-            let mut memberships_to_send = vec![];
-            let my_pub_hex = hex::encode(&ps.keypair.public);
-            if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
-                let their_pub_hex = hex::encode(their_pub);
-                if their_pub_hex == my_pub_hex {
-                    return vec![];
-                }
-                for id in self.id {
-                    if !ps.p.oneplusone.contains_key(&id) {
-                        continue;
-                    }
-                    let s = ps.p.oneplusone.get_mut(&id).unwrap();
-                    if s.is_none() {
-                        *s = Some(their_pub_hex.clone());
-                        info!("found {} peer {} (is not me {})",id,their_pub_hex,my_pub_hex);
-                        memberships_to_send.push(id);
-                    }
-                }
-            }
-            if memberships_to_send.len() == 0 {
-                return vec![];
-            }
-            return vec![Message::OnePlusOneMemberships(OnePlusOneMemberships{id: memberships_to_send})];
-        }
-        return vec![];
-    }
-}
-#[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
 struct MyPublicKey {
-    #[serde_as(as = "Base64")]
-    ed25519: Vec<u8>,
+    #[serde_as(as = "Hex")]
+    ed25519h: Vec<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ed25519_eth_signed: Option<String>,
+}
+impl MyPublicKey {
+    fn new(ps: &PeerState) -> Message {
+        return Message::MyPublicKey(Self {
+            ed25519h: ps.keypair.public.clone(),
+            ed25519_eth_signed: ps.p.my_ed25519_signed_by_web_wallet.clone(),
+        });
+    }
 }
 impl Receive for MyPublicKey {
     fn receive(
@@ -1987,7 +1993,9 @@ impl Receive for MyPublicKey {
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
-            ps.peer_map.get_mut(&src).unwrap().ed25519 = Some(self.ed25519.clone());
+            let pi = ps.peer_map.get_mut(&src).unwrap();
+            pi.ed25519 = Some(self.ed25519h.clone());
+            pi.ed25519_eth_signed = self.ed25519_eth_signed;
         }
         return vec![];
     }
@@ -2002,7 +2010,7 @@ impl ChatMessage {
         debug!("new chatmessage {message} to {dst}");
         let mut message_out = vec![
             PleaseReturnThisMessage::new(ps),
-            Message::MyPublicKey(MyPublicKey { ed25519: ps.keypair.public.clone(), }),
+            MyPublicKey::new(ps),
             Message::ChatMessage(Self { message: message }),
         ];
         message_out.append(&mut ps.always_returned(dst));
@@ -2173,18 +2181,32 @@ impl Receive for EncryptedMessages {
                 .local_private_key(&ps.keypair.private)
                 .build_responder()
                 .unwrap();
-            let mut buf = vec![0u8; 99999];
-            if let Ok(len) = noise.read_message(&self.base64, &mut buf) {
-                buf.truncate(len);
+            let mut message_in_bytes = vec![0u8; 99999];
+            if let Ok(len) = noise.read_message(&self.base64, &mut message_in_bytes) {
+                message_in_bytes.truncate(len);
                 trace!("handling decrypted message from {src}: {}",
-             String::from_utf8_lossy(&buf));
-                let messages = serde_json::from_slice(&buf).unwrap();
+             String::from_utf8_lossy(&message_in_bytes));
+
+                let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!( "could not deserialize incoming messages from {} {e}  :  {}",src,
+                    String::from_utf8_lossy(&message_in_bytes));
+                        return vec![];
+                    }
+                };
+                let messages = messages.0;
+
                 *might_be_ip_spoofing &= ps.check_key(&messages, src);
                 for ws in &mut ps.ws_vec {
                     trace!( "sending message {} to websocket", 
-                   String::from_utf8_lossy(&buf));
+                   String::from_utf8_lossy(&message_in_bytes));
                     if ws
-                        .write(String::from_utf8_lossy(&buf).to_string().into())
+                        .write(
+                            String::from_utf8_lossy(&message_in_bytes)
+                                .to_string()
+                                .into(),
+                        )
                         .is_ok()
                     {
                         ws.flush().ok();
@@ -2223,8 +2245,8 @@ enum Message {
     ContentList(ContentList),
     YouSouldSeeThis(YouSouldSeeThis),
     IJustSawThis(IJustSawThis),
-    OnePlusOneMemberships(OnePlusOneMemberships),
     Forward(Forward),
+    SignedPub(SignedPub),
 }
 
 // this struct only exists to be able to get that VecSkipError in there.
@@ -2276,12 +2298,7 @@ fn msgs_to_pub(
     }
     let mut message_out: Vec<serde_json::Value> = vec![];
     message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
-    message_out.push(
-        serde_json::to_value(Message::MyPublicKey(MyPublicKey {
-            ed25519: ps.keypair.public.clone(),
-        }))
-        .unwrap(),
-    );
+    message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
     for m in messages {
         message_out.push(serde_json::to_value(m).unwrap());
     }
