@@ -144,6 +144,7 @@ struct PeerState {
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
     ws_map: HashMap<String, WebSocket<TcpStream>>,
+    ws_vec: Vec<WebSocket<TcpStream>>,
     content_gateways: Vec<ContentGateway>,
 }
 #[derive(Serialize, Deserialize, Debug)]
@@ -202,6 +203,7 @@ impl PeerState {
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
             ws_map: HashMap::new(),
+            ws_vec: Vec::new(),
             content_gateways: Vec::new(),
         };
         ps.socket.set_broadcast(true).ok();
@@ -429,6 +431,20 @@ impl PeerState {
         cg.serve_content_from_inbound_state(i);
     }
 
+    fn handle_websocket2(&mut self, index: usize, _: &mut HashMap<String, InboundState>) {
+        let ws = &mut self.ws_vec[index];
+        match ws.read() {
+            Ok(msg) => {
+                //    self.handle_messages(msg, "0.0.0.0:0", &mut false, inbound_states);
+                info!("websocket typed: {}",msg);
+                //dbg!(msg);
+                //                chat_to_pub(self, &their_pub_hex, &msg.to_string());
+            }
+            _ => {
+                self.ws_vec.remove(index);
+            }
+        };
+    }
     fn handle_websocket(&mut self, their_pub_hex: &String) {
         let ws = self.ws_map.get_mut(their_pub_hex).unwrap();
         match ws.read() {
@@ -513,6 +529,9 @@ fn main() -> Result<(), std::io::Error> {
                 write_fds.insert(fd);
             }
         }
+        for ws in &ps.ws_vec {
+            read_fds.insert(ws.get_ref().as_fd());
+        }
         for (_, ws) in ps.ws_map.iter() {
             read_fds.insert(ws.get_ref().as_fd());
         }
@@ -522,6 +541,13 @@ fn main() -> Result<(), std::io::Error> {
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if write_fds.contains(cg.http_socket.as_fd()) {
                 ps.serve_http_content(&mut inbound_states, index);
+                continue 'main;
+            }
+        }
+
+        for (k, ws) in ps.ws_vec.iter().enumerate() {
+            if read_fds.contains(ws.get_ref().as_fd()) {
+                ps.handle_websocket2(k, &mut inbound_states);
                 continue 'main;
             }
         }
@@ -795,6 +821,12 @@ fn handle_web_request(
         } {
             thread::sleep(Duration::from_millis(20));
         }
+        if buf.starts_with(b"GET /wt") {
+            let ws = accept(stream).unwrap();
+            info!("websocket2 request:");
+            ps.ws_vec.push(ws);
+            return;
+        }
         if buf.starts_with(b"GET /ws") {
             let mut ws = accept(stream).unwrap();
             info!("websocket request:");
@@ -890,13 +922,7 @@ fn handle_web_request(
                             ,their_pub_hex
                             ,fill);
                 } else if req.path.starts_with("/chat5/") {
-                    page += &format!(
-                            include_str!("chat5.html")
-                            ,my_pub_hex
-                            ,their_pub_hex
-                            ,fill
-                           ,their_pub_hex
-                            );
+                    page += include_str!("chat5.html");
                 } else if req.path.starts_with("/chat4/") {
                     if !ps.p.oneplusone.contains_key(&their_pub_hex) {
                         ps.p.oneplusone.insert(their_pub_hex.to_owned(), None);
@@ -980,6 +1006,16 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let (message_in_len, src) = ps.socket.recv_from(&mut buf).unwrap();
     let message_in_bytes = &buf[0..message_in_len];
     trace!( "incoming message {:?} from {src}", String::from_utf8_lossy(message_in_bytes));
+    for ws in &mut ps.ws_vec {
+        trace!( "sending message {} to websocket", 
+                   String::from_utf8_lossy(message_in_bytes));
+        if ws
+            .write(String::from_utf8_lossy(message_in_bytes).to_string().into())
+            .is_ok()
+        {
+            ws.flush().ok();
+        }
+    }
     let messages: Messages = match serde_json::from_slice(message_in_bytes) {
         Ok(r) => r,
         Err(e) => {
@@ -2034,12 +2070,23 @@ impl Receive for EncryptedMessages {
             .local_private_key(&ps.keypair.private)
             .build_responder()
             .unwrap();
-        let mut buf = [0u8; 99999];
+        let mut buf = vec![0u8; 99999];
         if let Ok(len) = noise.read_message(&self.base64, &mut buf) {
+            buf.truncate(len);
             trace!("handling decrypted message from {src}: {}",
-             String::from_utf8_lossy(&buf[..len]));
-            let messages = serde_json::from_slice(&buf[..len]).unwrap();
+             String::from_utf8_lossy(&buf));
+            let messages = serde_json::from_slice(&buf).unwrap();
             *might_be_ip_spoofing &= ps.check_key(&messages, src);
+            for ws in &mut ps.ws_vec {
+                trace!( "sending message {} to websocket", 
+                   String::from_utf8_lossy(&buf));
+                if ws
+                    .write(String::from_utf8_lossy(&buf).to_string().into())
+                    .is_ok()
+                {
+                    ws.flush().ok();
+                }
+            }
             return ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
         } else {
             info!("failed to decrypt a message from {src}");
