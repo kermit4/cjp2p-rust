@@ -40,10 +40,35 @@ use std::{io, str};
 //use base64::{engine::general_purpose, Engine as _};
 //use nix::NixPath;
 //use std::convert::TryInto;
-//use std::fmt;
+use std::fmt;
 //use std::io::copy;
 
 const NOISE_PARAMS: &str = "Noise_NK_25519_AESGCM_SHA256";
+enum Source {
+    // <'a> {
+    None, // W(&'a WebSocket<TcpStream>), // borrow checker, this really has to be the index, or taken out of peerstate
+    S(SocketAddr),
+}
+
+//impl<'a> fmt::Debug for Source<'a> {
+impl fmt::Debug for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Source::None => f.write_str(""),
+            // Source::W(ws) => {
+            //     // WebSocket doesn't impl Debug, so we can't print it
+            //     // Print the peer addr if we can get it, otherwise just the type
+            //     match ws.get_ref().peer_addr() {
+            //         Ok(addr) => f.debug_tuple("W")
+            //             .field(&format_args!("WebSocket -> {}", addr))
+            //             .finish(),
+            //         Err(_) => f.write_str("W(WebSocket)"),
+            //     }
+            // }
+            Source::S(addr) => f.debug_tuple("S").field(addr).finish(),
+        }
+    }
+}
 
 macro_rules! BLOCK_SIZE {
     () => {
@@ -380,7 +405,7 @@ impl PeerState {
     fn handle_messages(
         &mut self,
         messages: Vec<Message>,
-        src: SocketAddr,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
@@ -388,7 +413,7 @@ impl PeerState {
         for message_in_enum in messages {
             message_out.append(&mut message_in_enum.receive(
                 self,
-                src,
+                &src,
                 might_be_ip_spoofing,
                 inbound_states,
             ));
@@ -440,27 +465,34 @@ impl PeerState {
         inbound_states: &mut HashMap<String, InboundState>,
     ) {
         info!("handling {} websockets",self.ws_vec.len());
-        let ws = &mut self.ws_vec[index];
-        match ws.read() {
+        match self.ws_vec[index].read() {
             Ok(buf) => {
                 //dbg!(msg);
                 info!("websocket typed: {}",buf);
                 if buf.len() > 0 {
                     let messages = serde_json::from_slice(&buf.into_data()).unwrap();
-                    self.handle_messages(
-                        messages,
-                        "1.0.0.0:1".parse().unwrap(),
-                        &mut false,
-                        inbound_states,
-                    );
-                    //msgs_to_pub(self, &msg.their_ed25519, msg.message);
-                    //                        msgs_to_pub(self, &"0x3f9d6e5c6615f42800be38f07b7a78f5057ac35d1341f4c3a4e8a601312a4343".to_string(), msg);
+                    let message_out =
+                        self.handle_messages(messages, &Source::None, &mut false, inbound_states);
+                    if message_out.len() == 0 {
+                        return;
+                    }
+                    let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
+                    info!( "sending message {:?} to websocket",  String::from_utf8_lossy(&message_out_bytes));
+                    let ws = &mut self.ws_vec[index];
+                    match ws.write(message_out_bytes.into()) {
+                        Ok(_) => {
+                            ws.flush().ok();
+                        }
+                        _ => {
+                            self.ws_vec.remove(index);
+                        }
+                    }
                 }
             }
             _ => {
                 self.ws_vec.remove(index);
             }
-        };
+        }
     }
     fn handle_websocket(&mut self, their_pub_hex: &String) {
         let ws = self.ws_map.get_mut(their_pub_hex).unwrap();
@@ -1050,8 +1082,12 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     }
     // This ist a Vec<Value> because I don't know the structure of the Please*Returns
     let mut might_be_ip_spoofing = ps.check_key(&messages, src);
-    let mut message_out =
-        ps.handle_messages(messages, src, &mut might_be_ip_spoofing, inbound_states);
+    let mut message_out = ps.handle_messages(
+        messages,
+        &Source::S(src),
+        &mut might_be_ip_spoofing,
+        inbound_states,
+    );
     if message_out.len() == 0 {
         return;
     }
@@ -1108,7 +1144,7 @@ impl Receive for AlwaysReturned {
     fn receive(
         self,
         _: &mut PeerState,
-        _: SocketAddr,
+        _: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
@@ -1125,15 +1161,17 @@ impl Receive for PleaseAlwaysReturnThisMessage {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        trace!("saving cookie {} for {src}",self.cookie);
-        ps.peer_map
-            .get_mut(&src)
-            .unwrap()
-            .anti_ip_spoofing_cookie_they_expect = Some(self.cookie);
+        if let Source::S(src) = *src {
+            trace!("saving cookie {} for {:?}",self.cookie,src);
+            ps.peer_map
+                .get_mut(&src)
+                .unwrap()
+                .anti_ip_spoofing_cookie_they_expect = Some(self.cookie);
+        }
         return vec![];
     }
 }
@@ -1143,15 +1181,17 @@ impl Receive for PleaseSendPeers {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         let p = ps.best_peers(1 + 45 * !*might_be_ip_spoofing as i32, 6);
         trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
-        if *might_be_ip_spoofing {
-            message_out.push(ps.please_always_return(src));
+        if let Source::S(src) = *src {
+            if *might_be_ip_spoofing {
+                message_out.push(ps.please_always_return(src));
+            }
         }
         return message_out;
     }
@@ -1160,7 +1200,7 @@ impl Receive for Peers {
     fn receive(
         self,
         ps: &mut PeerState,
-        _: SocketAddr,
+        _: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
@@ -1185,19 +1225,20 @@ impl Receive for IJustSawThis {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if let Some(i) = inbound_states.get_mut(&self.id) {
-            i.peers.insert(src);
-        } else {
-            InboundState::send_content_peers_from_disk(&self.id, 1, &src);
+        if let Source::S(src) = *src {
+            if let Some(i) = inbound_states.get_mut(&self.id) {
+                i.peers.insert(src);
+            } else {
+                InboundState::send_content_peers_from_disk(&self.id, 1, &src);
+            }
+            if !*might_be_ip_spoofing && src.port() == 24254 {
+                ps.peer_map.get_mut(&src).unwrap().i_just_saw_this = Some(self);
+            }
         }
-        if !*might_be_ip_spoofing && src.port() == 24254 {
-            ps.peer_map.get_mut(&src).unwrap().i_just_saw_this = Some(self);
-        }
-
         return vec![];
     }
 }
@@ -1210,17 +1251,19 @@ impl Receive for YouSouldSeeThis {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if let Some(i) = inbound_states.get_mut(&self.id) {
-            i.peers.insert(src);
-        } else {
-            InboundState::send_content_peers_from_disk(&self.id, 1, &src);
-        }
-        if !*might_be_ip_spoofing && src.port() == 24254 {
-            ps.peer_map.get_mut(&src).unwrap().you_should_see_this = Some(self);
+        if let Source::S(src) = *src {
+            if let Some(i) = inbound_states.get_mut(&self.id) {
+                i.peers.insert(src);
+            } else {
+                InboundState::send_content_peers_from_disk(&self.id, 1, &src);
+            }
+            if !*might_be_ip_spoofing && src.port() == 24254 {
+                ps.peer_map.get_mut(&src).unwrap().you_should_see_this = Some(self);
+            }
         }
         return vec![];
     }
@@ -1288,35 +1331,38 @@ impl Receive for PleaseSendContent {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if self.id.find("/") != None || self.id.find("\\") != None {
-            return vec![];
-        };
-        let mut message_out: Vec<Message> = Vec::new();
-        if let Some(i) = inbound_states.get_mut(&self.id) {
-            i.peers.insert(src);
-            message_out.append(&mut i.send_content_peers(*might_be_ip_spoofing, src));
-        } else {
-            message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
+        if let Source::S(src) = *src {
+            if self.id.find("/") != None || self.id.find("\\") != None {
+                return vec![];
+            };
+            let mut message_out: Vec<Message> = Vec::new();
+            if let Some(i) = inbound_states.get_mut(&self.id) {
+                i.peers.insert(src);
+                message_out.append(&mut i.send_content_peers(*might_be_ip_spoofing, src));
+            } else {
+                message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
+            }
+            if message_out.len() == 0
+                || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0)
+            // if the file is small, they dont need more peers
+            // and if its big they'll hit this random often
+            {
+                message_out.append(&mut InboundState::send_content_peers_from_disk(
+                    &self.id,
+                    3 + 45 * !*might_be_ip_spoofing as usize,
+                    &src,
+                ));
+            }
+            if *might_be_ip_spoofing && message_out.len() > 0 {
+                message_out.push(ps.please_always_return(src));
+            }
+            return message_out;
         }
-        if message_out.len() == 0
-            || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0)
-        // if the file is small, they dont need more peers
-        // and if its big they'll hit this random often
-        {
-            message_out.append(&mut InboundState::send_content_peers_from_disk(
-                &self.id,
-                3 + 45 * !*might_be_ip_spoofing as usize,
-                &src,
-            ));
-        }
-        if *might_be_ip_spoofing && message_out.len() > 0 {
-            message_out.push(ps.please_always_return(src));
-        }
-        return message_out;
+        return vec![];
     }
 }
 
@@ -1366,64 +1412,67 @@ impl Receive for Content {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if !inbound_states.contains_key(&self.id) {
-            debug!( "unwanted content, probably dups -- the tail still in flight after completion, for {0} block {1}",
+        if let Source::S(src) = *src {
+            if !inbound_states.contains_key(&self.id) {
+                debug!( "unwanted content, probably dups -- the tail still in flight after completion, for {0} block {1}",
                 self.id, self.offset / BLOCK_SIZE!());
-            return vec![];
-        }
-        //if (rand::rng().random::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
-        if (rand::rng().random::<u32>() % 101) == 0 {
-            for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof {
-                    continue;
-                }
-                debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
-                i.request_blocks(ps, HashSet::from([src]));
-                i.next_block += 1;
-                break;
+                return vec![];
             }
-        }
-        let i = inbound_states.get_mut(&self.id).unwrap();
-        i.peers.insert(src);
-        let block_number = self.offset / BLOCK_SIZE!();
-        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
-        let mut message_out = i.receive_content(&self, ps);
-        if self.eof.is_some() {
-            ps.p.i_just_saw_this = Some(IJustSawThis {
-                id: self.id.to_owned(),
-                length: self.eof.unwrap() as u64,
-            });
-        }
-        if i.finished() {
-            for cg in &mut ps.content_gateways {
-                if cg.id == self.id {
-                    cg.serve_content_from_inbound_state(i);
+            //if (rand::rng().random::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
+            if (rand::rng().random::<u32>() % 101) == 0 {
+                for (_, i) in inbound_states.iter_mut() {
+                    if i.next_block * BLOCK_SIZE!() >= i.eof {
+                        continue;
+                    }
+                    debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
+                    i.request_blocks(ps, HashSet::from([src]));
+                    i.next_block += 1;
+                    break;
                 }
             }
-            inbound_states.remove(&self.id);
-        }
-        if message_out.len() == 0 {
-            for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof {
-                    continue;
+            let i = inbound_states.get_mut(&self.id).unwrap();
+            i.peers.insert(src);
+            let block_number = self.offset / BLOCK_SIZE!();
+            debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
+            let mut message_out = i.receive_content(&self, ps);
+            if self.eof.is_some() {
+                ps.p.i_just_saw_this = Some(IJustSawThis {
+                    id: self.id.to_owned(),
+                    length: self.eof.unwrap() as u64,
+                });
+            }
+            if i.finished() {
+                for cg in &mut ps.content_gateways {
+                    if cg.id == self.id {
+                        cg.serve_content_from_inbound_state(i);
+                    }
                 }
-                message_out = PleaseSendContent::new_messages(i, ps);
-                i.next_block += 1;
-                break;
+                inbound_states.remove(&self.id);
             }
-        }
-        if message_out.len() == 0 {
-            if let Some(i) = inbound_states.get_mut(&self.id) {
-                i.next_block = 0;
-                message_out = PleaseSendContent::new_messages(i, ps);
-                i.next_block += 1;
+            if message_out.len() == 0 {
+                for (_, i) in inbound_states.iter_mut() {
+                    if i.next_block * BLOCK_SIZE!() >= i.eof {
+                        continue;
+                    }
+                    message_out = PleaseSendContent::new_messages(i, ps);
+                    i.next_block += 1;
+                    break;
+                }
             }
+            if message_out.len() == 0 {
+                if let Some(i) = inbound_states.get_mut(&self.id) {
+                    i.next_block = 0;
+                    message_out = PleaseSendContent::new_messages(i, ps);
+                    i.next_block += 1;
+                }
+            }
+            return message_out;
         }
-        return message_out;
+        return vec![];
     }
 }
 //
@@ -1790,19 +1839,21 @@ impl Receive for MaybeTheyHaveSome {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if !inbound_states.contains_key(&self.id) {
-            return vec![];
-        }
-        let i = inbound_states.get_mut(&self.id).unwrap();
-        for p in self.peers {
-            if i.peers.insert(p) {
-                // new possible source? try it
-                info!("{} trying new peer {} suggested by {}",self.id,p,src);
-                i.request_blocks(ps, HashSet::from([p]));
+        if let Source::S(src) = *src {
+            if !inbound_states.contains_key(&self.id) {
+                return vec![];
+            }
+            let i = inbound_states.get_mut(&self.id).unwrap();
+            for p in self.peers {
+                if i.peers.insert(p) {
+                    // new possible source? try it
+                    info!("{} trying new peer {} suggested by {}",self.id,p,src);
+                    i.request_blocks(ps, HashSet::from([p]));
+                }
             }
         }
         return vec![];
@@ -1816,7 +1867,7 @@ impl Receive for PleaseReturnThisMessage {
     fn receive(
         self,
         _: &mut PeerState,
-        _: SocketAddr,
+        _: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
@@ -1839,17 +1890,19 @@ impl Receive for ReturnedMessage {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if !*might_be_ip_spoofing {
-            if let Some(peer) = ps.peer_map.get_mut(&src) {
-                peer.delay =
-                    (ps.boot + Duration::from_secs_f64(self.cookie.parse().unwrap())).elapsed();
-                trace!("measured {0} at {1}", src, peer.delay.as_secs_f64())
-            }
-        };
+        if let Source::S(src) = *src {
+            if !*might_be_ip_spoofing {
+                if let Some(peer) = ps.peer_map.get_mut(&src) {
+                    peer.delay =
+                        (ps.boot + Duration::from_secs_f64(self.cookie.parse().unwrap())).elapsed();
+                    trace!("measured {0} at {1}", src, peer.delay.as_secs_f64())
+                }
+            };
+        }
         return vec![];
     }
 }
@@ -1864,10 +1917,13 @@ impl Receive for Forward {
     fn receive(
         self,
         ps: &mut PeerState,
-        _: SocketAddr,
+        src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
+        if let Source::S(_) = src {
+            return vec![];
+        }
         info!("websocket asked me to forward {:?} to {} ",
             &self.messages
             ,&self.to_ed25519);
@@ -1884,33 +1940,36 @@ impl Receive for OnePlusOneMemberships {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        let mut memberships_to_send = vec![];
-        let my_pub_hex = hex::encode(&ps.keypair.public);
-        if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
-            let their_pub_hex = hex::encode(their_pub);
-            if their_pub_hex == my_pub_hex {
+        if let Source::S(src) = *src {
+            let mut memberships_to_send = vec![];
+            let my_pub_hex = hex::encode(&ps.keypair.public);
+            if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
+                let their_pub_hex = hex::encode(their_pub);
+                if their_pub_hex == my_pub_hex {
+                    return vec![];
+                }
+                for id in self.id {
+                    if !ps.p.oneplusone.contains_key(&id) {
+                        continue;
+                    }
+                    let s = ps.p.oneplusone.get_mut(&id).unwrap();
+                    if s.is_none() {
+                        *s = Some(their_pub_hex.clone());
+                        info!("found {} peer {} (is not me {})",id,their_pub_hex,my_pub_hex);
+                        memberships_to_send.push(id);
+                    }
+                }
+            }
+            if memberships_to_send.len() == 0 {
                 return vec![];
             }
-            for id in self.id {
-                if !ps.p.oneplusone.contains_key(&id) {
-                    continue;
-                }
-                let s = ps.p.oneplusone.get_mut(&id).unwrap();
-                if s.is_none() {
-                    *s = Some(their_pub_hex.clone());
-                    info!("found {} peer {} (is not me {})",id,their_pub_hex,my_pub_hex);
-                    memberships_to_send.push(id);
-                }
-            }
+            return vec![Message::OnePlusOneMemberships(OnePlusOneMemberships{id: memberships_to_send})];
         }
-        if memberships_to_send.len() == 0 {
-            return vec![];
-        }
-        return vec![Message::OnePlusOneMemberships(OnePlusOneMemberships{id: memberships_to_send})];
+        return vec![];
     }
 }
 #[serde_as]
@@ -1923,11 +1982,13 @@ impl Receive for MyPublicKey {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        ps.peer_map.get_mut(&src).unwrap().ed25519 = Some(self.ed25519.clone());
+        if let Source::S(src) = *src {
+            ps.peer_map.get_mut(&src).unwrap().ed25519 = Some(self.ed25519.clone());
+        }
         return vec![];
     }
 }
@@ -1957,44 +2018,46 @@ impl Receive for ChatMessage {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if *might_be_ip_spoofing {
-            error!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
-            return vec![];
-        }
-        println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
+        if let Source::S(src) = *src {
+            if *might_be_ip_spoofing {
+                error!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
+                return vec![];
+            }
+            println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
             ps.peer_map[&src].delay,
             self.message
         );
-        let their_pub_hex = hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default());
-        if (ps.all_chats.len() == 0
-            || ps.all_chats.last().unwrap().0 != their_pub_hex
-            || ps.all_chats.last().unwrap().1 != self.message)
-            && self.message.len() > 0
-        {
-            ps.all_chats
-                .push((their_pub_hex.to_string(), self.message.to_owned()));
-        }
-        if let Some(ws) = ps.ws_map.get_mut(&their_pub_hex) {
-            if ws.write(self.message.clone().into()).is_ok() {
-                ws.flush().ok();
+            let their_pub_hex = hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default());
+            if (ps.all_chats.len() == 0
+                || ps.all_chats.last().unwrap().0 != their_pub_hex
+                || ps.all_chats.last().unwrap().1 != self.message)
+                && self.message.len() > 0
+            {
+                ps.all_chats
+                    .push((their_pub_hex.to_string(), self.message.to_owned()));
             }
-        }
-        if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
-            if (v.len() == 0 || v.last().unwrap() != &self.message) && self.message.len() > 0 {
-                v.push(self.message.to_owned());
+            if let Some(ws) = ps.ws_map.get_mut(&their_pub_hex) {
+                if ws.write(self.message.clone().into()).is_ok() {
+                    ws.flush().ok();
+                }
             }
-        }
-        if self.message.starts_with("/version") {
-            return Self::new(ps, src, format!("VERSION {}\n",env!("BUILD_VERSION")));
-        }
-        if self.message.starts_with("/ping") {
-            return Self::new(ps, src, "PONG\n".to_string());
+            if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
+                if (v.len() == 0 || v.last().unwrap() != &self.message) && self.message.len() > 0 {
+                    v.push(self.message.to_owned());
+                }
+            }
+            if self.message.starts_with("/version") {
+                return Self::new(ps, src, format!("VERSION {}\n",env!("BUILD_VERSION")));
+            }
+            if self.message.starts_with("/ping") {
+                return Self::new(ps, src, "PONG\n".to_string());
+            }
         }
         return vec![];
     }
@@ -2005,7 +2068,7 @@ impl Receive for PleaseListContent {
     fn receive(
         self,
         _: &mut PeerState,
-        _: SocketAddr,
+        _: &Source,
         might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
@@ -2046,27 +2109,29 @@ impl Receive for ContentList {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        for (id, size) in &self.results {
-            trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
+        if let Source::S(src) = *src {
+            for (id, size) in &self.results {
+                trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
             Utc::now().to_rfc3339(),
             hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
             ps.peer_map[&src].delay,
             self.results
         );
-            if let Some(i) = inbound_states.get_mut(id) {
-                i.peers.insert(src);
-            } else {
-                InboundState::send_content_peers_from_disk(&id, 1, &src);
-            }
-            match ps.list_results.get_mut(&id.to_owned()) {
-                Some(h) => h.0 += 1,
-                None => {
-                    ps.list_results.insert(id.to_owned(), (1, *size));
-                    ()
+                if let Some(i) = inbound_states.get_mut(id) {
+                    i.peers.insert(src);
+                } else {
+                    InboundState::send_content_peers_from_disk(&id, 1, &src);
+                }
+                match ps.list_results.get_mut(&id.to_owned()) {
+                    Some(h) => h.0 += 1,
+                    None => {
+                        ps.list_results.insert(id.to_owned(), (1, *size));
+                        ()
+                    }
                 }
             }
         }
@@ -2099,34 +2164,41 @@ impl Receive for EncryptedMessages {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
-            .local_private_key(&ps.keypair.private)
-            .build_responder()
-            .unwrap();
-        let mut buf = vec![0u8; 99999];
-        if let Ok(len) = noise.read_message(&self.base64, &mut buf) {
-            buf.truncate(len);
-            trace!("handling decrypted message from {src}: {}",
+        if let Source::S(src) = *src {
+            let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
+                .local_private_key(&ps.keypair.private)
+                .build_responder()
+                .unwrap();
+            let mut buf = vec![0u8; 99999];
+            if let Ok(len) = noise.read_message(&self.base64, &mut buf) {
+                buf.truncate(len);
+                trace!("handling decrypted message from {src}: {}",
              String::from_utf8_lossy(&buf));
-            let messages = serde_json::from_slice(&buf).unwrap();
-            *might_be_ip_spoofing &= ps.check_key(&messages, src);
-            for ws in &mut ps.ws_vec {
-                trace!( "sending message {} to websocket", 
+                let messages = serde_json::from_slice(&buf).unwrap();
+                *might_be_ip_spoofing &= ps.check_key(&messages, src);
+                for ws in &mut ps.ws_vec {
+                    trace!( "sending message {} to websocket", 
                    String::from_utf8_lossy(&buf));
-                if ws
-                    .write(String::from_utf8_lossy(&buf).to_string().into())
-                    .is_ok()
-                {
-                    ws.flush().ok();
+                    if ws
+                        .write(String::from_utf8_lossy(&buf).to_string().into())
+                        .is_ok()
+                    {
+                        ws.flush().ok();
+                    }
                 }
+                return ps.handle_messages(
+                    messages,
+                    &Source::S(src),
+                    might_be_ip_spoofing,
+                    inbound_states,
+                );
+            } else {
+                info!("failed to decrypt a message from {src}");
             }
-            return ps.handle_messages(messages, src, might_be_ip_spoofing, inbound_states);
-        } else {
-            info!("failed to decrypt a message from {src}");
         }
         return vec![];
     }
@@ -2173,7 +2245,7 @@ trait Receive {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: SocketAddr,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message>;
