@@ -54,7 +54,7 @@ enum Source {
 impl fmt::Debug for Source {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Source::None => f.write_str(""),
+            Source::None => f.write_str("websocket"),
             // Source::W(ws) => {
             //     // WebSocket doesn't impl Debug, so we can't print it
             //     // Print the peer addr if we can get it, otherwise just the type

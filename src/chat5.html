@@ -12,8 +12,9 @@ messaging eth addr <input id=their_eth_addr size=80>
             <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
         </div>
 <br>
-<button onclick="autoscroll=true">enable debuging autoscroll</button>
-<button onclick="autoscroll=false">disable debuging autoscroll</button>
+debuging autoscroll: 
+<button onclick="autoscroll=true">enable </button>
+<button onclick="autoscroll=false">disable </button>
 	
 <script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
@@ -136,20 +137,23 @@ window.onunhandledrejection = e => {
 			work = work.then(async () => {
 				let messages_ = JSON.parse(event.data);
 				let messages;
-				log( "\n\n==============\n\n");
+//				log( "\n\n==============\n\n");
 				let src="shouldnt happen";
 				if ("Forwarded" in messages_[0]) {
 					src=messages_[0].Forwarded.from_ed25519;
 					messages = JSON.parse(messages_[0].Forwarded.messages);
 					//    log( "\n" + messages_[0].Forwarded.messages);
 				} else messages=messages_; 
-				log( "\n");
+//				log( "\n");
                 for (i in messages) {
                     let msg = messages[i]
-                    log("\n" + JSON.stringify(msg));
+//                    log("\n" + JSON.stringify(msg));
                     if ("ChatMessage" in msg)  { 
                         let txt = "";
-                        if (their_ed25519.value != src) { 
+                        if (
+                            their_ed25519.value != src
+                            && their_ed25519.value != ("0x"+ src) 
+                        ) { 
                             txt += "NOT "; // NOT VERIFIED
                             log("wrong key, wanted " + their_ed25519.value + " got " + src);
                         }
@@ -164,14 +168,13 @@ window.onunhandledrejection = e => {
 						let sig = mpk.ed25519_eth_signed;
 						log(  "\n\n-- sig: " + sig + "\n\n");
 						let ed25519 = mpk.ed25519h;
-						log(  "\n\n-- ed25519 sent this chat message (using Noise IK, verified on the node): " + ed25519 + "\n\n");
+						log(  "\n\n-- ed25519 sent this message (using Noise IK, verified on the node): " + ed25519 + "\n\n");
                         let unsigned_message = "my ed25519 public key is " + ed25519
                         let signer;
                         try {
                               signer = ethers.verifyMessage(unsigned_message, sig);
                         } catch (e) {
                               log('VERIFY FAILED:', e.message);
-                              return;
                         }
 						log(  "\n\n-- " + signer + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
 						if (signer != null && their_eth_addr.value != null &&
