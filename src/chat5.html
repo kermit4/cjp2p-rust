@@ -12,9 +12,9 @@ messaging eth addr <input id=their_eth_addr size=80>
             <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
         </div>
 <br>
-debuging autoscroll: 
-<button onclick="autoscroll=true">enable </button>
-<button onclick="autoscroll=false">disable </button>
+debuging : 
+<button onclick="logging=true">enable </button>
+<button onclick="logging=false">disable </button>
 	
 <script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
@@ -32,7 +32,7 @@ debuging autoscroll:
     const SAFE_ADDRESS = parts[1];
     let their_eth_addr  = document.getElementById('their_eth_addr');
     let their_ed25519 =   document.getElementById('their_ed25519');
-    let autoscroll=false;
+    let logging=false;
     let my_eth_address = null;
 
     async function getSigners() {
@@ -92,6 +92,7 @@ debuging autoscroll:
     let logQueue = Promise.resolve();
 
 	function log(...args) { 
+        if (!logging)   { return; }
 		const line = document.createElement('div');
 		logQueue = logQueue.then(() => {
 			line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
@@ -99,7 +100,7 @@ debuging autoscroll:
 				while (logBox.children.length > 2000) {
 				  logBox.removeChild(logBox.firstChild);
 				}
-            if (autoscroll)  window.scrollTo(0, document.body.scrollHeight);
+                // window.scrollTo(0, document.body.scrollHeight);
 			});
 		}
 
