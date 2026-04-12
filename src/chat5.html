@@ -5,7 +5,7 @@
 
 <button id="connect-btn">Connect an Ethereum Wallet</button> 
         <div style='display: flex; height: 70vh;'>
-            <textarea id='input' style='width: 50%; height: 100%;'></textarea>
+            <textarea id='input' style='width: 50%; height: 100%;' readonly></textarea>
             <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
         </div>
 <br>
@@ -134,7 +134,7 @@ window.onunhandledrejection = e => {
 					src=messages_[0].Forwarded.from_ed25519;
 					messages = JSON.parse(messages_[0].Forwarded.messages);
 					//    log( "\n" + messages_[0].Forwarded.messages);
-				} else messages=messsages_; 
+				} else messages=messages_; 
 				log( "\n");
                 for (i in messages) {
                     let msg = messages[i]
@@ -163,12 +163,14 @@ window.onunhandledrejection = e => {
 						log(  "\n\n-- " + eth_addr + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
 						if (eth_addr.toUpperCase() == their_eth_addr.toUpperCase()) {
 							their_ed25519 = ed25519; 
+                            document.getElementById('txt').readOnly = false;
 							log(  "\n\n****** MATCHED their ed25519 " + their_ed25519 + " signed by eth_addr: " + eth_addr);
                         }  else {
 							log(  "\n\nnot the key we're looking for: " + eth_addr);
                         }
                     }
                     if ("PleaseSignYourPub" in msg) {
+                        alert("please sign");
                         my_ed25519_to_sign = msg.PleaseSignYourPub.ed25519
                     }
                 }

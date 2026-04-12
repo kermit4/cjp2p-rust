@@ -884,6 +884,7 @@ fn handle_web_request(
                 format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]",ps.keypair.public_hex.clone().unwrap());
                 info!("asking to be signed: {}",message);
                 ws.write(message.into()).unwrap();
+                ws.flush().ok();
             }
             ps.ws_vec.push(ws);
             return;
