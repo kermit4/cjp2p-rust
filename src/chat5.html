@@ -170,7 +170,6 @@ window.onunhandledrejection = e => {
                         }
                     }
                     if ("PleaseSignYourPub" in msg) {
-                        alert("please sign");
                         my_ed25519_to_sign = msg.PleaseSignYourPub.ed25519
                     }
                 }
