@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use snow::Builder;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write, copy};
 //use std::convert::TryInto;
 use std::env;
 //use std::fmt;
@@ -483,7 +483,7 @@ impl PeerState {
                         return;
                     }
                     let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-                    info!( "sending message {:?} to websocket",  String::from_utf8_lossy(&message_out_bytes));
+                    info!( "sending reply message {:?} to websocket",  String::from_utf8_lossy(&message_out_bytes));
                     let ws = &mut self.ws_vec[index];
                     match ws.write(message_out_bytes.into()) {
                         Ok(_) => {
@@ -983,7 +983,10 @@ fn handle_web_request(
                             ,their_pub_hex
                             ,fill);
                 } else if req.path.starts_with("/chat5/") {
-                    page += include_str!("chat5.html");
+                    stream.write_all(page.as_bytes()).ok();
+                    let mut file = File::open("src/chat5.html").unwrap();
+                    copy(&mut file, &mut stream).ok();
+                        return;
                 } else if req.path.starts_with("/chat2/") {
                     page += &format!(
                             include_str!("chat2.html")
@@ -1000,7 +1003,7 @@ fn handle_web_request(
                 return;
             }
             let id = &req.path[1..];
-            if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" {
+            if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" || id.starts_with(".") {
                 return;
             }
             if req.path.starts_with("/?get=") {
@@ -1046,11 +1049,14 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let (message_in_len, src) = ps.socket.recv_from(&mut buf).unwrap();
     let message_in_bytes = &buf[0..message_in_len];
     trace!( "incoming message {} from {src}", String::from_utf8_lossy(message_in_bytes));
+    let message_out_bytes = serde_json::to_vec(&json![
+            [Message::Forwarded(Forwarded{from_ed25519:"unverified".to_string(),messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
+                if ps.ws_vec.len() >0 { 
+        trace!( "sending raw message {} to {} websocket(s)", String::from_utf8_lossy(&message_out_bytes),ps.ws_vec.len());
+        }
     for ws in &mut ps.ws_vec {
-        trace!( "sending message {} to websocket", 
-                   String::from_utf8_lossy(message_in_bytes));
         if ws
-            .write(String::from_utf8_lossy(message_in_bytes).to_string().into())
+            .write(String::from_utf8_lossy(&message_out_bytes).to_string().into())
             .is_ok()
         {
             ws.flush().ok();
@@ -1220,6 +1226,7 @@ impl Receive for IJustSawThis {
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
+            if self.id.find("/") != None || self.id.find("\\") != None || self.id == "favicon.ico" || self.id.starts_with(".") { return vec![];}
         if let Source::S(src) = *src {
             if let Some(i) = inbound_states.get_mut(&self.id) {
                 i.peers.insert(src);
@@ -1246,6 +1253,7 @@ impl Receive for YouSouldSeeThis {
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
+            if self.id.find("/") != None || self.id.find("\\") != None || self.id == "favicon.ico" || self.id.starts_with(".") { return vec![];}
         if let Source::S(src) = *src {
             if let Some(i) = inbound_states.get_mut(&self.id) {
                 i.peers.insert(src);
@@ -1328,7 +1336,7 @@ impl Receive for PleaseSendContent {
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
-            if self.id.find("/") != None || self.id.find("\\") != None {
+            if self.id.find("/") != None || self.id.find("\\") != None || self.id.starts_with(".") {
                 return vec![];
             };
             let mut message_out: Vec<Message> = Vec::new();
@@ -1770,7 +1778,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         ps.content_gateways.remove(*tr);
     }
     ps.next_maintenance =
-        Instant::now() + Duration::from_millis(rand::rng().random_range(911..1234));
+        Instant::now() + Duration::from_millis(rand::rng().random_range(99911..991234));
     ps.sort();
     if Utc::now().second() / 3 + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();
@@ -1946,6 +1954,23 @@ impl Receive for SignedPub {
 }
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
+struct Forwarded {
+    from_ed25519: String,
+    messages: String,
+}
+impl Receive for Forwarded {
+    fn receive(
+        self,
+        _: &mut PeerState,
+        _: &Source,
+        _: &mut bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        return vec![];
+    }
+}
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug)]
 struct Forward {
     to_ed25519: String,
     messages: Vec<serde_json::Value>,
@@ -2064,7 +2089,7 @@ impl Receive for ChatMessage {
                 return Self::new(ps, src, format!("VERSION {}\n",env!("BUILD_VERSION")));
             }
             if self.message.starts_with("/ping") {
-                return Self::new(ps, src, "PONG\n".to_string());
+                return Self::new(ps, src, "PONG".to_string());
             }
         }
         return vec![];
@@ -2124,11 +2149,12 @@ impl Receive for ContentList {
         if let Source::S(src) = *src {
             for (id, size) in &self.results {
                 trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
-            Utc::now().to_rfc3339(),
-            hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
-            ps.peer_map[&src].delay,
-            self.results
-        );
+                    Utc::now().to_rfc3339(),
+                    hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
+                    ps.peer_map[&src].delay,
+                    self.results
+                );
+                if id.find("/") != None || id.find("\\") != None || id == "favicon.ico" || id.starts_with(".") { return vec![];}
                 if let Some(i) = inbound_states.get_mut(id) {
                     i.peers.insert(src);
                 } else {
@@ -2184,10 +2210,10 @@ impl Receive for EncryptedMessages {
                 .unwrap();
             let mut message_in_bytes = vec![0u8; 99999];
             if let Ok(len) = noise.read_message(&self.base64, &mut message_in_bytes) {
+                let their_pub_hex = hex::encode(noise.get_remote_static().unwrap());
                 message_in_bytes.truncate(len);
-                trace!("handling decrypted message from {src}: {}",
-             String::from_utf8_lossy(&message_in_bytes));
-
+                trace!("handling decrypted message from {src} {their_pub_hex}: {}",
+                     String::from_utf8_lossy(&message_in_bytes));
                 let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
                     Ok(r) => r,
                     Err(e) => {
@@ -2199,12 +2225,16 @@ impl Receive for EncryptedMessages {
                 let messages = messages.0;
 
                 *might_be_ip_spoofing &= ps.check_key(&messages, src);
+                let message_out_bytes = serde_json::to_vec(&json![
+                        [Message::Forwarded(Forwarded{from_ed25519:their_pub_hex,messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
+                if ps.ws_vec.len() >0 { 
+                trace!( "sending decrypted message {} to {} websockets", String::from_utf8_lossy(&message_out_bytes),ps.ws_vec.len());
+                }
                 for ws in &mut ps.ws_vec {
-                    trace!( "sending message {} to websocket", 
-                   String::from_utf8_lossy(&message_in_bytes));
+
                     if ws
                         .write(
-                            String::from_utf8_lossy(&message_in_bytes)
+                            String::from_utf8_lossy(&message_out_bytes)
                                 .to_string()
                                 .into(),
                         )
@@ -2247,6 +2277,7 @@ enum Message {
     YouSouldSeeThis(YouSouldSeeThis),
     IJustSawThis(IJustSawThis),
     Forward(Forward),
+    Forwarded(Forwarded),
     SignedPub(SignedPub),
 }
 

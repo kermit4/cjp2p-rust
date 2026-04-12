@@ -3,17 +3,27 @@
             <p><a href=/>return to network status page</a>
         <p>try /ping or /version
 
-<button id="connect-btn">Connect an Ethereum Wallet</button> to 
-sender: <span id="verify">not verified yet</span>
+<button id="connect-btn">Connect an Ethereum Wallet</button> 
+        <div style='display: flex; height: 70vh;'>
+            <textarea id='input' style='width: 50%; height: 100%;'></textarea>
+            <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
+        </div>
+<br>
         <div style='display: flex; height: 100vh;'>
-            <textarea id='input' style='width: 50%; height: 60%;'></textarea>
-            <textarea id='output' style='width: 50%; height: 60%;' readonly></textarea>
+            <textarea id='debug' style='width: 80%; height: 60%;' readonly></textarea>
         </div>
 	
 <script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
 <script>
-    // No import needed. ethers is now window.ethers
+const logBox = document.createElement('div');
+	logBox.id = 'log';
+	logBox.style.cssText = 'font-family:monospace; font-size:12px; padding:8px; white-space:pre-wrap; word-break:break-all;';
+	document.body.appendChild(logBox); // safe, no reset
+	const logDiv = document.createElement('div');
+	logDiv.id = 'log';
+	logDiv.style.cssText = 'position:fixed; bottom:0; left:0; right:0; max-height:30vh; overflow:auto; background:#111; color:#0f0; font-family:monospace; font-size:12px; padding:4px; z-index:9999;';
+	document.body.appendChild(logDiv);
     const parts = window.location.href.split('?');
     const SAFE_ADDRESS = parts[1];
     let their_eth_addr = null;
@@ -68,6 +78,23 @@ sender: <span id="verify">not verified yet</span>
         getSigners();
         document.getElementById('connect-btn').disabled = true;
     });
+function str(obj) {
+  if (obj instanceof Error) return `${obj.name}: ${obj.message}`;
+  try { return JSON.stringify(obj, null, 2); } 
+  catch { return String(obj); }
+}
+
+let logQueue = Promise.resolve();
+
+function log(msg) {
+  const line = document.createElement('div');
+  logQueue = logQueue.then(() => {
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+   debug.scrollTop = debug.scrollHeight;
+  logBox.appendChild(line);
+//  window.scrollTo(0, document.body.scrollHeight);
+  });
+}
 
     const url = new URL('/wt', window.location.href);
     url.protocol = url.protocol.replace('http', 'ws');
@@ -75,40 +102,54 @@ sender: <span id="verify">not verified yet</span>
     const input = document.getElementById('input');
     const output = document.getElementById('output');
     function connect() {
-        output.value="websocket connencting";
+        log("websocket connencting");
         socket = new WebSocket(url.href);
         socket.onclose = () => {
             console.log('Socket closed. Reconnecting ...');
-            output.value="websocket reconnencting";
+            log("websocket reconnencting");
             setTimeout(connect, 120);
         };
-        const verify = document.getElementById('verify');
+		let work = Promise.resolve();
         socket.onmessage = async(event) => { 
-            let messages = JSON.parse(event.data);
-            for (i in messages) {
-                if ("MyPublicKey" in messages[i]) {
-                    let mpk=messages[i].MyPublicKey;
-                    output.value = "got mypublickey\nmyeth " + my_eth_address;
-                    output.value += "\ntheir eth " + their_eth_addr;
-                    let sig = mpk.ed25519_eth_signed;
-                    output.value +=  "\nsig: " + sig;
-                    let ed25519 = mpk.ed25519h;
-                    output.value +=  "\ned25519: " + ed25519;
-                    let eth_addr = await window.ethereum.request({ method: 'personal_ecRecover', params: ["my ed25519 public key is " + ed25519 ,sig] });
-                    output.value +=  "\neth_addr: " + eth_addr;
-                    if (eth_addr.toUpperCase() == their_eth_addr.toUpperCase()) {
-                        their_ed25519 = ed25519; 
-                        output.value +=  "\n\n****** their ed25519 " + their_ed25519 + " signed by eth_addr: " + eth_addr;
+			work = work.then(async () => {
+				let messages_ = JSON.parse(event.data);
+				let messages;
+				log( "\n\n==============\n\n");
+				if ("Forwarded" in messages_[0]) {
+					let src=messages_[0].Forwarded.from_ed25519;
+					messages = JSON.parse(messages_[0].Forwarded.messages);
+					//    log( "\n" + messages_[0].Forwarded.messages);
+				} else messages=messsages_; 
+				log( "\n");
+                for (i in messages) {
+                    let msg = messages[i]
+                    log("\n" + JSON.stringify(msg));
+                    if ("ChatMessage" in msg)  { 
+                        alert(msg.ChatMessage.message)
+                        output.value = msg.ChatMessage.message
+                        notifyNewMessage();
+                    }
+					if ("MyPublicKey" in msg) {
+						let mpk=msg.MyPublicKey;
+						log("\n\n-- got mypublickey\n--myeth " + my_eth_address + "\n\n");
+						log( "\n\n-- their eth " + their_eth_addr + "\n\n");
+						let sig = mpk.ed25519_eth_signed;
+						log(  "\n\n-- sig: " + sig + "\n\n");
+						let ed25519 = mpk.ed25519h;
+						log(  "\n\n-- ed25519: " + ed25519 + "\n\n");
+						let eth_addr = await window.ethereum.request({ method: 'personal_ecRecover', params: ["my ed25519 public key is " + ed25519 ,sig] }) .catch(err => (log("\n\n-- Wallet error: " + str(err) + "\n\n"), "bad signature"));
+
+						log(  "\n\n-- eth_addr: " + eth_addr + "\n\n");
+						if (eth_addr.toUpperCase() == their_eth_addr.toUpperCase()) {
+							their_ed25519 = ed25519; 
+							log(  "\n\n****** their ed25519 " + their_ed25519 + " signed by eth_addr: " + eth_addr);
+						}
+					}
+                    if ("PleaseSignYourPub" in msg) {
+                        my_ed25519_to_sign = msg.PleaseSignYourPub.ed25519
                     }
                 }
-                if ("PleaseSignYourPub" in messages[i]) {
-                    my_ed25519_to_sign = messages[i].PleaseSignYourPub.ed25519
-                }
-                if ("ChatMessage" in messages[i]) {
-                    output.value = messages[i].ChatMessage.message
-                }
-            }
-            notifyNewMessage();
+            });
         };
     }
     connect();

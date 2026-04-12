@@ -80,3 +80,5 @@ drop in socket connect replacement thta takes keysznot ips?
 - autoscroll dual window
 - use secp256k1 public keys.. abandon the ed25519 or support both?
 - debug option or /option to just never serve anything off local disk..network test mode, so i dont have to keep deleteing files
+- with chat5.html static, hoste it instead of compile it in?
+- would this compile faster if it wasnt one big file
