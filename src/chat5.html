@@ -1,5 +1,7 @@
-<html><head><title>OnePlusOne real time chat over CJP2P</title></head>
+<html><head><title>real time chat over CJP2P</title></head>
         <body>
+messaging eth addr <input id=their_eth_addr size=80>
+<br>
             <p><a href=/>return to network status page</a>
         <p>try /ping or /version
 
@@ -24,7 +26,7 @@ const logBox = document.createElement('div');
 	document.body.appendChild(logDiv);
     const parts = window.location.href.split('?');
     const SAFE_ADDRESS = parts[1];
-    let their_eth_addr = null;
+    let their_eth_addr  = document.getElementById('their_eth_addr');
     let their_ed25519 = null;
     let my_eth_address = null;
 
@@ -37,8 +39,7 @@ const logBox = document.createElement('div');
         const owners = await safe.getOwners()
         owners.forEach(function(v,k)  { 
             if (v.toUpperCase()!=my_eth_address.toUpperCase()) {
-                their_eth_addr = v;
-//                socket.send(JSON.stringify([{GetPubByEth:{addr:their_eth_addr}}]  )); 
+                their_eth_addr.value = v;
             }
         } );
     }
@@ -143,30 +144,37 @@ window.onunhandledrejection = e => {
                         log("comparing " + their_ed25519 + " != " + src);
                         let txt = "";
                         if (their_ed25519 != src) { 
-                            txt += "NOT ";
+                            txt += "NOT "; // NOT VERIFIED
                             log("wrong key, wanted " + their_ed25519 + " got " + src);
                         }
-                        txt += "VERIFIED as " + their_eth_addr + " (" + their_ed25519 + ")\n\n";
+                        txt += "VERIFIED as " + their_eth_addr.value + " (" + their_ed25519 + ")\n\n";
                         txt += msg.ChatMessage.message;
                         output.value = txt;
                     }
 					if ("MyPublicKey" in msg) {
 						let mpk=msg.MyPublicKey;
 						log("\n\n-- got mypublickey\n--myeth " + my_eth_address + "\n\n");
-						log( "\n\n-- their_eth " + their_eth_addr + "\n\n");
+						log( "\n\n-- their_eth " + their_eth_addr.value + "\n\n");
 						let sig = mpk.ed25519_eth_signed;
 						log(  "\n\n-- sig: " + sig + "\n\n");
 						let ed25519 = mpk.ed25519h;
 						log(  "\n\n-- ed25519 sent this chat message (using Noise IK, verified on the node): " + ed25519 + "\n\n");
                         let unsigned_message = "my ed25519 public key is " + ed25519
-						let eth_addr = ethers.verifyMessage(unsigned_message, sig);
-						log(  "\n\n-- " + eth_addr + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
-						if (eth_addr.toUpperCase() == their_eth_addr.toUpperCase()) {
+                        let signer;
+                        try {
+                              signer = ethers.verifyMessage(unsigned_message, sig);
+                        } catch (e) {
+                              log('VERIFY FAILED:', e.message);
+                              return;
+                        }
+						log(  "\n\n-- " + signer + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
+						if (signer != null && their_eth_addr.value != null &&
+                            signer.toUpperCase() == their_eth_addr.value.toUpperCase()) {
 							their_ed25519 = ed25519; 
                             document.getElementById('txt').readOnly = false;
-							log(  "\n\n****** MATCHED their ed25519 " + their_ed25519 + " signed by eth_addr: " + eth_addr);
+							log(  "\n\n****** MATCHED their ed25519 " + their_ed25519 + " signed by eth_addr: " + signer);
                         }  else {
-							log(  "\n\nnot the key we're looking for: " + eth_addr);
+							log(  "\n\nnot the key we're looking for: " + signer);
                         }
                     }
                     if ("PleaseSignYourPub" in msg) {
