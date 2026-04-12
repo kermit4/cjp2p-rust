@@ -1799,7 +1799,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         ps.content_gateways.remove(*tr);
     }
     ps.next_maintenance =
-        Instant::now() + Duration::from_millis(rand::rng().random_range(99911..991234));
+        Instant::now() + Duration::from_millis(rand::rng().random_range(911..1234));
     ps.sort();
     if Utc::now().second() / 3 + (Utc::now().minute() % 5) == 0 {
         ps.save_peers();
