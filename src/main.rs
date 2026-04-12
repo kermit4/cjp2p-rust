@@ -2333,46 +2333,51 @@ trait Receive {
 
 fn msgs_to_pub(
     ps: &mut PeerState,
-    their_pub_hex: &String,
+    their_pub_hex_: &String,
     messages: &Vec<serde_json::Value>,
 ) -> () {
-    let to = hex::decode(&their_pub_hex).unwrap();
-    let mut who: HashSet<SocketAddr> = HashSet::new();
-    for k in &ps.peer_vec {
-        let v = &ps.peer_map[k];
-        trace!("looing for {} trying {} at {:?} ",their_pub_hex,k,v.delay);
-        if v.delay < Duration::from_millis(3000 / (who.len() + 1) as u64) {
-            if let Some(key) = &v.ed25519 {
-                trace!("looing for {} trying {} at {:?} for {}",their_pub_hex,k,v.delay, hex::encode(key));
-                if *key == to {
-                    who.insert(*k);
+    let their_pub_hex = their_pub_hex_.strip_prefix("0x").unwrap_or(their_pub_hex_);
+    if let Ok(to) = hex::decode(their_pub_hex) {
+        let mut who: HashSet<SocketAddr> = HashSet::new();
+        for k in &ps.peer_vec {
+            let v = &ps.peer_map[k];
+            trace!("looing for {} trying {} at {:?} ",their_pub_hex,k,v.delay);
+            if v.delay < Duration::from_millis(3000 / (who.len() + 1) as u64) {
+                if let Some(key) = &v.ed25519 {
+                    trace!("looing for {} trying {} at {:?} for {}",their_pub_hex,k,v.delay, hex::encode(key));
+                    if *key == to {
+                        who.insert(*k);
+                    }
                 }
             }
         }
-    }
-    if who.len() == 0 {
-        error!("user {} not found",their_pub_hex);
-        return;
-    }
-    let mut message_out: Vec<serde_json::Value> = vec![];
-    message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
-    message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
-    for m in messages {
-        message_out.push(serde_json::to_value(m).unwrap());
-    }
-    message_out = vec![
+        if who.len() == 0 {
+            error!("user {} not found",their_pub_hex);
+            return;
+        }
+        let mut message_out: Vec<serde_json::Value> = vec![];
+        message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
+        message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
+        for m in messages {
+            message_out.push(serde_json::to_value(m).unwrap());
+        }
+        message_out = vec![
             serde_json::to_value(&EncryptedMessages::new(ps,&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
             ];
-    for sa in who {
-        let c = ps.always_returned(sa);
-        if c.len() > 0 {
-            message_out.push(serde_json::to_value(&c[0]).unwrap());
+        for sa in who {
+            let c = ps.always_returned(sa);
+            if c.len() > 0 {
+                message_out.push(serde_json::to_value(&c[0]).unwrap());
+            }
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            message_out.pop();
+            trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
+            ps.socket.send_to(&message_out_bytes, sa).ok();
         }
-        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        message_out.pop();
-        trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
-        ps.socket.send_to(&message_out_bytes, sa).ok();
     }
+    else {
+        warn!("failed to decode hex {} ",their_pub_hex_);
+        }
 }
 
 fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {

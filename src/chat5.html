@@ -1,6 +1,7 @@
 <html><head><title>real time chat over CJP2P</title></head>
         <body>
 messaging eth addr <input id=their_eth_addr size=80>
+<br>messaging ed25519  addr <input id=their_ed25519 size=80>
 <br>
             <p><a href=/>return to network status page</a>
         <p>try /ping or /version
@@ -27,7 +28,7 @@ messaging eth addr <input id=their_eth_addr size=80>
     const parts = window.location.href.split('?');
     const SAFE_ADDRESS = parts[1];
     let their_eth_addr  = document.getElementById('their_eth_addr');
-    let their_ed25519 = null;
+    let their_ed25519 =   document.getElementById('their_ed25519');
     let my_eth_address = null;
 
     async function getSigners() {
@@ -145,11 +146,11 @@ window.onunhandledrejection = e => {
                     log("\n" + JSON.stringify(msg));
                     if ("ChatMessage" in msg)  { 
                         let txt = "";
-                        if (their_ed25519 != src) { 
+                        if (their_ed25519.value != src) { 
                             txt += "NOT "; // NOT VERIFIED
-                            log("wrong key, wanted " + their_ed25519 + " got " + src);
+                            log("wrong key, wanted " + their_ed25519.value + " got " + src);
                         }
-                        txt += "VERIFIED as " + their_eth_addr.value + " (" + their_ed25519 + ")\n\n";
+                        txt += "VERIFIED as " + their_eth_addr.value + " (" + their_ed25519.value + ")\n\n";
                         txt += msg.ChatMessage.message;
                         output.value = txt;
                     }
@@ -172,9 +173,9 @@ window.onunhandledrejection = e => {
 						log(  "\n\n-- " + signer + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
 						if (signer != null && their_eth_addr.value != null &&
                             signer.toUpperCase() == their_eth_addr.value.toUpperCase()) {
-							their_ed25519 = ed25519; 
-                            document.getElementById('txt').readOnly = false;
-							log(  "\n\n****** MATCHED their ed25519 " + their_ed25519 + " signed by eth_addr: " + signer);
+							their_ed25519.value = ed25519; 
+                            input.readOnly = false;
+							log(  "\n\n****** MATCHED their ed25519 " + their_ed25519.value + " signed by eth_addr: " + signer);
                         }  else {
 							log(  "\n\nnot the key we're looking for: " + signer);
                         }
@@ -187,8 +188,13 @@ window.onunhandledrejection = e => {
         };
     }
     connect();
+    their_ed25519.addEventListener('input', () => { 
+        input.readOnly = false;
+    });
+    connect();
     input.addEventListener('input', () => { 
-        socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519,messages:[{ChatMessage:{message:input.value}}]}}]  )); });
+        socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{ChatMessage:{message:input.value}}]}}]  )); 
+    });
 </script>
     </body>
 </html>
