@@ -16,7 +16,7 @@ messaging eth addr <input id=their_eth_addr size=80>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
 <script>
-const logBox = document.createElement('div');
+	const logBox = document.createElement('div');
 	logBox.id = 'log';
 	logBox.style.cssText = 'font-family:monospace; font-size:12px; padding:8px; white-space:pre-wrap; word-break:break-all;';
 	document.body.appendChild(logBox); // safe, no reset
@@ -86,11 +86,14 @@ const logBox = document.createElement('div');
 
     let logQueue = Promise.resolve();
 
-	function log(...args) { // accept multiple args
+	function log(...args) { 
 		const line = document.createElement('div');
 		logQueue = logQueue.then(() => {
 			line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
 				logBox.appendChild(line);
+				while (logBox.children.length > 2000) {
+				  logBox.removeChild(logBox.firstChild);
+				}
 				//  window.scrollTo(0, document.body.scrollHeight);
 			});
 		}
@@ -141,7 +144,6 @@ window.onunhandledrejection = e => {
                     let msg = messages[i]
                     log("\n" + JSON.stringify(msg));
                     if ("ChatMessage" in msg)  { 
-                        log("comparing " + their_ed25519 + " != " + src);
                         let txt = "";
                         if (their_ed25519 != src) { 
                             txt += "NOT "; // NOT VERIFIED
