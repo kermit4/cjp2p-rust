@@ -206,7 +206,7 @@ impl PersistentState {
             return Self {
                 you_should_see_this: None,
                 i_just_saw_this: None,
-                my_ed25519_signed_by_web_wallet: Some("".to_string()),
+                my_ed25519_signed_by_web_wallet: None,
             };
         }
     }

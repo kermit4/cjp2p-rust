@@ -83,3 +83,4 @@ drop in socket connect replacement thta takes keysznot ips?
 - with chat5.html static, hoste it instead of compile it in?
 - would this compile faster if it wasnt one big file
 - /addpeer
+- public websocket support?

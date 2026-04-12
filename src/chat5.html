@@ -1,6 +1,7 @@
 <html><head><title>real time chat over CJP2P</title></head>
         <body>
-messaging eth addr <input id=their_eth_addr size=80>
+enter safe address to message the other signer <input id=safe_address size=60>
+<br>messaging eth addr <input id=their_eth_addr size=80>
 <br>messaging ed25519  addr <input id=their_ed25519 size=80>
 <br>
             <p><a href=/>return to network status page</a>
@@ -29,7 +30,8 @@ debuging :
 	logDiv.style.cssText = 'position:fixed; bottom:0; left:0; right:0; max-height:30vh; overflow:auto; background:#111; color:#0f0; font-family:monospace; font-size:12px; padding:4px; z-index:9999;';
 	document.body.appendChild(logDiv);
     const parts = window.location.href.split('?');
-    const SAFE_ADDRESS = parts[1];
+    let safe_address  = document.getElementById('safe_address');
+    safe_address.value=parts[1];
     let their_eth_addr  = document.getElementById('their_eth_addr');
     let their_ed25519 =   document.getElementById('their_ed25519');
     let logging=false;
@@ -40,7 +42,7 @@ debuging :
         my_eth_address = accounts[0];
         const provider = new ethers.BrowserProvider(window.ethereum)
         const abi = ["function getOwners() view returns (address[])"]
-        const safe = new ethers.Contract(SAFE_ADDRESS, abi, provider)
+        const safe = new ethers.Contract(safe_address.value, abi, provider)
         const owners = await safe.getOwners()
         owners.forEach(function(v,k)  { 
             if (v.toUpperCase()!=my_eth_address.toUpperCase()) {
@@ -138,17 +140,17 @@ window.onunhandledrejection = e => {
 			work = work.then(async () => {
 				let messages_ = JSON.parse(event.data);
 				let messages;
-//				log( "\n\n==============\n\n");
+				log( "\n\n==============\n\n");
 				let src="shouldnt happen";
 				if ("Forwarded" in messages_[0]) {
 					src=messages_[0].Forwarded.from_ed25519;
 					messages = JSON.parse(messages_[0].Forwarded.messages);
 					//    log( "\n" + messages_[0].Forwarded.messages);
 				} else messages=messages_; 
-//				log( "\n");
+				log( "\n");
                 for (i in messages) {
                     let msg = messages[i]
-//                    log("\n" + JSON.stringify(msg));
+                    log("\n" + JSON.stringify(msg));
                     if ("ChatMessage" in msg)  { 
                         let txt = "";
                         if (

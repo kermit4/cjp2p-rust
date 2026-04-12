@@ -4,7 +4,7 @@ default: debug chat5
 
 chat5: src/chat5.html Makefile
 	mkdir -p cjp2p/public
-	sha256sum src/chat5.html |awk '{print $$2,$$1;print "http://localhost:24255/"$$1"?0xeff7da60005c3f1ea5bdc5cbc4cf7511fe36199a" >"/dev/stderr" }'|xargs cp -t cjp2p/public/
+	sha256sum src/chat5.html |awk '{print $$2,"cjp2p/public/"$$1;print "http://localhost:24255/"$$1"?0xeff7da60005c3f1ea5bdc5cbc4cf7511fe36199a" >"/dev/stderr" }'|xargs cp 
 
 debug: target/debug/cjp2p
 target/debug/cjp2p: Makefile Cargo.toml src/*.rs src/chat3.html src/chat2.html
