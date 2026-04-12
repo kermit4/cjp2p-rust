@@ -1172,6 +1172,7 @@ impl Receive for PleaseAlwaysReturnThisMessage {
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
+            // not even needed for websockets
             trace!("saving cookie {} for {:?}",self.cookie,src);
             ps.peer_map
                 .get_mut(&src)
@@ -1194,11 +1195,10 @@ impl Receive for PleaseSendPeers {
         let p = ps.best_peers(1 + 45 * !*might_be_ip_spoofing as i32, 6);
         trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
-        if let Source::S(src) = *src {
-            if *might_be_ip_spoofing {
-                message_out.push(ps.please_always_return(src));
-            }
-        }
+        if *might_be_ip_spoofing {
+            if let Source::S(src) = src {
+                message_out.push(ps.please_always_return(*src));
+        }}
         return message_out;
     }
 }
@@ -1864,7 +1864,6 @@ impl Receive for MaybeTheyHaveSome {
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if let Source::S(src) = *src {
             if !inbound_states.contains_key(&self.id) {
                 return vec![];
             }
@@ -1872,11 +1871,10 @@ impl Receive for MaybeTheyHaveSome {
             for p in self.peers {
                 if i.peers.insert(p) {
                     // new possible source? try it
-                    info!("{} trying new peer {} suggested by {}",self.id,p,src);
+                    info!("{} trying new peer {} suggested by {:?}",self.id,p,src);
                     i.request_blocks(ps, HashSet::from([p]));
                 }
             }
-        }
         return vec![];
     }
 }
@@ -2005,6 +2003,9 @@ impl Receive for Forward {
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
         if let Source::S(_) = src {
+            // we could allow this, i dont see why not, though theres not a currrent use
+            // case..maybe dual-nat issues if they're encountered, or web socket clients to
+            // gateways if gateways with mulitple clients becomes a use case
             return vec![];
         }
         info!("websocket asked me to forward {:?} to {} ",
