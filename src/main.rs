@@ -1003,10 +1003,10 @@ fn handle_web_request(
                 stream.write_all(page.as_bytes()).ok();
                 return;
             }
-            let id = &req.path[1..];
+            let id = &req.path[1..].split('?').next().unwrap();
             if id.find("/") != None
                 || id.find("\\") != None
-                || id == "favicon.ico"
+                || *id == "favicon.ico"
                 || id.starts_with(".")
             {
                 return;

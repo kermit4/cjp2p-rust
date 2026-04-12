@@ -12,6 +12,8 @@ messaging eth addr <input id=their_eth_addr size=80>
             <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
         </div>
 <br>
+<button onclick="autoscroll=true">enable debuging autoscroll</button>
+<button onclick="autoscroll=false">disable debuging autoscroll</button>
 	
 <script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
@@ -29,6 +31,7 @@ messaging eth addr <input id=their_eth_addr size=80>
     const SAFE_ADDRESS = parts[1];
     let their_eth_addr  = document.getElementById('their_eth_addr');
     let their_ed25519 =   document.getElementById('their_ed25519');
+    let autoscroll=false;
     let my_eth_address = null;
 
     async function getSigners() {
@@ -95,7 +98,7 @@ messaging eth addr <input id=their_eth_addr size=80>
 				while (logBox.children.length > 2000) {
 				  logBox.removeChild(logBox.firstChild);
 				}
-				//  window.scrollTo(0, document.body.scrollHeight);
+            if (autoscroll)  window.scrollTo(0, document.body.scrollHeight);
 			});
 		}
 
