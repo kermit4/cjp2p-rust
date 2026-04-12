@@ -82,3 +82,4 @@ drop in socket connect replacement thta takes keysznot ips?
 - debug option or /option to just never serve anything off local disk..network test mode, so i dont have to keep deleteing files
 - with chat5.html static, hoste it instead of compile it in?
 - would this compile faster if it wasnt one big file
+- /addpeer

@@ -9,12 +9,10 @@
             <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
         </div>
 <br>
-        <div style='display: flex; height: 100vh;'>
-            <textarea id='debug' style='width: 80%; height: 60%;' readonly></textarea>
-        </div>
 	
 <script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.0/dist/ethers.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
 <script>
 const logBox = document.createElement('div');
 	logBox.id = 'log';
@@ -29,8 +27,9 @@ const logBox = document.createElement('div');
     let their_eth_addr = null;
     let their_ed25519 = null;
     let my_eth_address = null;
+
     async function getSigners() {
-        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+		const accounts = await window.ethereum.request({ method: 'eth_accounts' });
         my_eth_address = accounts[0];
         const provider = new ethers.BrowserProvider(window.ethereum)
         const abi = ["function getOwners() view returns (address[])"]
@@ -78,29 +77,44 @@ const logBox = document.createElement('div');
         getSigners();
         document.getElementById('connect-btn').disabled = true;
     });
-function str(obj) {
-  if (obj instanceof Error) return `${obj.name}: ${obj.message}`;
-  try { return JSON.stringify(obj, null, 2); } 
-  catch { return String(obj); }
-}
+    function str(obj) {
+      if (obj instanceof Error) return `${obj.name}: ${obj.message}`;
+      try { return JSON.stringify(obj, null, 2); } 
+      catch { return String(obj); }
+    }
 
-let logQueue = Promise.resolve();
+    let logQueue = Promise.resolve();
 
-function log(msg) {
-  const line = document.createElement('div');
-  logQueue = logQueue.then(() => {
-  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-   debug.scrollTop = debug.scrollHeight;
-  logBox.appendChild(line);
-//  window.scrollTo(0, document.body.scrollHeight);
-  });
-}
+	function log(...args) { // accept multiple args
+		const line = document.createElement('div');
+		logQueue = logQueue.then(() => {
+			line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
+				logBox.appendChild(line);
+				//  window.scrollTo(0, document.body.scrollHeight);
+			});
+		}
 
     const url = new URL('/wt', window.location.href);
     url.protocol = url.protocol.replace('http', 'ws');
     let socket;
     const input = document.getElementById('input');
     const output = document.getElementById('output');
+window.onerror = (msg, url, line, col, err) => {
+  log('ERROR:', msg, 'at', url + ':' + line + ':' + col);
+  if (err && err.stack) log(err.stack);
+    return false;
+};
+window.onunhandledrejection = e => {
+  log('UNHANDLED PROMISE:', e.reason?.stack || e.reason || e);
+};
+
+['log', 'warn', 'error', 'info'].forEach(k => {
+  const orig = console[k].bind(console);
+  console[k] = (...args) => {
+    orig.apply(console, args); // still goes to real console if you have one
+    log(k.toUpperCase() + ':',...args);
+  };
+});
     function connect() {
         log("websocket connencting");
         socket = new WebSocket(url.href);
@@ -115,8 +129,9 @@ function log(msg) {
 				let messages_ = JSON.parse(event.data);
 				let messages;
 				log( "\n\n==============\n\n");
+				let src="shouldnt happen";
 				if ("Forwarded" in messages_[0]) {
-					let src=messages_[0].Forwarded.from_ed25519;
+					src=messages_[0].Forwarded.from_ed25519;
 					messages = JSON.parse(messages_[0].Forwarded.messages);
 					//    log( "\n" + messages_[0].Forwarded.messages);
 				} else messages=messsages_; 
@@ -125,26 +140,34 @@ function log(msg) {
                     let msg = messages[i]
                     log("\n" + JSON.stringify(msg));
                     if ("ChatMessage" in msg)  { 
-                        alert(msg.ChatMessage.message)
-                        output.value = msg.ChatMessage.message
-                        notifyNewMessage();
+                        log("comparing " + their_ed25519 + " != " + src);
+                        let txt = "";
+                        if (their_ed25519 != src) { 
+                            txt += "NOT ";
+                            log("wrong key, wanted " + their_ed25519 + " got " + src);
+                        }
+                        txt += "VERIFIED as " + their_eth_addr + " (" + their_ed25519 + ")\n\n";
+                        txt += msg.ChatMessage.message;
+                        output.value = txt;
                     }
 					if ("MyPublicKey" in msg) {
 						let mpk=msg.MyPublicKey;
 						log("\n\n-- got mypublickey\n--myeth " + my_eth_address + "\n\n");
-						log( "\n\n-- their eth " + their_eth_addr + "\n\n");
+						log( "\n\n-- their_eth " + their_eth_addr + "\n\n");
 						let sig = mpk.ed25519_eth_signed;
 						log(  "\n\n-- sig: " + sig + "\n\n");
 						let ed25519 = mpk.ed25519h;
-						log(  "\n\n-- ed25519: " + ed25519 + "\n\n");
-						let eth_addr = await window.ethereum.request({ method: 'personal_ecRecover', params: ["my ed25519 public key is " + ed25519 ,sig] }) .catch(err => (log("\n\n-- Wallet error: " + str(err) + "\n\n"), "bad signature"));
-
-						log(  "\n\n-- eth_addr: " + eth_addr + "\n\n");
+						log(  "\n\n-- ed25519 sent this chat message (using Noise IK, verified on the node): " + ed25519 + "\n\n");
+                        let unsigned_message = "my ed25519 public key is " + ed25519
+						let eth_addr = ethers.verifyMessage(unsigned_message, sig);
+						log(  "\n\n-- " + eth_addr + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
 						if (eth_addr.toUpperCase() == their_eth_addr.toUpperCase()) {
 							their_ed25519 = ed25519; 
-							log(  "\n\n****** their ed25519 " + their_ed25519 + " signed by eth_addr: " + eth_addr);
-						}
-					}
+							log(  "\n\n****** MATCHED their ed25519 " + their_ed25519 + " signed by eth_addr: " + eth_addr);
+                        }  else {
+							log(  "\n\nnot the key we're looking for: " + eth_addr);
+                        }
+                    }
                     if ("PleaseSignYourPub" in msg) {
                         my_ed25519_to_sign = msg.PleaseSignYourPub.ed25519
                     }
