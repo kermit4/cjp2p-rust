@@ -30,6 +30,7 @@ debuging :
 	logDiv.style.cssText = 'position:fixed; bottom:0; left:0; right:0; max-height:30vh; overflow:auto; background:#111; color:#0f0; font-family:monospace; font-size:12px; padding:4px; z-index:9999;';
 	document.body.appendChild(logDiv);
     const parts = window.location.href.split('?');
+    let signed_ed25519s = new Map();
     let safe_address  = document.getElementById('safe_address');
     safe_address.value=parts[1];
     let their_eth_addr  = document.getElementById('their_eth_addr');
@@ -129,7 +130,7 @@ window.onunhandledrejection = e => {
 });
     function connect() {
         log("websocket connencting");
-        socket = new WebSocket(url.href);
+        socket = new WebSocket("ws://localhost:24255/wt");
         socket.onclose = () => {
             console.log('Socket closed. Reconnecting ...');
             log("websocket reconnencting");
@@ -152,15 +153,19 @@ window.onunhandledrejection = e => {
                     let msg = messages[i]
                     log("\n" + JSON.stringify(msg));
                     if ("ChatMessage" in msg)  { 
-                        let txt = "";
+                        txt = "NOT VERIFIED\n"; 
                         if (
-                            their_ed25519.value != src
-                            && their_ed25519.value != ("0x"+ src) 
+                            their_ed25519.value == src
+                            || their_ed25519.value == ("0x"+ src) 
                         ) { 
-                            txt += "NOT "; // NOT VERIFIED
+                            txt = "VERIFIED ed25519 " + their_ed25519.value + "\n";
+                        } else {
                             log("wrong key, wanted " + their_ed25519.value + " got " + src);
                         }
-                        txt += "VERIFIED as " + their_eth_addr.value + " (" + their_ed25519.value + ")\n\n";
+                        if (  signed_ed25519s.get(src) == their_eth_addr.value ) {
+                            txt += "VERIFIED eth " + their_eth_addr.value + "\n";
+                        }
+                        txt += "\n";
                         txt += msg.ChatMessage.message;
                         output.value = txt;
                     }
@@ -184,6 +189,7 @@ window.onunhandledrejection = e => {
                             signer.toUpperCase() == their_eth_addr.value.toUpperCase()) {
 							their_ed25519.value = ed25519; 
                             input.readOnly = false;
+                            signed_ed25519s.set(ed25519,their_eth_addr);
 							log(  "\n\n****** MATCHED their ed25519 " + their_ed25519.value + " signed by eth_addr: " + signer);
                         }  else {
 							log(  "\n\nnot the key we're looking for: " + signer);
