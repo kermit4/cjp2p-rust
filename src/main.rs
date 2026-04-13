@@ -776,7 +776,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
     }
 
     page += &format!("
-          </div><pre> start a download: <form><input name=get></form>\n\n");
+          </div><pre> start a download (it will be in {}/cjp2p/public/ when done): <form><input name=get></form>\n\n",std::env::current_dir().unwrap().display());
     for (_, i) in inbound_states {
         page += &format!("{} {}/{}\n",i.id,i.bytes_complete,i.eof);
     }
@@ -920,7 +920,7 @@ fn handle_web_request(
                 <a href=http://127.0.0.1:24255/chat/{}>http://127.0.0.1:24255/chat/{}</a>
 
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
-                    <a href=/chat2/{}>click here</a> to switch to character-by-character mode\n\
+                    <a href=/chat5/?{}>click here</a> to switch to character-by-character mode\n\
                     "
                     ,their_pub
                     ,their_pub
@@ -988,17 +988,7 @@ fn handle_web_request(
                     let mut file = File::open("src/chat5.html").unwrap();
                     copy(&mut file, &mut stream).ok();
                     return;
-                } else if req.path.starts_with("/chat2/") {
-                    page += &format!(
-                            include_str!("chat2.html")
-                            ,their_pub_hex
-                            ,my_pub_hex
-                            ,my_pub_hex
-                            ,their_pub_hex
-                            ,their_pub_hex
-                            ,their_pub_hex
-                            ,fill);
-                };
+                }
 
                 stream.write_all(page.as_bytes()).ok();
                 return;

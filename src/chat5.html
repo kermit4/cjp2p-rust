@@ -1,20 +1,27 @@
 <html><head><title>real time chat over CJP2P</title></head>
         <body>
-enter safe address to message the other signer <input id=safe_address size=60>
-<br>messaging eth addr <input id=their_eth_addr size=80>
-<br>messaging ed25519  addr <input id=their_ed25519 size=80>
+            you have to pick one of these, and can start messaging
+when the bottom one filed<p>
+gnosis safe address <input id=safe_address size=60>
+<br>eth addr <input id=their_eth_addr size=80>
+<button id="connect-btn">Connect an Ethereum Wallet if you want to messaged by eth address</button> 
+<br>ed25519 addr<input id=their_ed25519 size=80>
+        <p>Give this URL to the other person to chat with you:
+        <p><a id=link href="" >loading..</a>
+
+        <p><a id=line_mode href=""></a>
+        <p><a id=single_mode href=""></a>
 <br>
             <p><a href=/>return to network status page</a>
         <p>try /ping or /version
 
-<button id="connect-btn">Connect an Ethereum Wallet</button> 
         <div style='display: flex; height: 70vh;'>
             <textarea id='input' style='width: 50%; height: 100%;' readonly></textarea>
             <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
         </div>
 <br>
 debuging : 
-<button onclick="logging=true">enable </button>
+<button onclick="logging=true">enable </button> (then scroll down)
 <button onclick="logging=false">disable </button>
 	
 <script src="https://cdn.jsdelivr.net/npm/web3@1.8.0/dist/web3.min.js"></script>
@@ -30,11 +37,33 @@ debuging :
 	logDiv.style.cssText = 'position:fixed; bottom:0; left:0; right:0; max-height:30vh; overflow:auto; background:#111; color:#0f0; font-family:monospace; font-size:12px; padding:4px; z-index:9999;';
 	document.body.appendChild(logDiv);
     const parts = window.location.href.split('?');
-    let signed_ed25519s = new Map();
-    let safe_address  = document.getElementById('safe_address');
-    safe_address.value=parts[1];
-    let their_eth_addr  = document.getElementById('their_eth_addr');
-    let their_ed25519 =   document.getElementById('their_ed25519');
+    const signed_ed25519s = new Map();
+    const safe_address  = document.getElementById('safe_address');
+    const their_eth_addr  = document.getElementById('their_eth_addr');
+    const their_ed25519 =   document.getElementById('their_ed25519');
+    const input = document.getElementById('input');
+	const output = document.getElementById('output');
+	const link = document.getElementById('link');
+	function set_ed25519(ed25519) {
+		their_ed25519.value=parts[1];
+        let url;
+        if (safe_address.value.length>1) 
+            url = "http://localhost:24255/chat5/?" + safe_address.value;
+        else 
+            url = "http://localhost:24255/chat5/?" + their_ed25519.value;
+        link.href = url;
+		link.textContent = url; 
+        document.getElementById('line_mode').href =  "http://localhost:24255/chat/" + their_ed25519.value;
+        document.getElementById('line_mode').textContent = "switch to line by line mode";
+        document.getElementById('single_mode').href =  "http://localhost:24255/chat3/" + their_ed25519.value;
+        document.getElementById('single_mode').textContent =  "switch to single window mode";
+		input.readOnly = false;
+	}
+	if (parts[1].length > 50) {
+		set_ed25519(parts[1]);
+	} else {
+        safe_address.value=parts[1];
+    }
     let logging=false;
     let my_eth_address = null;
 
@@ -110,8 +139,6 @@ debuging :
     const url = new URL('/wt', window.location.href);
     url.protocol = url.protocol.replace('http', 'ws');
     let socket;
-    const input = document.getElementById('input');
-    const output = document.getElementById('output');
 window.onerror = (msg, url, line, col, err) => {
   log('ERROR:', msg, 'at', url + ':' + line + ':' + col);
   if (err && err.stack) log(err.stack);
@@ -161,6 +188,7 @@ window.onunhandledrejection = e => {
                             txt = "VERIFIED ed25519 " + their_ed25519.value + "\n";
                         } else {
                             log("wrong key, wanted " + their_ed25519.value + " got " + src);
+                            return;
                         }
                         if (  signed_ed25519s.get(src) == their_eth_addr.value ) {
                             txt += "VERIFIED eth " + their_eth_addr.value + "\n";
@@ -187,8 +215,7 @@ window.onunhandledrejection = e => {
 						log(  "\n\n-- " + signer + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
 						if (signer != null && their_eth_addr.value != null &&
                             signer.toUpperCase() == their_eth_addr.value.toUpperCase()) {
-							their_ed25519.value = ed25519; 
-                            input.readOnly = false;
+							set_ed25519(ed25519);
                             signed_ed25519s.set(ed25519,their_eth_addr);
 							log(  "\n\n****** MATCHED their ed25519 " + their_ed25519.value + " signed by eth_addr: " + signer);
                         }  else {

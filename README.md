@@ -84,3 +84,4 @@ drop in socket connect replacement thta takes keysznot ips?
 - would this compile faster if it wasnt one big file
 - /addpeer
 - public websocket support?
+- be fair and put nostr or bitcoin addr in chat too ..however that is signed
