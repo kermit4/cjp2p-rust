@@ -1356,22 +1356,20 @@ impl Receive for PleaseSendContent {
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
+        if self.id.find("/") != None || self.id.find("\\") != None || self.id.starts_with(".") {
+            return vec![];
+        };
+        let mut message_out: Vec<Message> = Vec::new();
         if let Source::S(src) = *src {
-            if self.id.find("/") != None || self.id.find("\\") != None || self.id.starts_with(".") {
-                return vec![];
-            };
-            let mut message_out: Vec<Message> = Vec::new();
             if let Some(i) = inbound_states.get_mut(&self.id) {
                 i.peers.insert(src);
                 message_out.append(&mut i.send_content_peers(*might_be_ip_spoofing, src));
-            } else {
-                message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
-            }
+                }
+        }
+        message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
+        if let Source::S(src) = *src {
             if message_out.len() == 0
-                || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0)
-            // if the file is small, they dont need more peers
-            // and if its big they'll hit this random often
-            {
+                || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0) {
                 message_out.append(&mut InboundState::send_content_peers_from_disk(
                     &self.id,
                     3 + 45 * !*might_be_ip_spoofing as usize,
@@ -1381,7 +1379,6 @@ impl Receive for PleaseSendContent {
             if *might_be_ip_spoofing && message_out.len() > 0 {
                 message_out.push(ps.please_always_return(src));
             }
-            return message_out;
         }
         return vec![];
     }
