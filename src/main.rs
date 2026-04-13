@@ -777,7 +777,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
 
     page += &format!("<a href=/chat5/>chat interface</a>");
     page += &format!("
-          </div><pre> start a download (it will be in {}/cjp2p/public/ when done): <form><input name=get></form>\n\n",std::env::current_dir().unwrap().display());
+          </div><pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n",std::env::current_dir().unwrap().display());
     for (_, i) in inbound_states {
         page += &format!("{} {}/{}\n",i.id,i.bytes_complete,i.eof);
     }
@@ -796,7 +796,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
     }
     let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
     sorted_list_results.sort_by_key(|&(_, b)| b.0);
-    page += &format!("most recommended content:\n");
+    page += &format!("most recommended content (results of '/recommend sha256' in the CLI):\n");
     for (k, v) in &sorted_list_results {
         page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
     }
