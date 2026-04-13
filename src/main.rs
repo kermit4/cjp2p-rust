@@ -39,6 +39,7 @@ use std::vec;
 use std::{io, str};
 //use base64::{engine::general_purpose, Engine as _};
 //use nix::NixPath;
+use std::path::Path;
 //use std::convert::TryInto;
 use std::fmt;
 //use std::io::copy;
@@ -550,7 +551,11 @@ fn main() -> Result<(), std::io::Error> {
         .init();
     println!("logging level: {}", log::max_level());
     let mut ps: PeerState = PeerState::new();
-    let web_server = TcpListener::bind("0.0.0.0:24255").unwrap();
+    let web_server = if Path::new(".allow_remote_http").exists() {
+        TcpListener::bind("0.0.0.0:24255").unwrap()
+    } else {
+        TcpListener::bind("127.0.0.1:24255").unwrap()
+    };
     SockRef::from(&web_server)
         .set_send_buffer_size(0x400000)
         .ok();
@@ -993,7 +998,7 @@ fn handle_web_request(
                             ,their_pub_hex
                             ,their_pub_hex
                             ,fill);
-                } 
+                }
 
                 stream.write_all(page.as_bytes()).ok();
                 return;
@@ -1193,7 +1198,8 @@ impl Receive for PleaseSendPeers {
         if *might_be_ip_spoofing {
             if let Source::S(src) = src {
                 message_out.push(ps.please_always_return(*src));
-        }}
+            }
+        }
         return message_out;
     }
 }
@@ -1359,12 +1365,13 @@ impl Receive for PleaseSendContent {
             if let Some(i) = inbound_states.get_mut(&self.id) {
                 i.peers.insert(src);
                 message_out.append(&mut i.send_content_peers(*might_be_ip_spoofing, src));
-                }
+            }
         }
         message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
         if let Source::S(src) = *src {
             if message_out.len() == 0
-                || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0) {
+                || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0)
+            {
                 message_out.append(&mut InboundState::send_content_peers_from_disk(
                     &self.id,
                     3 + 45 * !*might_be_ip_spoofing as usize,
@@ -1856,17 +1863,17 @@ impl Receive for MaybeTheyHaveSome {
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-            if !inbound_states.contains_key(&self.id) {
-                return vec![];
+        if !inbound_states.contains_key(&self.id) {
+            return vec![];
+        }
+        let i = inbound_states.get_mut(&self.id).unwrap();
+        for p in self.peers {
+            if i.peers.insert(p) {
+                // new possible source? try it
+                info!("{} trying new peer {} suggested by {:?}",self.id,p,src);
+                i.request_blocks(ps, HashSet::from([p]));
             }
-            let i = inbound_states.get_mut(&self.id).unwrap();
-            for p in self.peers {
-                if i.peers.insert(p) {
-                    // new possible source? try it
-                    info!("{} trying new peer {} suggested by {:?}",self.id,p,src);
-                    i.request_blocks(ps, HashSet::from([p]));
-                }
-            }
+        }
         return vec![];
     }
 }
@@ -2367,10 +2374,9 @@ fn msgs_to_pub(
             trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
-    }
-    else {
+    } else {
         warn!("failed to decode hex {} ",their_pub_hex_);
-        }
+    }
 }
 
 fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {

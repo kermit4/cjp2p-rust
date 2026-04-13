@@ -11,7 +11,7 @@ if echo "$@"|grep -qi wiki.edia  ;then
     opts="--wait=1"
     echo heavily rate limiting wget per wikipedia policy
 fi
-wget $opts -nv -p -H -k  "$@"
+wget $opts --no-verbose --page-requisites --span-hosts --convert-links  "$@"
 d=
 change() {
     s=$1
