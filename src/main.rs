@@ -2053,7 +2053,8 @@ impl Receive for MyPublicKey {
                         if let Ok(address) = sig.recover_address_from_msg(
                             format!("my ed25519 public key is {}",ed25519h),
                         ) {
-                            info!("Recovered address: {}", address);
+                            debug!("Recovered address: {}", address);
+                            // comes out like 0x9aE035dEE8318A9b9fD080Dda31D7524098f65EF
                             pi.ed25519_eth_signer = Some(address.to_string());
                         }
                     }
