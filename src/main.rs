@@ -769,12 +769,13 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
         env!("BUILD_VERSION"));
 
     for (their_pub_hex, msg) in (&ps.all_chats).into_iter().rev() {
-        page += &format!("<p><a href=/chat/{} target=_blank>0x{}</a> {}</p>\n",
+        page += &format!("<p><a href=/chat5/?{} target=_blank>0x{}</a> {}</p>\n",
             their_pub_hex,
             their_pub_hex,
             msg);
     }
 
+    page += &format!("<a href=/chat5/>chat interface</a>");
     page += &format!("
           </div><pre> start a download (it will be in {}/cjp2p/public/ when done): <form><input name=get></form>\n\n",std::env::current_dir().unwrap().display());
     for (_, i) in inbound_states {
@@ -953,7 +954,17 @@ fn handle_web_request(
                 stream.write_all(page.as_bytes()).ok();
                 return;
             }
+            page += "HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n";
+            if req.path.starts_with("/chat5/") {
+                stream.write_all(page.as_bytes()).ok();
+                let mut file = File::open("src/chat5.html").unwrap();
+                copy(&mut file, &mut stream).ok();
+                return;
+            }
             if req.path.starts_with("/chat") {
+                if req.path.len() < 8 {
+                    return;
+                }
                 let their_pub_hex = req.path[7..].to_string();
                 if !ps.recorded_chats.get_mut(&their_pub_hex).is_some() {
                     let mut past_chats = vec![];
@@ -971,7 +982,6 @@ fn handle_web_request(
                 } else {
                     "\"\"".to_string()
                 };
-                page += "HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n";
                 let my_pub_hex = hex::encode(&ps.keypair.public);
                 if req.path.starts_with("/chat3/") {
                     page += &format!(
@@ -983,12 +993,7 @@ fn handle_web_request(
                             ,their_pub_hex
                             ,their_pub_hex
                             ,fill);
-                } else if req.path.starts_with("/chat5/") {
-                    stream.write_all(page.as_bytes()).ok();
-                    let mut file = File::open("src/chat5.html").unwrap();
-                    copy(&mut file, &mut stream).ok();
-                    return;
-                }
+                } 
 
                 stream.write_all(page.as_bytes()).ok();
                 return;
