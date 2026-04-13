@@ -467,7 +467,7 @@ impl PeerState {
         match self.ws_vec[index].read() {
             Ok(buf) => {
                 //dbg!(msg);
-                info!("websocket typed: {}",buf);
+                info!("websocket sent: {}",buf);
                 let message_in_bytes = buf.into_data();
                 if message_in_bytes.len() > 0 {
                     let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
@@ -485,10 +485,10 @@ impl PeerState {
                     if message_out.len() == 0 {
                         return;
                     }
-                    let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-                    info!( "sending reply message {:?} to websocket",  String::from_utf8_lossy(&message_out_bytes));
+                    let message_out_string = serde_json::to_string(&message_out).unwrap();
+                    info!( "sending reply message {:?} to websocket",  message_out_string);
                     let ws = &mut self.ws_vec[index];
-                    match ws.write(message_out_bytes.into()) {
+                    match ws.write(tungstenite::Message::Text(message_out_string.into())) {
                         Ok(_) => {
                             ws.flush().ok();
                         }
@@ -888,10 +888,11 @@ fn handle_web_request(
             let mut ws = accept(stream).unwrap();
             info!("websocket2 request:");
             if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
-                let message =
+                let message_out_string =
                 format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]",ps.keypair.public_hex.clone().unwrap());
-                info!("asking to be signed: {}",message);
-                ws.write(message.into()).unwrap();
+                info!("asking to be signed: {}",message_out_string);
+                ws.write(tungstenite::Message::Text(message_out_string.into()))
+                    .unwrap();
                 ws.flush().ok();
             }
             ps.ws_vec.push(ws);
@@ -1056,18 +1057,16 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let (message_in_len, src) = ps.socket.recv_from(&mut buf).unwrap();
     let message_in_bytes = &buf[0..message_in_len];
     trace!( "incoming message {} from {src}", String::from_utf8_lossy(message_in_bytes));
-    let message_out_bytes = serde_json::to_vec(&json![
-            [Message::Forwarded(Forwarded{from_ed25519:"unverified".to_string(),messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
+    let message_out_string = serde_json::to_string(&json![
+            [Message::Forwarded(Forwarded{src:src,from_ed25519:None,messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
     if ps.ws_vec.len() > 0 {
-        trace!( "sending raw message {} to {} websocket(s)", String::from_utf8_lossy(&message_out_bytes),ps.ws_vec.len());
+        trace!( "sending raw message {} to {} websocket(s)", message_out_string,ps.ws_vec.len());
     }
     for ws in &mut ps.ws_vec {
         if ws
-            .write(
-                String::from_utf8_lossy(&message_out_bytes)
-                    .to_string()
-                    .into(),
-            )
+            .write(tungstenite::Message::Text(
+                message_out_string.clone().into(),
+            ))
             .is_ok()
         {
             ws.flush().ok();
@@ -1927,11 +1926,11 @@ impl Receive for ReturnedMessage {
         return vec![];
     }
 }
-/*
+//        socket.send(JSON.stringify([{GetPubByEth:{eth_addr:their_eth_addr}}]));
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct GetPubByEth {
-    addr: String,
+    eth_addr: String,
 }
 impl Receive for GetPubByEth {
     fn receive(
@@ -1941,16 +1940,28 @@ impl Receive for GetPubByEth {
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if let Some(s) = p.ed25519_eth_signed {
-            if s==self.addr{
-Message::MyPublicKey(MyPublicKey{ ed25519: self.addr,
-ed25519_eth_signed: p.ed25519_eth_signed,
-}}}
-
+        for (k, p) in &ps.peer_map {
+            if let Some(signer) = &p.ed25519_eth_signer {
+                if let Some(ed25519) = &p.ed25519 {
+                    if *signer == self.eth_addr {
+                        let mpk = MyPublicKey {
+                            ed25519h: ed25519.clone(),
+                            ed25519_eth_signed: p.ed25519_eth_signed.clone(),
+                        };
+                        let message_out = vec![Message::MyPublicKey(mpk)];
+                        let from_ed25519 = Some(hex::encode(ed25519));
+                        let messages = serde_json::to_string(&message_out).unwrap();
+                        info!("sending {:?} ed25519 {} for eth addr {}",src,from_ed25519.clone().unwrap(),signer);
+                        let src = *k;
+                        return vec![Message::Forwarded(Forwarded{src,from_ed25519,messages})];
+                    }
+                }
+            }
+        }
         return vec![];
     }
 }
-*/
+
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct SignedPub {
@@ -1976,7 +1987,8 @@ impl Receive for SignedPub {
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct Forwarded {
-    from_ed25519: String,
+    src: SocketAddr,
+    from_ed25519: Option<String>,
     messages: String,
 }
 impl Receive for Forwarded {
@@ -2007,7 +2019,10 @@ impl Receive for Forward {
         if let Source::S(_) = src {
             // we could allow this, i dont see why not, though theres not a currrent use
             // case..maybe dual-nat issues if they're encountered, or web socket clients to
-            // gateways if gateways with mulitple clients becomes a use case
+            // gateways if gateways with mulitple clients becomes a use case,
+            // with web sockets like light nodes stuck behind unusually difficult NAT
+            // but better to just leave it off for now, its not clear yet if the webclient
+            // is always a trusted localhost or a random
             return vec![];
         }
         info!("websocket asked me to forward {:?} to {} ",
@@ -2104,11 +2119,11 @@ impl Receive for ChatMessage {
                 return vec![];
             }
             println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
-            Utc::now().to_rfc3339(),
-            hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
-            ps.peer_map[&src].delay,
-            self.message
-        );
+                Utc::now().to_rfc3339(),
+                hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
+                ps.peer_map[&src].delay,
+                self.message
+            );
             let their_pub_hex = hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default());
             if (ps.all_chats.len() == 0
                 || ps.all_chats.last().unwrap().0 != their_pub_hex
@@ -2119,12 +2134,17 @@ impl Receive for ChatMessage {
                     .push((their_pub_hex.to_string(), self.message.to_owned()));
             }
             if let Some(ws) = ps.ws_map.get_mut(&their_pub_hex) {
-                if ws.write(self.message.clone().into()).is_ok() {
+                if ws
+                    .write(tungstenite::Message::Text(self.message.clone().into()))
+                    .is_ok()
+                {
                     ws.flush().ok();
                 }
             }
             if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
-                if (v.len() == 0 || v.last().unwrap() != &self.message) && self.message.len() > 0 {
+                if (v.len() == 0 || v.last().unwrap() != &self.message)
+                    && self.message.clone().len() > 0
+                {
                     v.push(self.message.to_owned());
                 }
             }
@@ -2274,18 +2294,16 @@ impl Receive for EncryptedMessages {
                 let messages = messages.0;
 
                 *might_be_ip_spoofing &= ps.check_key(&messages, src);
-                let message_out_bytes = serde_json::to_vec(&json![
-                        [Message::Forwarded(Forwarded{from_ed25519:their_pub_hex,messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
+                let message_out_string = serde_json::to_string(&json![
+                        [Message::Forwarded(Forwarded{src:src,from_ed25519:Some(their_pub_hex),messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
                 if ps.ws_vec.len() > 0 {
-                    trace!( "sending decrypted message {} to {} websockets", String::from_utf8_lossy(&message_out_bytes),ps.ws_vec.len());
+                    trace!( "sending decrypted message {} to {} websockets", message_out_string,ps.ws_vec.len());
                 }
                 for ws in &mut ps.ws_vec {
                     if ws
-                        .write(
-                            String::from_utf8_lossy(&message_out_bytes)
-                                .to_string()
-                                .into(),
-                        )
+                        .write(tungstenite::Message::Text(
+                            message_out_string.clone().into(),
+                        ))
                         .is_ok()
                     {
                         ws.flush().ok();
@@ -2327,6 +2345,7 @@ enum Message {
     Forward(Forward),
     Forwarded(Forwarded),
     SignedPub(SignedPub),
+    GetPubByEth(GetPubByEth),
 }
 
 // this struct only exists to be able to get that VecSkipError in there.
