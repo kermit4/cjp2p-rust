@@ -88,6 +88,7 @@ struct PeerInfo {
     ed25519: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signed: Option<String>,
+    ed25519_eth_signer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     you_should_see_this: Option<YouSouldSeeThis>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -100,6 +101,7 @@ impl PeerInfo {
             anti_ip_spoofing_cookie_they_expect: None,
             ed25519: None,
             ed25519_eth_signed: None,
+            ed25519_eth_signer: None,
             you_should_see_this: Some(YouSouldSeeThis {
                 id: "43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1".to_owned(),
                 length: 105277987,
@@ -2040,6 +2042,24 @@ impl Receive for MyPublicKey {
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
             let pi = ps.peer_map.get_mut(&src).unwrap();
+
+            use alloy::signers::Signature;
+            use std::str::FromStr;
+            if let Some(sig) = &self.ed25519_eth_signed {
+                if let Some(ed25519) = &pi.ed25519 {
+                    let ed25519h = hex::encode(ed25519);
+                    if let Ok(sig) = Signature::from_str(sig.as_str()) {
+                        // takes 0.0003s so do this in advance
+                        if let Ok(address) = sig.recover_address_from_msg(
+                            format!("my ed25519 public key is {}",ed25519h),
+                        ) {
+                            info!("Recovered address: {}", address);
+                            pi.ed25519_eth_signer = Some(address.to_string());
+                        }
+                    }
+                }
+            }
+
             pi.ed25519 = Some(self.ed25519h.clone());
             pi.ed25519_eth_signed = self.ed25519_eth_signed;
         }
