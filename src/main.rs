@@ -1097,6 +1097,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
         inbound_states,
     );
     if message_out.len() == 0 {
+        trace!("no reply");
         return;
     }
     message_out.append(&mut ps.always_returned(src));
@@ -1384,7 +1385,7 @@ impl Receive for PleaseSendContent {
                 message_out.push(ps.please_always_return(src));
             }
         }
-        return vec![];
+        return message_out;
     }
 }
 
