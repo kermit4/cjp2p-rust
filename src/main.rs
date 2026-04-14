@@ -1,5 +1,5 @@
 use socket2::SockRef;
-use std::thread;
+//use std::thread;
 use tungstenite::{accept, WebSocket};
 //use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
@@ -176,6 +176,7 @@ struct PeerState {
     all_chats: Vec<(String, String)>,
     ws_map: HashMap<String, WebSocket<TcpStream>>,
     ws_vec: Vec<WebSocket<TcpStream>>,
+    http_clients: Vec<TcpStream>,
     content_gateways: Vec<ContentGateway>,
 }
 #[derive(Serialize, Deserialize, Debug)]
@@ -235,6 +236,7 @@ impl PeerState {
             all_chats: Vec::new(),
             ws_map: HashMap::new(),
             ws_vec: Vec::new(),
+            http_clients: Vec::new(),
             content_gateways: Vec::new(),
         };
         ps.socket.set_broadcast(true).ok();
@@ -590,6 +592,9 @@ fn main() -> Result<(), std::io::Error> {
                 write_fds.insert(fd);
             }
         }
+        for hc in &ps.http_clients {
+            read_fds.insert(hc.as_fd());
+        }
         for ws in &ps.ws_vec {
             read_fds.insert(ws.get_ref().as_fd());
         }
@@ -601,6 +606,7 @@ fn main() -> Result<(), std::io::Error> {
 
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if write_fds.contains(cg.http_socket.as_fd()) {
+                info!("handling cg {} {} {} ",cg.http_done,cg.waiting_for_browser,cg.sent_header);
                 ps.serve_http_content(&mut inbound_states, index);
                 continue 'main;
             }
@@ -608,6 +614,7 @@ fn main() -> Result<(), std::io::Error> {
 
         for (k, ws) in ps.ws_vec.iter().enumerate() {
             if read_fds.contains(ws.get_ref().as_fd()) {
+                info!("handling ws vec");
                 ps.handle_websocket2(k, &mut inbound_states);
                 continue 'main;
             }
@@ -615,6 +622,7 @@ fn main() -> Result<(), std::io::Error> {
 
         for (k, ws) in ps.ws_map.iter() {
             if read_fds.contains(ws.get_ref().as_fd()) {
+                info!("handling ws map");
                 let k_ = k.to_owned();
                 ps.handle_websocket(&k_);
                 continue 'main;
@@ -622,16 +630,27 @@ fn main() -> Result<(), std::io::Error> {
         }
 
         if read_fds.contains(stdin.as_fd()) {
-            debug!("handling stdin");
+            info!("handling stdin");
             handle_stdin(&mut ps, &mut inbound_states);
-        } else if read_fds.contains(web_server.as_fd()) {
-            debug!("handling http");
-            handle_web_request(&web_server, &mut inbound_states, &mut ps);
-        } else if read_fds.contains(ps.socket.as_fd()) {
+            continue 'main;
+        }
+        if read_fds.contains(web_server.as_fd()) {
+            info!("handling new http");
+            if let Ok((stream, _)) = web_server.accept() {
+                stream.set_nonblocking(true).unwrap();
+                ps.http_clients.push(stream);
+            }
+            continue 'main;
+        }
+        for (k, hc) in ps.http_clients.iter().enumerate() {
+            if read_fds.contains(hc.as_fd()) {
+                info!("handling http");
+                handle_web_request(k, &mut inbound_states, &mut ps);
+                continue 'main;
+            }
+        }
+        if read_fds.contains(ps.socket.as_fd()) || error_fds.contains(ps.socket.as_fd()) {
             trace!("handling network");
-            handle_network(&mut ps, &mut inbound_states);
-        } else if error_fds.contains(ps.socket.as_fd()) {
-            warn!("error_fds.contains(ps.socket.as_fd()");
             handle_network(&mut ps, &mut inbound_states);
         }
     }
@@ -869,22 +888,15 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
     return page;
 }
 fn handle_web_request(
-    web_server: &TcpListener,
+    index: usize,
     inbound_states: &mut HashMap<String, InboundState>,
     ps: &mut PeerState,
 ) {
-    if let Ok((mut stream, _)) = web_server.accept() {
-        let mut buf = [0; 16];
-        let mut attempts = 0;
-        while if let Ok(len) = stream.peek(&mut buf) {
-            attempts += 1;
-            len < 7 && attempts < 30
-        } else {
-            false
-        } {
-            thread::sleep(Duration::from_millis(10));
-        }
-        if attempts >= 30 {
+    let mut stream = ps.http_clients.remove(index);
+    let mut buf = [0; 16];
+    if let Ok(len) = stream.peek(&mut buf) {
+        if len < 7 {
+            warn!("got short http request, {len} bytes, discarding");
             return;
         }
         if buf.starts_with(b"GET /wt") {
@@ -1048,7 +1060,6 @@ fn handle_web_request(
                 sent_header: false,
                 eof: 0,
             };
-            cg.http_socket.set_nonblocking(true).unwrap();
             ps.content_gateways.push(cg);
             ps.serve_http_content(inbound_states, index);
         }
@@ -1539,6 +1550,7 @@ impl ContentGateway {
 
     fn serve_content_from_inbound_state(&mut self, i: &mut InboundState) {
         if self.http_done || i.bytes_complete == 0 {
+            self.waiting_for_browser = false;
             return;
         }
         self.eof = i.eof;

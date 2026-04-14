@@ -32,18 +32,18 @@ This also works on Android.
 Try /help
 Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its ubuntu-24.04.3-live-server-amd64.iso )
 
-or watch Sintel http://127.0.0.1:24255/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
+or watch Sintel http://localhost:24255/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
-or the status page (soon to be a WEB INTERFACE that looks like a console.) http://127.0.0.1:24255/
+or the status page (soon to be a WEB INTERFACE that looks like a console.) http://localhost:24255/
 
 or HTML pages with many page components, individually downloaded from the network live (unless you already did.)
-- http://127.0.0.1:24255/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
-- http://127.0.0.1:24255/96b375185bb9cb1ff8aecea12480b0663749d0afb1e8ffa8f32b8d6e48b90f10 1000 random img src
+- http://localhost:24255/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
+- http://localhost:24255/96b375185bb9cb1ff8aecea12480b0663749d0afb1e8ffa8f32b8d6e48b90f10 1000 random img src
 - http://localhost:24255/b98d4a019a3b4cb29c1a0207f9f60dd5302d611374667fb3ea4b1a671ad9bf99  https://commons.wikimedia.org/wiki/Category:Fossils made with SingleFile browser plugin (for firexfox or chrome) (works much better than wget and my html_slurp.sh but becausue its inlining the images so doesnt really demonstrate the get-lots-of-little-files-quickly capabilities of this )
 - http://localhost:24255/245dfbdcd947e8cb4bf650846da7e7c7042d7a39c2fa31df541312dc9722234b the world's most censored news site.. to click any links on this, if you're in the EU, you may have to change your DNS provider. Most browsers have an option.  
-- http://127.0.0.1:24255/fb132816910cda37494d2c1ec70b6bc92f9bc4b129842e7f4e9d16aac789ac3f wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON
-- http://127.0.0.1:24255/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth 
-- http://127.0.0.1:24255/380e9e5a09e5b0564e442a17f3bf054a07046323237bd60f2cd6834bbb45d14e  https://en.wikipedia.org/wiki/Geological_history_of_Earth
+- http://localhost:24255/fb132816910cda37494d2c1ec70b6bc92f9bc4b129842e7f4e9d16aac789ac3f wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON
+- http://localhost:24255/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth 
+- http://localhost:24255/380e9e5a09e5b0564e442a17f3bf054a07046323237bd60f2cd6834bbb45d14e  https://en.wikipedia.org/wiki/Geological_history_of_Earth
 
 
 # TODO
