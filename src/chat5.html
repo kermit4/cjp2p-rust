@@ -44,8 +44,7 @@ debuging :
     const input = document.getElementById('input');
     const output = document.getElementById('output');
     const link = document.getElementById('link');
-    function set_ed25519(ed25519) {
-        their_ed25519.value=ed25519;
+    function ed25519_is_set() {
         let url;
         if (safe_address.value.length>1) 
             url = "http://localhost:24255/chat5/?" + safe_address.value;
@@ -58,6 +57,10 @@ debuging :
         document.getElementById('single_mode').href =  "http://localhost:24255/chat3/" + their_ed25519.value;
         document.getElementById('single_mode').textContent =  "switch to single window mode";
         input.readOnly = false;
+    }
+    function set_ed25519(ed25519) {
+        their_ed25519.value=ed25519;
+        ed25519_is_set();
     }
     if (parts.length > 1) {
     if (parts[1].length > 50) {
@@ -259,6 +262,7 @@ window.onunhandledrejection = e => {
     });
     their_ed25519.addEventListener('input', () => { 
         input.readOnly = false;
+        ed25519_is_set();
     });
     input.addEventListener('input', () => { 
         socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{ChatMessage:{message:input.value}}]}}]  )); 
