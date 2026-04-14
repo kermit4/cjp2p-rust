@@ -39,7 +39,7 @@ or the status page (soon to be a WEB INTERFACE that looks like a console.) http:
 or HTML pages with many page components, individually downloaded from the network live (unless you already did.)
 - http://127.0.0.1:24255/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
 - http://127.0.0.1:24255/96b375185bb9cb1ff8aecea12480b0663749d0afb1e8ffa8f32b8d6e48b90f10 1000 random img src
-- localhost:24255/b98d4a019a3b4cb29c1a0207f9f60dd5302d611374667fb3ea4b1a671ad9bf99  https://commons.wikimedia.org/wiki/Category:Fossils made with SingleFile browser plugin (for firexfox or chrome) (works much better than wget and my html_slurp.sh but becausue its inlining the images so doesnt really demonstrate the get-lots-of-little-files-quickly capabilities of this )
+- http://localhost:24255/b98d4a019a3b4cb29c1a0207f9f60dd5302d611374667fb3ea4b1a671ad9bf99  https://commons.wikimedia.org/wiki/Category:Fossils made with SingleFile browser plugin (for firexfox or chrome) (works much better than wget and my html_slurp.sh but becausue its inlining the images so doesnt really demonstrate the get-lots-of-little-files-quickly capabilities of this )
 - http://localhost:24255/245dfbdcd947e8cb4bf650846da7e7c7042d7a39c2fa31df541312dc9722234b the world's most censored news site.. to click any links on this, if you're in the EU, you may have to change your DNS provider. Most browsers have an option.  
 - http://127.0.0.1:24255/fb132816910cda37494d2c1ec70b6bc92f9bc4b129842e7f4e9d16aac789ac3f wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON
 - http://127.0.0.1:24255/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth 
@@ -72,18 +72,15 @@ or HTML pages with many page components, individually downloaded from the networ
 - make it do what i actually do each day, check for news basically, from friends or weigthed by importance/distance. like /trending but scoped/weighted.  user defined algorithm. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
 - alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
 - need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming)
-- images and html over 4M dont render well in brave.  It only handles partial content for videos.  rewrite http handler to use non-blocking tcp writes and serve complete content. also curl doesn't like it.
-- really need working demo html pages
 - reputation, ip-time? web of trust? what would i actually use this for
 - polls, approval voting style..which need some kind of scarcity
-drop in socket connect replacement thta takes keysznot ips?
-- shared chat by ID or shared and approve members, so basically a chat room where the first is ops
+- drop in socket() replacement that takes keys intead of ips(), in Rust?
+- group chat 
 - more mmaps, replace open file cache, and use for http content servce
 - autoscroll dual window
-- use secp256k1 public keys.. abandon the ed25519 or support both?
 - debug option or /option to just never serve anything off local disk..network test mode, so i dont have to keep deleteing files
 - with chat5.html static, hoste it instead of compile it in?
 - would this compile faster if it wasnt one big file
 - /addpeer
 - public websocket support?
-- be fair and put nostr or bitcoin addr in chat too ..however that is signed
+- put nostr or bitcoin addr in chat too ..however that is signed

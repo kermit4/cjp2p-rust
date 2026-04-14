@@ -878,11 +878,14 @@ fn handle_web_request(
         let mut attempts = 0;
         while if let Ok(len) = stream.peek(&mut buf) {
             attempts += 1;
-            len < 7 && attempts < 100
+            len < 7 && attempts < 30
         } else {
             false
         } {
-            thread::sleep(Duration::from_millis(20));
+            thread::sleep(Duration::from_millis(10));
+        }
+        if attempts >= 30 {
+            return;
         }
         if buf.starts_with(b"GET /wt") {
             let mut ws = accept(stream).unwrap();
