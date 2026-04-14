@@ -59,11 +59,13 @@ debuging :
         document.getElementById('single_mode').textContent =  "switch to single window mode";
         input.readOnly = false;
     }
+    if (parts.length > 1) {
     if (parts[1].length > 50) {
         set_ed25519(parts[1]);
     } else {
         safe_address.value=parts[1];
     }
+}
     let logging=false;
     let my_eth_address = null;
 
@@ -71,6 +73,9 @@ debuging :
         socket.send(JSON.stringify([{GetPubByEth:{eth_addr:their_eth_addr.value}}])); 
     }
     async function getSigners() {
+        if (safe_address.value.length == 0) {
+            return;
+        }
         const accounts = await window.ethereum.request({ method: 'eth_accounts' });
         my_eth_address = accounts[0];
         const provider = new ethers.BrowserProvider(window.ethereum)
