@@ -527,6 +527,11 @@ struct HttpRequest {
 fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
     let mut buf = [0; 4096];
     let len = stream.read(&mut buf).ok()?;
+    if ! buf.is_ascii() {
+        warn!("garbage on http port, closing");
+        return None;
+    }
+
     let request_str = String::from_utf8_lossy(&buf[..len]);
 
     let mut lines = request_str.lines();
@@ -1410,7 +1415,6 @@ impl Content {
     ) -> Vec<Message> {
         if *might_be_ip_spoofing && rand::rng().random::<u32>() % 27 == 0 {
             info!("randomly ignoring unverified source IPs for {} so ba dumb client doesn't get stuck in a loop",req.id);
-
             return vec![];
         }
         let length = if *might_be_ip_spoofing {

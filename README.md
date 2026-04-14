@@ -84,7 +84,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - /addpeer
 - public websocket support?
 - put nostr or bitcoin addr in chat too ..however that is signed
-- ddont crash if someone tries tto talk https to web server
-- ctrl-cc saves
-- /addpeer
+- ctrl-c saves like the timer
 - deprecate chat3 for a single windowed chat5 to then deprrecate /ws enddpoint
+- http pipelining for that 1000 image page
