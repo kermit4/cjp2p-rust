@@ -435,7 +435,6 @@ impl PeerState {
         {
             let cg = &mut (self.content_gateways[cg_index]);
             cg.serve_content_from_disk(&file);
-            //            } else
             return;
         }
 
@@ -782,9 +781,10 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
             msg);
     }
 
+    page += &format!("</div>");
     page += &format!("<a href=/chat5/>chat interface</a>");
     page += &format!("
-          </div><pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n",std::env::current_dir().unwrap().display());
+          <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n",std::env::current_dir().unwrap().display());
     for (_, i) in inbound_states {
         page += &format!("{} {}/{}\n",i.id,i.bytes_complete,i.eof);
     }
@@ -829,7 +829,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
 
     page += &format!("\n{} total peers\n",ps.peer_map.len());
     let mut unique_pubs = HashSet::new();
-    page += &format!("--- active public keys.  Click on one to open an encrypted 2-way chat.\n\
+    page += &format!("--- active public keys (recently responding in under than 250ms).  Click on one to open an encrypted 2-way chat.\n\
         Note that unless they have a tab open with you, they'll only see it in the console or status page: \n");
     for (k, v) in &ps.peer_map {
         if v.delay < Duration::from_millis(250) {

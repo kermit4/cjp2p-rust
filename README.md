@@ -85,3 +85,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - public websocket support?
 - put nostr or bitcoin addr in chat too ..however that is signed
 - ddont crash if someone tries tto talk https to web server
+- ctrl-cc saves
+- /addpeer
+- deprecate chat3 for a single windowed chat5 to then deprrecate /ws enddpoint
