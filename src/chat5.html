@@ -3,7 +3,7 @@
             you have to pick one of these, and can start messaging
 when the bottom one filed<p>
 gnosis safe address <input id=safe_address size=60>
-<br>eth addr <input id=their_eth_addr size=80>
+<br>their eth addr <input id=their_eth_addr size=80>
 <button id="connect-btn">Connect an Ethereum Wallet if you want to messaged by eth address</button> 
 <br>ed25519 addr<input id=their_ed25519 size=80>
         <p>Give this URL to the other person to chat with you:
@@ -132,6 +132,17 @@ debuging :
 
     let logQueue = Promise.resolve();
 
+    function log_always(...args) { 
+        const line = document.createElement('div');
+        logQueue = logQueue.then(() => {
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
+                logBox.appendChild(line);
+                while (logBox.children.length > 2000) {
+                  logBox.removeChild(logBox.firstChild);
+                }
+                // window.scrollTo(0, document.body.scrollHeight);
+            });
+        }
     function log(...args) { 
         if (!logging)   { return; }
         const line = document.createElement('div');
@@ -201,6 +212,8 @@ window.onunhandledrejection = e => {
                             log("wrong key, wanted " + their_ed25519.value + " got " + src);
                             return;
                         }
+                        log_always(signed_ed25519s.get(src));
+                        log_always(their_eth_addr.value);
                         if (  signed_ed25519s.get(src) == their_eth_addr.value ) {
                             txt += "VERIFIED eth " + their_eth_addr.value + "\n";
                         }
@@ -227,7 +240,7 @@ window.onunhandledrejection = e => {
                         if (signer != null && their_eth_addr.value != null &&
                             signer.toUpperCase() == their_eth_addr.value.toUpperCase()) {
                             set_ed25519(ed25519);
-                            signed_ed25519s.set(ed25519,their_eth_addr);
+                            signed_ed25519s.set(ed25519,their_eth_addr.value);
                             log(  "\n\n****** MATCHED their ed25519 " + their_ed25519.value + " signed by eth_addr: " + signer);
                         }  else {
                             log(  "\n\nnot the key we're looking for: " + signer +  " != " + their_eth_addr.value );

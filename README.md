@@ -84,3 +84,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - /addpeer
 - public websocket support?
 - put nostr or bitcoin addr in chat too ..however that is signed
+- ddont crash if someone tries tto talk https to web server
