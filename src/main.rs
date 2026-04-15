@@ -88,6 +88,7 @@ struct PeerInfo {
     ed25519: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     you_should_see_this: Option<YouSouldSeeThis>,
@@ -527,7 +528,7 @@ struct HttpRequest {
 fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
     let mut buf = [0; 4096];
     let len = stream.read(&mut buf).ok()?;
-    if ! buf.is_ascii() {
+    if !buf.is_ascii() {
         warn!("garbage on http port, closing");
         return None;
     }
@@ -907,14 +908,15 @@ fn handle_web_request(
         if buf.starts_with(b"GET /wt") {
             let mut ws = accept(stream).unwrap();
             info!("websocket2 request:");
-            if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
-                let message_out_string =
-                format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]",ps.keypair.public_hex.clone().unwrap());
-                info!("asking to be signed: {}",message_out_string);
-                ws.write(tungstenite::Message::Text(message_out_string.into()))
-                    .unwrap();
-                ws.flush().ok();
-            }
+            let message_out_string = if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
+                format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]",ps.keypair.public_hex.clone().unwrap())
+            } else {
+                format!("[{{\"YourEd25519\":{{\"ed25519\":\"{}\"}}}}]",ps.keypair.public_hex.clone().unwrap())
+            };
+            info!("sending websocktet: {}",message_out_string);
+            ws.write(tungstenite::Message::Text(message_out_string.into()))
+                .unwrap();
+            ws.flush().ok();
             ps.ws_vec.push(ws);
             return;
         }

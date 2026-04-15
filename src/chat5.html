@@ -5,7 +5,7 @@ when the bottom one filed<p>
 gnosis safe address <input id=safe_address size=60>
 <br>their eth addr <input id=their_eth_addr size=80>
 <button id="connect-btn">Connect an Ethereum Wallet if you want to messaged by eth address</button> 
-<br>ed25519 addr<input id=their_ed25519 size=80>
+<br>their ed25519 addr<input id=their_ed25519 size=80>
         <p>Give this URL to the other person to chat with you:
         <p><a id=link href="" ></a>
 
@@ -35,8 +35,26 @@ debuging :
     const logDiv = document.createElement('div');
     logDiv.id = 'log';
     logDiv.style.cssText = 'position:fixed; bottom:0; left:0; right:0; max-height:30vh; overflow:auto; background:#111; color:#0f0; font-family:monospace; font-size:12px; padding:4px; z-index:9999;';
+
+    let logging=false;
+    let logQueue = Promise.resolve();
+
+    function log_always(...args) { 
+        const line = document.createElement('div');
+        logQueue = logQueue.then(() => {
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
+                logBox.appendChild(line);
+                while (logBox.children.length > 2000) {
+                  logBox.removeChild(logBox.firstChild);
+                }
+                // window.scrollTo(0, document.body.scrollHeight);
+            });
+        }
+    function log(...args) { 
+        if (logging)  log_always(args);
+    }
+
     document.body.appendChild(logDiv);
-    const parts = window.location.href.split('?');
     const signed_ed25519s = new Map();
     const safe_address  = document.getElementById('safe_address');
     const their_eth_addr  = document.getElementById('their_eth_addr');
@@ -45,11 +63,13 @@ debuging :
     const output = document.getElementById('output');
     const link = document.getElementById('link');
     function ed25519_is_set() {
-        let url;
+        let url=location.origin+location.pathname;
         if (safe_address.value.length>1) 
-            url = "http://localhost:24255/chat5/?" + safe_address.value;
+            url += "?safe=" + safe_address.value;
+        if (my_eth_address!=null) 
+            url += "?eth=" + my_eth_address;
         else 
-            url = "http://localhost:24255/chat5/?" + their_ed25519.value;
+            url += "?ed25519=" + my_ed25519;
         link.href = url;
         link.textContent = url; 
         document.getElementById('line_mode').href =  "http://localhost:24255/chat/" + their_ed25519.value;
@@ -62,14 +82,6 @@ debuging :
         their_ed25519.value=ed25519;
         ed25519_is_set();
     }
-    if (parts.length > 1) {
-    if (parts[1].length > 50) {
-        set_ed25519(parts[1]);
-    } else {
-        safe_address.value=parts[1];
-    }
-}
-    let logging=false;
     let my_eth_address = null;
 
     function request_ed25519_from_eth_addr() {
@@ -109,6 +121,7 @@ debuging :
     });
 
     let my_ed25519_to_sign = null;
+    let my_ed25519 = null;
 
     document.getElementById('connect-btn').addEventListener('click', async () => {
         if (!window.ethereum) {
@@ -132,55 +145,30 @@ debuging :
       try { return JSON.stringify(obj, null, 2); } 
       catch { return String(obj); }
     }
+    window.onerror = (msg, url, line, col, err) => {
+      log('ERROR:', msg, 'at', url + ':' + line + ':' + col);
+      if (err && err.stack) log(err.stack);
+        return false;
+    };
+    window.onunhandledrejection = e => {
+      log('UNHANDLED PROMISE:', e.reason?.stack || e.reason || e);
+    };
 
-    let logQueue = Promise.resolve();
-
-    function log_always(...args) { 
-        const line = document.createElement('div');
-        logQueue = logQueue.then(() => {
-            line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
-                logBox.appendChild(line);
-                while (logBox.children.length > 2000) {
-                  logBox.removeChild(logBox.firstChild);
-                }
-                // window.scrollTo(0, document.body.scrollHeight);
-            });
-        }
-    function log(...args) { 
-        if (!logging)   { return; }
-        const line = document.createElement('div');
-        logQueue = logQueue.then(() => {
-            line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
-                logBox.appendChild(line);
-                while (logBox.children.length > 2000) {
-                  logBox.removeChild(logBox.firstChild);
-                }
-                // window.scrollTo(0, document.body.scrollHeight);
-            });
-        }
+    ['log', 'warn', 'error', 'info'].forEach(k => {
+      const orig = console[k].bind(console);
+      console[k] = (...args) => {
+        orig.apply(console, args); // still goes to real console if you have one
+        log(k.toUpperCase() + ':',...args);
+      };
+    });
 
     const url = new URL('/wt', window.location.href);
     url.protocol = url.protocol.replace('http', 'ws');
     let socket;
-window.onerror = (msg, url, line, col, err) => {
-  log('ERROR:', msg, 'at', url + ':' + line + ':' + col);
-  if (err && err.stack) log(err.stack);
-    return false;
-};
-window.onunhandledrejection = e => {
-  log('UNHANDLED PROMISE:', e.reason?.stack || e.reason || e);
-};
 
-['log', 'warn', 'error', 'info'].forEach(k => {
-  const orig = console[k].bind(console);
-  console[k] = (...args) => {
-    orig.apply(console, args); // still goes to real console if you have one
-    log(k.toUpperCase() + ':',...args);
-  };
-});
-    function connect() {
-        log("websocket connencting");
-        socket = new WebSocket("ws://localhost:24255/wt");
+	log("websocket connencting");
+	socket = new WebSocket("ws://localhost:24255/wt");
+	socket.onopen = () => {
         socket.onclose = () => {
             console.log('Socket closed. Reconnecting ...');
             log("websocket reconnencting");
@@ -249,14 +237,46 @@ window.onunhandledrejection = e => {
                             log(  "\n\nnot the key we're looking for: " + signer +  " != " + their_eth_addr.value );
                         }
                     }
+                    if ("YourEd25519" in msg) {
+                        my_ed25519 = msg.YourEd25519.ed25519
+                        ed25519_is_set();
+                    }
                     if ("PleaseSignYourPub" in msg) {
                         my_ed25519_to_sign = msg.PleaseSignYourPub.ed25519
                     }
                 }
             });
         };
+		const params = new URLSearchParams(window.location.search)
+		let old_way=true;
+		params.forEach(function(v,k)  { 
+			log_always(k,"=",v);
+			if (v!="") 
+				old_way=false;
+			switch (k) {
+				case "safe":
+					safe_address.value=v;
+					break;
+				case "eth":
+					their_eth_addr.value = v;
+					request_ed25519_from_eth_addr();
+					break;
+				case "ed25519":
+					set_ed25519(v);
+			}
+		});
+		if (old_way) { 
+			const parts = window.location.href.split('?');
+			if (parts.length > 1) {
+				if (parts[1].length > 50) {
+					set_ed25519(parts[1]);
+				} else {
+					safe_address.value=parts[1];
+				}
+			}
+		}
+
     }
-    connect();
     their_eth_addr.addEventListener('input', () => { 
         request_ed25519_from_eth_addr();
     });
