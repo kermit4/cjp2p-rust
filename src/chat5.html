@@ -194,9 +194,11 @@ debuging :
                 let messages_ = JSON.parse(event.data);
                 let messages;
                 log( "\n\n==============\n\n");
-                let src="shouldnt happen";
+                let src=null;
+                let forwarded=false;
                 if ("Forwarded" in messages_[0]) {
                     src=messages_[0].Forwarded.from_ed25519;
+                    forwarded=true;
                     messages = JSON.parse(messages_[0].Forwarded.messages);
                     log( "\n" + messages_[0].Forwarded.messages);
                 } else messages=messages_; 
@@ -249,11 +251,11 @@ debuging :
                             log(  "\n\nnot the key we're looking for: " + signer +  " != " + their_eth_addr.value );
                         }
                     }
-                    if ("YourEd25519" in msg) {
+                    if (!forwarded && "YourEd25519" in msg) {
                         my_ed25519 = msg.YourEd25519.ed25519
                         update_links();
                     }
-                    if ("PleaseSignYourPub" in msg) {
+                    if (!forwarded && "PleaseSignYourPub" in msg) {
                         my_ed25519_to_sign = msg.PleaseSignYourPub.ed25519
                         my_ed25519 = my_ed25519_to_sign;
                         update_links();

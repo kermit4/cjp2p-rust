@@ -87,3 +87,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - ctrl-c saves like the timer
 - http pipelining for that 1000 image page
 - make chat5 have chat memory again? like the generated pages did
+peers save would be substantially more efficient if it only saved the LAST peer of an ed25519, if known, but not everyone has or announces that
+- content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
