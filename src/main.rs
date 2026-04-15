@@ -477,7 +477,7 @@ impl PeerState {
                     let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
                         Ok(r) => r,
                         Err(e) => {
-                            warn!( "could not deserialize incoming messages from websocket {e}  :  {}",
+                            info!( "could not deserialize incoming messages from websocket {e}  :  {}",
                     String::from_utf8_lossy(&message_in_bytes));
                             return;
                         }
@@ -1041,7 +1041,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let messages: Messages = match serde_json::from_slice(message_in_bytes) {
         Ok(r) => r,
         Err(e) => {
-            warn!( "could not deserialize incoming messages from {} {e}  :  {}",src,
+            info!( "could not deserialize incoming messages from {} {e}  :  {}",src,
                     String::from_utf8_lossy(message_in_bytes));
             return;
         }
@@ -1051,7 +1051,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
         let mut pi = PeerInfo::new();
         pi.delay = Duration::from_millis(120);
         ps.peer_map.insert(src, pi);
-        warn!("new peer spotted {src}");
+        info!("new peer spotted {src}");
     }
     // This ist a Vec<Value> because I don't know the structure of the Please*Returns
     let mut might_be_ip_spoofing = ps.check_key(&messages, src);
@@ -2092,7 +2092,7 @@ impl Receive for ChatMessage {
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
             if *might_be_ip_spoofing {
-                error!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
+                info!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
                 return vec![];
             }
             println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
@@ -2255,7 +2255,7 @@ impl Receive for EncryptedMessages {
                 let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
                     Ok(r) => r,
                     Err(e) => {
-                        warn!( "could not deserialize incoming messages from {} {e}  :  {}",src,
+                        info!( "could not deserialize incoming messages from {} {e}  :  {}",src,
                     String::from_utf8_lossy(&message_in_bytes));
                         return vec![];
                     }
@@ -2326,7 +2326,7 @@ struct ErrorInspector;
 
 impl InspectError for ErrorInspector {
     fn inspect_error(error: impl serde::de::Error) {
-        warn!( "could not deserialize an incoming message {error}");
+        info!( "could not deserialize an incoming message {error}");
     }
 }
 
@@ -2362,7 +2362,7 @@ fn msgs_to_pub(
             }
         }
         if who.len() == 0 {
-            error!("user {} not found",their_pub_hex);
+            warn!("user {} not found",their_pub_hex);
             return;
         }
         let mut message_out: Vec<serde_json::Value> = vec![];
@@ -2405,7 +2405,7 @@ fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {
         }
     }
     if who.len() == 0 {
-        error!("user {} not found",their_pub_hex);
+        warn!("user {} not found",their_pub_hex);
         return;
     }
     for sa in who {
