@@ -998,8 +998,7 @@ fn handle_web_request(
                     try /ping or /version. \n\
                 If they can't find you through main page, the URL they need to get here (not the same as yours) is 
                 <a href=http://127.0.0.1:24255/chat/{}>http://127.0.0.1:24255/chat/{}</a>
-                    <br><a href=/phone.html?ed25519={}>click here</a> for high quality audio all (no echo surpression, use a headset)</a>\n\
-
+                    <br><a href=/phone.html?ed25519={}>click here</a> for high quality audio all (no echo surpression, use a headset)</a>\n
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
                     <a href=/C5.html?{}>click here</a> to switch to character-by-character mode\n\
                     "
