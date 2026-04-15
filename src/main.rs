@@ -2002,7 +2002,7 @@ impl Receive for Forward {
             // is always a trusted localhost or a random
             return vec![];
         }
-        info!("websocket asked me to forward {:?} to {} ",
+        debug!("websocket asked me to forward {:?} to {} ",
             &self.messages
             ,&self.to_ed25519);
         msgs_to_pub(ps, &self.to_ed25519, &self.messages);
