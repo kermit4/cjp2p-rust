@@ -778,14 +778,14 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
         env!("BUILD_VERSION"));
 
     for (their_pub_hex, msg) in (&ps.all_chats).into_iter().rev() {
-        page += &format!("<p><a href=/chat5/?{} target=_blank>0x{}</a> {}</p>\n",
+        page += &format!("<p><a href=/c5.html?{} target=_blank>0x{}</a> {}</p>\n",
             their_pub_hex,
             their_pub_hex,
             msg);
     }
 
     page += &format!("</div>");
-    page += &format!("<a href=/chat5/>chat interface</a>");
+    page += &format!("<a href=/c5.html>chat interface</a>");
     page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n",std::env::current_dir().unwrap().display());
     for (_, i) in inbound_states {
@@ -921,7 +921,7 @@ fn handle_web_request(
                 <a href=http://127.0.0.1:24255/chat/{}>http://127.0.0.1:24255/chat/{}</a>
 
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
-                    <a href=/chat5/?{}>click here</a> to switch to character-by-character mode\n\
+                    <a href=/c5.html?{}>click here</a> to switch to character-by-character mode\n\
                     "
                     ,their_pub
                     ,their_pub
@@ -955,12 +955,6 @@ fn handle_web_request(
                 return;
             }
             page += "HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n";
-            if req.path.starts_with("/chat5/") {
-                stream.write_all(page.as_bytes()).ok();
-                let mut file = File::open("src/chat5.html").unwrap();
-                copy(&mut file, &mut stream).ok();
-                return;
-            }
             if req.path.starts_with("/chat") {
                 if req.path.len() < 8 {
                     return;
