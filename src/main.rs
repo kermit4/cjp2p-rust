@@ -778,14 +778,14 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
         env!("BUILD_VERSION"));
 
     for (their_pub_hex, msg) in (&ps.all_chats).into_iter().rev() {
-        page += &format!("<p><a href=/c5.html?{} target=_blank>0x{}</a> {}</p>\n",
+        page += &format!("<p><a href=/C5.html?{} target=_blank>0x{}</a> {}</p>\n",
             their_pub_hex,
             their_pub_hex,
             msg);
     }
 
     page += &format!("</div>");
-    page += &format!("<a href=/c5.html>chat interface</a>");
+    page += &format!("<a href=/C5.html>chat interface</a>");
     page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n",std::env::current_dir().unwrap().display());
     for (_, i) in inbound_states {
@@ -921,7 +921,7 @@ fn handle_web_request(
                 <a href=http://127.0.0.1:24255/chat/{}>http://127.0.0.1:24255/chat/{}</a>
 
                     send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
-                    <a href=/c5.html?{}>click here</a> to switch to character-by-character mode\n\
+                    <a href=/C5.html?{}>click here</a> to switch to character-by-character mode\n\
                     "
                     ,their_pub
                     ,their_pub

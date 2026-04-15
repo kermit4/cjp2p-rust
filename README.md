@@ -79,13 +79,12 @@ or HTML pages with many page components, individually downloaded from the networ
 - more mmaps, replace open file cache, and use for http content servce
 - autoscroll dual window
 - debug option or /option to just never serve anything off local disk..network test mode, so i dont have to keep deleteing files
-- with chat5.html static, hoste it instead of compile it in?
 - would this compile faster if it wasnt one big file
 - /addpeer
 - public websocket support?
 - put nostr or bitcoin addr in chat too ..however that is signed
 - ctrl-c saves like the timer
-- http pipelining for that 1000 image page
 - make chat5 have chat memory again? like the generated pages did
 peers save would be substantially more efficient if it only saved the LAST peer of an ed25519, if known, but not everyone has or announces that
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
+put main.rs in public? host itself publicly? very open source
