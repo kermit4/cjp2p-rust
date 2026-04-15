@@ -89,3 +89,6 @@ peers save would be substantially more efficient if it only saved the LAST peer 
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 put main.rs in public? host itself publicly? very open source
 - why is forward and forwarded different layers of encoing?
+- maybe__ed25519 on unencrypted forwards
+- chat seen highlight for dual window
+- update tracking page wiht al my new messages

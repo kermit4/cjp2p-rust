@@ -132,13 +132,19 @@ function arrayBufferToBase64(buffer) {
 						let msg = messages[i]
 						log("\n" + JSON.stringify(msg));
 						if ("AudioFrame" in msg)  { 
+                            if (audioCtx != null) {
 								log_always(audioCtx.state); // if 'suspended', that's why
 								const bytes = base64ToArrayBuffer(msg.AudioFrame.data);
 								const int16 = new Int16Array(bytes);
-								log_always("sample",int[i]); // if 'suspended', that's why
+								let max =0;
 								for (let i = 0; i < int16.length; i++) {
-								  playBuffer.push(int16[i] / 32768); // s16le -> f32
+                                    let s=int16[i];
+                                    if (s>max) max=s;
+								  playBuffer.push(s / 32768); // s16le -> f32
 								}
+                                log_always("receiveed max sample",max); 
+
+}
 						}
 						if (!forwarded && "YourEd25519" in msg) {
 							my_ed25519 = msg.YourEd25519.ed25519
@@ -157,23 +163,6 @@ function arrayBufferToBase64(buffer) {
 			});
 
 		
-    // --- PLAYBACK NODE ---
-    playProcessor = audioCtx.createScriptProcessor(1024, 0, 1); // mono out
-    playProcessor.onaudioprocess = e => {
-      const out = e.outputBuffer.getChannelData(0);
-      for (let i = 0; i < out.length; i++) {
-        if (playBuffer.length) {
-          lastSample = playBuffer.shift();
-          out[i] = lastSample;
-        } else {
-          // Soft fade to zero on underrun instead of hard cut = no click
-          lastSample *= 0.999;
-          out[i] = lastSample;
-          if (Math.abs(lastSample) < 1e-4) lastSample = 0;
-        }
-      }
-    };
-    playProcessor.connect(audioCtx.destination);
 
 }
 	}
@@ -198,6 +187,22 @@ startBtn.onclick = async () => {
     }
   });
 
+    playProcessor = audioCtx.createScriptProcessor(1024, 0, 1); // mono out
+    playProcessor.onaudioprocess = e => {
+      const out = e.outputBuffer.getChannelData(0);
+      for (let i = 0; i < out.length; i++) {
+        if (playBuffer.length) {
+          lastSample = playBuffer.shift();
+          out[i] = lastSample;
+        } else {
+          // Soft fade to zero on underrun instead of hard cut = no click
+          lastSample *= 0.999;
+          out[i] = lastSample;
+          if (Math.abs(lastSample) < 1e-4) lastSample = 0;
+        }
+      }
+    };
+    playProcessor.connect(audioCtx.destination);
   const source = audioCtx.createMediaStreamSource(micStream);
     recordProcessor = audioCtx.createScriptProcessor(1024, 1, 1); // mono in/out
 
@@ -214,10 +219,13 @@ recordProcessor.onaudioprocess = e => {
     const frame = sampleBuffer.splice(0, TARGET_SAMPLES);
 
     const int16 = new Int16Array(TARGET_SAMPLES);
+    let max =0;
     for (let i = 0; i < TARGET_SAMPLES; i++) {
 	  let s = Math.max(-1, Math.min(1, frame[i]));
+        if (s>max) max=s;
       int16[i] = s < 0? s * 0x8000 : s * 0x7FFF;
     }
+    log_always("sent max sample",max); 
 
     const b64 = arrayBufferToBase64(int16.buffer);
 
@@ -242,7 +250,6 @@ stopBtn.onclick = () => {
   playProcessor?.disconnect();
   micStream?.getTracks().forEach(t => t.stop());
   audioCtx?.close();
-  ws?.close();
   playBuffer = [];
   lastSample = 0;
   startBtn.disabled = false;
