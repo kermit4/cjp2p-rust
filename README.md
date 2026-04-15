@@ -92,3 +92,4 @@ put main.rs in public? host itself publicly? very open source
 - maybe__ed25519 on unencrypted forwards
 - chat seen highlight for dual window
 - update tracking page wiht al my new messages
+- upnp?

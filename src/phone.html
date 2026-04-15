@@ -27,12 +27,6 @@ function base64ToArrayBuffer(b64) {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes.buffer;
 }
-function arrayBufferToBase64(buffer) {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
 
     const logBox = document.createElement('div');
     logBox.id = 'log';
@@ -132,14 +126,17 @@ function arrayBufferToBase64(buffer) {
 						let msg = messages[i]
 						log("\n" + JSON.stringify(msg));
 						if ("AudioFrame" in msg)  { 
-                            if (audioCtx != null) {
-								const bytes = base64ToArrayBuffer(msg.AudioFrame.data);
-								const int16 = new Int16Array(bytes);
-								for (let i = 0; i < int16.length; i++) {
-								  ring[writeIdx] = int16[i] / 32768;
-								  writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
-								  if (writeIdx === readIdx) {
-									readIdx = (readIdx + 1024) & (RING_SIZE - 1); // skip 23ms ahead
+                            af=msg.AudioFrame;
+                            if (audioCtx != null && af.sampleRate== 48000 && af.channels== 1 && af.format=='f32' ) {
+								const u8 = b64ToU8(af.data);
+								const f32 = new Float32Array(u8.buffer, u8.byteOffset, u8.byteLength / 4);
+                                log_always("--got frame " +  f32.length);
+                                for (let i = 0; i < f32.length; i++) {
+                                    if (i<10) log_always(i,f32[i]);
+									  ring[writeIdx] = f32[i];
+									  writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
+									  if (writeIdx === readIdx) {
+										readIdx = (readIdx + 1024) & (RING_SIZE - 1); // skip 23ms ahead
 								  }
 								}
 							}
@@ -182,15 +179,29 @@ startBtn.onclick = async () => {
 	audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
 	await audioCtx.resume();
 	  // 1. Get mic: CD quality = 44100Hz, stereo
-	  micStream = await navigator.mediaDevices.getUserMedia({
+    log_always("herre");
+    try {
+	micStream = await navigator.mediaDevices.getUserMedia({
 		audio: {
 		  channelCount: 1,
-		  sampleRate: 44100,
+		  sampleRate: 48000,
 		  echoCancellation: false,
 		  noiseSuppression: false,
 		  autoGainControl: false
 		}
 	  });
+    log_always("herrexx",micStream);
+    log_always("herre",micStream);
+        let _at = micStream.getAudioTracks();
+    log_always("herre");
+        let atb = _at[0];
+    log_always("herre");
+        let atbs = atb.getSettings();
+log_always("channelCount:",atbs.channelCount);
+log_always("sampleRate:",atbs.sampleRate);
+log_always("echoCancellation:",atbs.echoCancellation);
+log_always("noiseSuppression:",atbs.noiseSuppression);
+log_always("autoGainControl:",atbs.autoGainControl);
 
     playProcessor = audioCtx.createScriptProcessor(2048, 0, 1); // mono out
 
@@ -213,39 +224,48 @@ startBtn.onclick = async () => {
     recordProcessor = audioCtx.createScriptProcessor(1024, 1, 1); // mono in/out
 
   let sampleBuffer = [];
+const RING = new Float32Array(131072);
+let w = 0, r = 0;
+const FRAME = 1176;
+
+
+
 
 recordProcessor.onaudioprocess = e => {
   if (socket.readyState!== WebSocket.OPEN) return;
   const input = e.inputBuffer.getChannelData(0);
-  sampleBuffer.push(...input);
 
-  // CD frame = 588 samples * 2ch = 1176 samples = 2352 bytes as s16le
-  const TARGET_SAMPLES = 1176;
-  while (sampleBuffer.length >= TARGET_SAMPLES) {
-    const frame = sampleBuffer.splice(0, TARGET_SAMPLES);
-
-    const int16 = new Int16Array(TARGET_SAMPLES);
-    for (let i = 0; i < TARGET_SAMPLES; i++) {
-	  let s = Math.max(-1, Math.min(1, frame[i]));
-      int16[i] = s < 0? s * 0x8000 : s * 0x7FFF;
-    }
-
-    const b64 = arrayBufferToBase64(int16.buffer);
-
-	socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{AudioFrame:{
-      sampleRate: 44100,
-      channels: 1,
-      format: 's16le',
-      data: b64
-}}]}}])); 
+  for (let i = 0; i < input.length; i++) {
+    RING[w] = input[i];
+    w = (w + 1) & (RING.length - 1);
+    if (w === r) r = (r + FRAME) & (RING.length - 1); // drop on overflow
   }
+
+
+  while (((w - r + RING.length) & (RING.length - 1)) >= FRAME) {
+    const out = new Float32Array(FRAME);
+    for (let i = 0; i < FRAME; i++) out[i] = RING[(r + i) & (RING.length - 1)];
+    r = (r + FRAME) & (RING.length - 1);
+
+    const u8 = new Uint8Array(out.buffer);
+	socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{AudioFrame:{
+			sampleRate: 48000,
+			channels: 1,
+			format: 'f32',
+			data: u8toB64(u8),
+		}}]}}])); 
+	}
 };
+
+
+
 
   source.connect(recordProcessor);
   recordProcessor.connect(audioCtx.destination); // needed for Chrome to run it
 
   startBtn.disabled = true;
   stopBtn.disabled = false;
+    }catch (e) { log_always("caught ",e); }
 };
 
 stopBtn.onclick = () => {
@@ -258,6 +278,21 @@ stopBtn.onclick = () => {
   startBtn.disabled = false;
   stopBtn.disabled = true;
 };
+function u8toB64(u8) {
+  let binary = '';
+  const chunk = 0x8000; // 32KB chunks. iOS dies above ~64KB args
+  for (let i = 0; i < u8.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, u8.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function b64ToU8(b64) {
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
 
 </script>
     </body>
