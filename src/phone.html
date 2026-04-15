@@ -133,18 +133,16 @@ function arrayBufferToBase64(buffer) {
 						log("\n" + JSON.stringify(msg));
 						if ("AudioFrame" in msg)  { 
                             if (audioCtx != null) {
-								log_always(audioCtx.state); // if 'suspended', that's why
 								const bytes = base64ToArrayBuffer(msg.AudioFrame.data);
 								const int16 = new Int16Array(bytes);
-								let max =0;
 								for (let i = 0; i < int16.length; i++) {
-                                    let s=int16[i];
-                                    if (s>max) max=s;
-								  playBuffer.push(s / 32768); // s16le -> f32
+								  ring[writeIdx] = int16[i] / 32768;
+								  writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
+								  if (writeIdx === readIdx) {
+									readIdx = (readIdx + 1024) & (RING_SIZE - 1); // skip 23ms ahead
+								  }
 								}
-                                log_always("receiveed max sample",max); 
-
-}
+							}
 						}
 						if (!forwarded && "YourEd25519" in msg) {
 							my_ed25519 = msg.YourEd25519.ed25519
@@ -155,16 +153,13 @@ function arrayBufferToBase64(buffer) {
 			};
 			const params = new URLSearchParams(window.location.search)
 			params.forEach(function(v,k)  { 
-				log_always(k,"=",v);
+				log_always("url parse: ",k,"=",v);
 				switch (k) {
 					case "ed25519":
 						set_their_ed25519(v);
 				}
 			});
-
-		
-
-}
+		}
 	}
 	connect();
     their_ed25519.addEventListener('input', () => { 
@@ -172,37 +167,44 @@ function arrayBufferToBase64(buffer) {
         update_links();
     });
 
+  // Ring buffer: 1 second of stereo = 88200 samples. Power of 2 for fast modulo.
+  const RING_SIZE = 65536; // ~1.5s @ 44.1kHz mono
+  const ring = new Float32Array(RING_SIZE);
+  let writeIdx = 0;
+  let readIdx = 0;
+
 startBtn.onclick = async () => {
 
-  audioCtx = new AudioContext({ sampleRate: 44100 });
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-  // 1. Get mic: CD quality = 44100Hz, stereo
-  micStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 1,
-      sampleRate: 44100,
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false
-    }
-  });
+	audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+	await audioCtx.resume();
+	  // 1. Get mic: CD quality = 44100Hz, stereo
+	  micStream = await navigator.mediaDevices.getUserMedia({
+		audio: {
+		  channelCount: 1,
+		  sampleRate: 44100,
+		  echoCancellation: false,
+		  noiseSuppression: false,
+		  autoGainControl: false
+		}
+	  });
 
-    playProcessor = audioCtx.createScriptProcessor(1024, 0, 1); // mono out
-    playProcessor.onaudioprocess = e => {
-      const out = e.outputBuffer.getChannelData(0);
-      for (let i = 0; i < out.length; i++) {
-        if (playBuffer.length) {
-          lastSample = playBuffer.shift();
-          out[i] = lastSample;
-        } else {
-          // Soft fade to zero on underrun instead of hard cut = no click
-          lastSample *= 0.999;
-          out[i] = lastSample;
-          if (Math.abs(lastSample) < 1e-4) lastSample = 0;
-        }
+    playProcessor = audioCtx.createScriptProcessor(2048, 0, 1); // mono out
+
+  playProcessor.onaudioprocess = e => {
+    const out = e.outputBuffer.getChannelData(0);
+    for (let i = 0; i < out.length; i++) {
+      if (readIdx!== writeIdx) { // buffer not empty
+        lastSample = ring[readIdx];
+        out[i] = lastSample;
+        readIdx = (readIdx + 1) & (RING_SIZE - 1); // wrap with bitwise AND
+      } else {
+        // Underrun: fade last sample to avoid click
+        lastSample *= 0.997;
+        out[i] = lastSample;
       }
-    };
-    playProcessor.connect(audioCtx.destination);
+    }
+  };
+  playProcessor.connect(audioCtx.destination);
   const source = audioCtx.createMediaStreamSource(micStream);
     recordProcessor = audioCtx.createScriptProcessor(1024, 1, 1); // mono in/out
 
@@ -219,13 +221,10 @@ recordProcessor.onaudioprocess = e => {
     const frame = sampleBuffer.splice(0, TARGET_SAMPLES);
 
     const int16 = new Int16Array(TARGET_SAMPLES);
-    let max =0;
     for (let i = 0; i < TARGET_SAMPLES; i++) {
 	  let s = Math.max(-1, Math.min(1, frame[i]));
-        if (s>max) max=s;
       int16[i] = s < 0? s * 0x8000 : s * 0x7FFF;
     }
-    log_always("sent max sample",max); 
 
     const b64 = arrayBufferToBase64(int16.buffer);
 
