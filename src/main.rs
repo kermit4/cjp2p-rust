@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use snow::Builder;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
-use std::io::{copy, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 //use std::convert::TryInto;
 use std::env;
 //use std::fmt;
@@ -471,7 +471,7 @@ impl PeerState {
         match self.ws_vec[index].read() {
             Ok(buf) => {
                 //dbg!(msg);
-                info!("websocket sent: {}",buf);
+                debug!("websocket sent: {}",buf);
                 let message_in_bytes = buf.into_data();
                 if message_in_bytes.len() > 0 {
                     let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
