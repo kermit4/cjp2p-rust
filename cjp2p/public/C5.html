@@ -1,10 +1,12 @@
 <html><head><title>real time chat over CJP2P</title></head>
         <body>
+<div id=ethstuff hidden=true>
             you have to pick one of these, and can start messaging
 when the bottom one filed<p>
-gnosis safe address <input id=safe_address size=60>
+    gnosis safe address <input id=safe_address size=60>
 <br>their eth addr <input id=their_eth_addr size=80>
-<button id="connect-btn">Connect an Ethereum Wallet if you want to messaged by eth address</button> 
+<button id="connect-btn">Connect an Ethereum Wallet if you want to message by eth address</button> 
+</div>
 <br>their ed25519 addr<input id=their_ed25519 size=80>
         <p>Give this URL to the other person to chat with you:
         <p><a id=link href="" ></a>
@@ -29,6 +31,7 @@ debuging :
 <script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
 <script>
     const logBox = document.createElement('div');
+    const cbtn = document.createElement('connect-btn');
     logBox.id = 'log';
     logBox.style.cssText = 'font-family:monospace; font-size:12px; padding:8px; white-space:pre-wrap; word-break:break-all;';
     document.body.appendChild(logBox); // safe, no reset
@@ -64,12 +67,18 @@ debuging :
     const link = document.getElementById('link');
     function update_links() {
         let url=location.origin+location.pathname;
-        if (safe_address.value.length>1) 
+        if (safe_address.value.length>1) {
             url += "?safe=" + safe_address.value;
-        else if (my_eth_address!=null) 
+            document.getElementById('ethstuff').hidden=false;
+        }
+        else if (my_eth_address!=null) {
             url += "?eth=" + my_eth_address;
-        else 
+            their_eth_addr.hidden=false;
+            document.getElementById('ethstuff').hidden=false;
+        }
+        else {
             url += "?ed25519=" + my_ed25519;
+        }
         link.href = url;
         link.textContent = url; 
         document.getElementById('line_mode').href =  "http://localhost:24255/chat/" + their_ed25519.value;
@@ -178,121 +187,125 @@ debuging :
     url.protocol = url.protocol.replace('http', 'ws');
     let socket;
 
-	log("websocket connencting");
-	socket = new WebSocket("ws://localhost:24255/wt");
-	socket.onopen = () => {
+	function connect() {
+		log("websocket connencting");
+		socket = new WebSocket("ws://localhost:24255/wt");
         socket.onclose = () => {
             console.log('Socket closed. Reconnecting ...');
             log("websocket reconnencting");
-            setTimeout(connect, 120);
+            setTimeout(connect, 200);
         };
-        let work = Promise.resolve();
-        socket.onmessage = async(event) => { 
-            work = work.then(async () => {
-                log( "\n\n___________________n\n");
-                log(event.data);
-                let messages_ = JSON.parse(event.data);
-                let messages;
-                log( "\n\n==============\n\n");
-                let src=null;
-                let forwarded=false;
-                if ("Forwarded" in messages_[0]) {
-                    src=messages_[0].Forwarded.from_ed25519;
-                    forwarded=true;
-                    messages = JSON.parse(messages_[0].Forwarded.messages);
-                    log( "\n" + messages_[0].Forwarded.messages);
-                } else messages=messages_; 
-                log( "\n");
-                for (i in messages) {
-                    let msg = messages[i]
-                    log("\n" + JSON.stringify(msg));
-                    if ("ChatMessage" in msg)  { 
-                        txt = "NOT VERIFIED\n"; 
-                        if (
-                            their_ed25519.value == src
-                            || their_ed25519.value == ("0x"+ src) 
-                        ) { 
-                            txt = "VERIFIED ed25519 " + their_ed25519.value + "\n";
-                        } else {
-                            log("wrong key, wanted " + their_ed25519.value + " got " + src);
-                            return;
-                        }
-                        log_always(signed_ed25519s.get(src));
-                        log_always(their_eth_addr.value);
-                        if (  signed_ed25519s.get(src) == their_eth_addr.value ) {
-                            txt += "VERIFIED eth " + their_eth_addr.value + "\n";
-                        }
-                        txt += "\n";
-                        txt += msg.ChatMessage.message;
-                        output.value = txt;
-                    }
-                    if ("MyPublicKey" in msg) {
-                        let mpk=msg.MyPublicKey;
-                        log("\n\n-- got mypublickey\n--myeth " + my_eth_address + "\n\n");
-                        log( "\n\n-- their_eth " + their_eth_addr.value + "\n\n");
-                        let sig = mpk.ed25519_eth_signed;
-                        log(  "\n\n-- sig: " + sig + "\n\n");
-                        let ed25519 = mpk.ed25519h;
-                        log(  "\n\n-- ed25519 sent this message (using Noise IK, verified on the node): " + ed25519 + "\n\n");
-                        let unsigned_message = "my ed25519 public key is " + ed25519
-                        let signer;
-                        try {
-                              signer = ethers.verifyMessage(unsigned_message, sig);
-                        } catch (e) {
-                              log('VERIFY FAILED:', e.message);
-                        }
-                        log(  "\n\n-- " + signer + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
-                        if (signer != null && their_eth_addr.value != null &&
-                            signer.toUpperCase() == their_eth_addr.value.toUpperCase()) {
-                            set_their_ed25519(ed25519);
-                            signed_ed25519s.set(ed25519,their_eth_addr.value);
-                            log(  "\n\n****** MATCHED their ed25519 " + their_ed25519.value + " signed by eth_addr: " + signer);
-                        }  else {
-                            log(  "\n\nnot the key we're looking for: " + signer +  " != " + their_eth_addr.value );
-                        }
-                    }
-                    if (!forwarded && "YourEd25519" in msg) {
-                        my_ed25519 = msg.YourEd25519.ed25519
-                        update_links();
-                    }
-                    if (!forwarded && "PleaseSignYourPub" in msg) {
-                        my_ed25519_to_sign = msg.PleaseSignYourPub.ed25519
-                        my_ed25519 = my_ed25519_to_sign;
-                        update_links();
-                    }
-                }
-            });
-        };
-		const params = new URLSearchParams(window.location.search)
-		let old_way=true;
-		params.forEach(function(v,k)  { 
-			log_always(k,"=",v);
-			if (v!="") 
-				old_way=false;
-			switch (k) {
-				case "safe":
-					safe_address.value=v;
-					break;
-				case "eth":
-					their_eth_addr.value = v;
-					request_ed25519_from_eth_addr();
-					break;
-				case "ed25519":
-					set_their_ed25519(v);
-			}
-		});
-		if (old_way) { 
-			const parts = window.location.href.split('?');
-			if (parts.length > 1) {
-				if (parts[1].length > 50) {
-					set_their_ed25519(parts[1]);
-				} else {
-					safe_address.value=parts[1];
+		socket.onopen = () => {
+			let work = Promise.resolve();
+			socket.onmessage = async(event) => { 
+				work = work.then(async () => {
+					log( "\n\n___________________n\n");
+					log(event.data);
+					let messages_ = JSON.parse(event.data);
+					let messages;
+					log( "\n\n==============\n\n");
+					let src=null;
+					let forwarded=false;
+					if ("Forwarded" in messages_[0]) {
+						src=messages_[0].Forwarded.from_ed25519;
+						forwarded=true;
+						messages = JSON.parse(messages_[0].Forwarded.messages);
+						log( "\n" + messages_[0].Forwarded.messages);
+					} else messages=messages_; 
+					log( "\n");
+					for (i in messages) {
+						let msg = messages[i]
+						log("\n" + JSON.stringify(msg));
+						if ("ChatMessage" in msg)  { 
+							txt = "NOT VERIFIED\n"; 
+							if (
+								their_ed25519.value == src
+								|| their_ed25519.value == ("0x"+ src) 
+							) { 
+								txt = "VERIFIED ed25519 " + their_ed25519.value + "\n";
+							} else {
+								log("wrong key, wanted " + their_ed25519.value + " got " + src);
+								return;
+							}
+							log_always(signed_ed25519s.get(src));
+							log_always(their_eth_addr.value);
+							if (  signed_ed25519s.get(src) == their_eth_addr.value ) {
+								txt += "VERIFIED eth " + their_eth_addr.value + "\n";
+							}
+							txt += "\n";
+							txt += msg.ChatMessage.message;
+							output.value = txt;
+						}
+						if ("MyPublicKey" in msg) {
+							let mpk=msg.MyPublicKey;
+							log("\n\n-- got mypublickey\n--myeth " + my_eth_address + "\n\n");
+							log( "\n\n-- their_eth " + their_eth_addr.value + "\n\n");
+							let sig = mpk.ed25519_eth_signed;
+							log(  "\n\n-- sig: " + sig + "\n\n");
+							let ed25519 = mpk.ed25519h;
+							log(  "\n\n-- ed25519 sent this message (using Noise IK, verified on the node): " + ed25519 + "\n\n");
+							let unsigned_message = "my ed25519 public key is " + ed25519
+							let signer;
+							try {
+								  signer = ethers.verifyMessage(unsigned_message, sig);
+							} catch (e) {
+								  log('VERIFY FAILED:', e.message);
+							}
+							log(  "\n\n-- " + signer + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
+							if (signer != null && their_eth_addr.value != null &&
+								signer.toUpperCase() == their_eth_addr.value.toUpperCase()) {
+								set_their_ed25519(ed25519);
+								signed_ed25519s.set(ed25519,their_eth_addr.value);
+								log(  "\n\n****** MATCHED their ed25519 " + their_ed25519.value + " signed by eth_addr: " + signer);
+							}  else {
+								log(  "\n\nnot the key we're looking for: " + signer +  " != " + their_eth_addr.value );
+							}
+						}
+						if (!forwarded && "YourEd25519" in msg) {
+							my_ed25519 = msg.YourEd25519.ed25519
+							update_links();
+						}
+						if (!forwarded && "PleaseSignYourPub" in msg) {
+							my_ed25519_to_sign = msg.PleaseSignYourPub.ed25519
+							my_ed25519 = my_ed25519_to_sign;
+							update_links();
+						}
+					}
+				});
+			};
+			const params = new URLSearchParams(window.location.search)
+			let old_way=true;
+			params.forEach(function(v,k)  { 
+				log_always(k,"=",v);
+				if (v!="") 
+					old_way=false;
+				switch (k) {
+					case "safe":
+						safe_address.value=v;
+						break;
+					case "eth":
+						their_eth_addr.value = v;
+						request_ed25519_from_eth_addr();
+						break;
+					case "ed25519":
+						set_their_ed25519(v);
+				}
+                update_links();
+			});
+			if (old_way) { 
+				const parts = window.location.href.split('?');
+				if (parts.length > 1) {
+					if (parts[1].length > 50) {
+						set_their_ed25519(parts[1]);
+					} else {
+						safe_address.value=parts[1];
+					}
 				}
 			}
-		}
 
-    }
+		}
+	}
+	connect();
     their_eth_addr.addEventListener('input', () => { 
         request_ed25519_from_eth_addr();
     });
