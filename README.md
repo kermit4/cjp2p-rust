@@ -85,5 +85,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - public websocket support?
 - put nostr or bitcoin addr in chat too ..however that is signed
 - ctrl-c saves like the timer
-- deprecate chat3 for a single windowed chat5 to then deprrecate /ws enddpoint
 - http pipelining for that 1000 image page
+- make chat5 have chat memory again? like the generated pages did

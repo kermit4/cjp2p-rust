@@ -175,7 +175,6 @@ struct PeerState {
     next_maintenance: Instant,
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
-    ws_map: HashMap<String, WebSocket<TcpStream>>,
     ws_vec: Vec<WebSocket<TcpStream>>,
     http_clients: Vec<TcpStream>,
     content_gateways: Vec<ContentGateway>,
@@ -235,7 +234,6 @@ impl PeerState {
             next_maintenance: Instant::now() - Duration::from_secs(99999),
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
-            ws_map: HashMap::new(),
             ws_vec: Vec::new(),
             http_clients: Vec::new(),
             content_gateways: Vec::new(),
@@ -505,18 +503,6 @@ impl PeerState {
             }
         }
     }
-    fn handle_websocket(&mut self, their_pub_hex: &String) {
-        let ws = self.ws_map.get_mut(their_pub_hex).unwrap();
-        match ws.read() {
-            Ok(msg) => {
-                info!("websocket typed: {}",msg);
-                chat_to_pub(self, &their_pub_hex, &msg.to_string());
-            }
-            _ => {
-                self.ws_map.remove(their_pub_hex);
-            }
-        };
-    }
 }
 
 #[derive(Debug)]
@@ -604,9 +590,6 @@ fn main() -> Result<(), std::io::Error> {
         for ws in &ps.ws_vec {
             read_fds.insert(ws.get_ref().as_fd());
         }
-        for (_, ws) in ps.ws_map.iter() {
-            read_fds.insert(ws.get_ref().as_fd());
-        }
         let tv_1 = &mut (nix::sys::time::TimeVal::new(1, 0));
         select(None, &mut read_fds, &mut write_fds, &mut error_fds, tv_1).unwrap();
 
@@ -626,14 +609,6 @@ fn main() -> Result<(), std::io::Error> {
             }
         }
 
-        for (k, ws) in ps.ws_map.iter() {
-            if read_fds.contains(ws.get_ref().as_fd()) {
-                info!("handling ws map");
-                let k_ = k.to_owned();
-                ps.handle_websocket(&k_);
-                continue 'main;
-            }
-        }
 
         if read_fds.contains(stdin.as_fd()) {
             info!("handling stdin");
@@ -920,14 +895,6 @@ fn handle_web_request(
             ps.ws_vec.push(ws);
             return;
         }
-        if buf.starts_with(b"GET /ws") {
-            let mut ws = accept(stream).unwrap();
-            info!("websocket request:");
-            let their_pub_hex = ws.read().unwrap().to_string();
-            info!("websocket request: {}",their_pub_hex);
-            ps.ws_map.insert(their_pub_hex, ws);
-            return;
-        }
 
         let mut page = format!("");
         // just connecting to the http port and not saying anything DOS's this whole thing, and
@@ -1006,25 +973,6 @@ fn handle_web_request(
                     ps.recorded_chats
                         .insert(their_pub_hex.to_string(), past_chats);
                 }
-                let past = ps.recorded_chats.get(&their_pub_hex).unwrap();
-                let fill = if past.len() > 0 {
-                    serde_json::to_string(past.last().unwrap()).unwrap()
-                } else {
-                    "\"\"".to_string()
-                };
-                let my_pub_hex = hex::encode(&ps.keypair.public);
-                if req.path.starts_with("/chat3/") {
-                    page += &format!(
-                            include_str!("chat3.html")
-                            ,their_pub_hex
-                            ,my_pub_hex
-                            ,my_pub_hex
-                            ,their_pub_hex
-                            ,their_pub_hex
-                            ,their_pub_hex
-                            ,fill);
-                }
-
                 stream.write_all(page.as_bytes()).ok();
                 return;
             }
@@ -2153,14 +2101,6 @@ impl Receive for ChatMessage {
             {
                 ps.all_chats
                     .push((their_pub_hex.to_string(), self.message.to_owned()));
-            }
-            if let Some(ws) = ps.ws_map.get_mut(&their_pub_hex) {
-                if ws
-                    .write(tungstenite::Message::Text(self.message.clone().into()))
-                    .is_ok()
-                {
-                    ws.flush().ok();
-                }
             }
             if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
                 if (v.len() == 0 || v.last().unwrap() != &self.message)

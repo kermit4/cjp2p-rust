@@ -10,7 +10,7 @@ gnosis safe address <input id=safe_address size=60>
         <p><a id=link href="" ></a>
 
         <p><a id=line_mode href=""></a>
-        <p><a id=single_mode href=""></a>
+<button id="single-btn">toggle single/dual window</button> 
 <br>
             <p><a href=/>return to network status page</a>
         <p>try /ping or /version
@@ -60,7 +60,7 @@ debuging :
     const their_eth_addr  = document.getElementById('their_eth_addr');
     const their_ed25519 =   document.getElementById('their_ed25519');
     const input = document.getElementById('input');
-    const output = document.getElementById('output');
+    let output = document.getElementById('output');
     const link = document.getElementById('link');
     function ed25519_is_set() {
         let url=location.origin+location.pathname;
@@ -73,9 +73,7 @@ debuging :
         link.href = url;
         link.textContent = url; 
         document.getElementById('line_mode').href =  "http://localhost:24255/chat/" + their_ed25519.value;
-        document.getElementById('line_mode').textContent = "switch to line by line mode";
-        document.getElementById('single_mode').href =  "http://localhost:24255/chat3/" + their_ed25519.value;
-        document.getElementById('single_mode').textContent =  "switch to single window mode";
+        document.getElementById('line_mode').textContent = "switch to line by line mode (no javvascript needed)";
         input.readOnly = false;
     }
     function set_ed25519(ed25519) {
@@ -123,6 +121,20 @@ debuging :
     let my_ed25519_to_sign = null;
     let my_ed25519 = null;
 
+    let single_window=false;
+    document.getElementById('single-btn').addEventListener('click', async () => {
+        if (!single_window) {
+            single_window=true;
+            output.style.width="0";
+            output=input;
+            output.style.width="100%";
+        } else {
+            single_window=false;
+            output.style.width="50%";
+            output = document.getElementById('output');
+            output.style.width="50%";
+        }
+    });
     document.getElementById('connect-btn').addEventListener('click', async () => {
         if (!window.ethereum) {
             alert('Install MetaMask!');
@@ -285,7 +297,13 @@ debuging :
         ed25519_is_set();
     });
     input.addEventListener('input', () => { 
-        socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{ChatMessage:{message:input.value}}]}}]  )); 
+        let txt = input.value;
+        if ( single_window &&
+            input.value.startsWith("VERIFIED ")) {
+            const lines = txt.split(/\r?\n/);
+            txt = lines.slice(2).join('\n');
+        }
+        socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{ChatMessage:{message:txt}}]}}]  )); 
     });
 </script>
     </body>
