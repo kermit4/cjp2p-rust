@@ -148,6 +148,10 @@ function arrayBufferToBase64(buffer) {
 							my_ed25519 = msg.YourEd25519.ed25519
 							update_links();
 						}
+						if (!forwarded && "PleaseSignYourPub" in msg) {
+							my_ed25519 = msg.PleaseSignYourPub.ed25519
+							update_links();
+						}
 					}
 				});
 			};
