@@ -1,0 +1,254 @@
+<html><head><title>real time chat over CJP2P</title></head>
+        <body>
+<br>their ed25519 addr<input id=their_ed25519 size=80>
+        <p>Give this URL to the other person to chat with you:
+        <p><a id=link href="" ></a>
+
+<br>
+            <p><a href=/>return to network status page</a>
+<br>
+debuging : 
+<button onclick="logging=true">enable </button> (then scroll down)
+<button onclick="logging=false">disable </button>
+    
+<button id="start">Start</button>
+<button id="stop" disabled>Stop</button>
+<script>
+let audioCtx;
+let recordProcessor, playProcessor, micStream;
+let playBuffer = [];
+let lastSample = 0; // for underrun fade
+const startBtn = document.getElementById('start');
+const stopBtn = document.getElementById('stop');
+
+function base64ToArrayBuffer(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+    const logBox = document.createElement('div');
+    logBox.id = 'log';
+    logBox.style.cssText = 'font-family:monospace; font-size:12px; padding:8px; white-space:pre-wrap; word-break:break-all;';
+    document.body.appendChild(logBox); // safe, no reset
+    const logDiv = document.createElement('div');
+    logDiv.id = 'log';
+    logDiv.style.cssText = 'position:fixed; bottom:0; left:0; right:0; max-height:30vh; overflow:auto; background:#111; color:#0f0; font-family:monospace; font-size:12px; padding:4px; z-index:9999;';
+
+    let logging=false;
+    let logQueue = Promise.resolve();
+
+    function log_always(...args) { 
+        const line = document.createElement('div');
+        logQueue = logQueue.then(() => {
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
+                logBox.appendChild(line);
+                while (logBox.children.length > 2000) {
+                  logBox.removeChild(logBox.firstChild);
+                }
+                // window.scrollTo(0, document.body.scrollHeight);
+            });
+        }
+    function log(...args) { 
+        if (logging)  log_always(args);
+    }
+
+    document.body.appendChild(logDiv);
+    const their_ed25519 =   document.getElementById('their_ed25519');
+    const link = document.getElementById('link');
+    function update_links() {
+        let url=location.origin+location.pathname;
+        url += "?ed25519=" + my_ed25519;
+        link.href = url;
+        link.textContent = url; 
+    }
+    function set_their_ed25519(ed25519) {
+        their_ed25519.value=ed25519;
+        update_links();
+    }
+
+    let my_ed25519 = null;
+
+    function str(obj) {
+      if (obj instanceof Error) return `${obj.name}: ${obj.message}`;
+      try { return JSON.stringify(obj, null, 2); } 
+      catch { return String(obj); }
+    }
+    window.onerror = (msg, url, line, col, err) => {
+      log('ERROR:', msg, 'at', url + ':' + line + ':' + col);
+      if (err && err.stack) log(err.stack);
+        return false;
+    };
+    window.onunhandledrejection = e => {
+      log('UNHANDLED PROMISE:', e.reason?.stack || e.reason || e);
+    };
+
+    ['log', 'warn', 'error', 'info'].forEach(k => {
+      const orig = console[k].bind(console);
+      console[k] = (...args) => {
+        orig.apply(console, args); // still goes to real console if you have one
+        log(k.toUpperCase() + ':',...args);
+      };
+    });
+
+    const url = new URL('/wt', window.location.href);
+    url.protocol = url.protocol.replace('http', 'ws');
+    let socket;
+
+	function connect() {
+		log("websocket connencting");
+		socket = new WebSocket("ws://localhost:24255/wt");
+        socket.onclose = () => {
+            console.log('Socket closed. Reconnecting ...');
+            log("websocket reconnencting");
+            setTimeout(connect, 200);
+        };
+		socket.onopen = async() => {
+			let work = Promise.resolve();
+			socket.onmessage = async(event) => { 
+				work = work.then(async () => {
+					log( "\n\n___________________n\n");
+					log(event.data);
+					let messages_ = JSON.parse(event.data);
+					let messages;
+					log( "\n\n==============\n\n");
+					let src=null;
+					let forwarded=false;
+					if ("Forwarded" in messages_[0]) {
+						src=messages_[0].Forwarded.from_ed25519;
+						forwarded=true;
+						messages = JSON.parse(messages_[0].Forwarded.messages);
+						log( "\n" + messages_[0].Forwarded.messages);
+					} else messages=messages_; 
+					log( "\n");
+					for (i in messages) {
+						let msg = messages[i]
+						log("\n" + JSON.stringify(msg));
+						if ("AudioFrame" in msg)  { 
+								log_always(audioCtx.state); // if 'suspended', that's why
+								const bytes = base64ToArrayBuffer(msg.AudioFrame.data);
+								const int16 = new Int16Array(bytes);
+								log_always("sample",int[i]); // if 'suspended', that's why
+								for (let i = 0; i < int16.length; i++) {
+								  playBuffer.push(int16[i] / 32768); // s16le -> f32
+								}
+						}
+						if (!forwarded && "YourEd25519" in msg) {
+							my_ed25519 = msg.YourEd25519.ed25519
+							update_links();
+						}
+					}
+				});
+			};
+			const params = new URLSearchParams(window.location.search)
+			params.forEach(function(v,k)  { 
+				log_always(k,"=",v);
+				switch (k) {
+					case "ed25519":
+						set_their_ed25519(v);
+				}
+			});
+
+		
+    // --- PLAYBACK NODE ---
+    playProcessor = audioCtx.createScriptProcessor(1024, 0, 1); // mono out
+    playProcessor.onaudioprocess = e => {
+      const out = e.outputBuffer.getChannelData(0);
+      for (let i = 0; i < out.length; i++) {
+        if (playBuffer.length) {
+          lastSample = playBuffer.shift();
+          out[i] = lastSample;
+        } else {
+          // Soft fade to zero on underrun instead of hard cut = no click
+          lastSample *= 0.999;
+          out[i] = lastSample;
+          if (Math.abs(lastSample) < 1e-4) lastSample = 0;
+        }
+      }
+    };
+    playProcessor.connect(audioCtx.destination);
+
+}
+	}
+	connect();
+    their_ed25519.addEventListener('input', () => { 
+        input.readOnly = false;
+        update_links();
+    });
+
+startBtn.onclick = async () => {
+
+  audioCtx = new AudioContext({ sampleRate: 44100 });
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+  // 1. Get mic: CD quality = 44100Hz, stereo
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      channelCount: 1,
+      sampleRate: 44100,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false
+    }
+  });
+
+  const source = audioCtx.createMediaStreamSource(micStream);
+    recordProcessor = audioCtx.createScriptProcessor(1024, 1, 1); // mono in/out
+
+  let sampleBuffer = [];
+
+recordProcessor.onaudioprocess = e => {
+  if (socket.readyState!== WebSocket.OPEN) return;
+  const input = e.inputBuffer.getChannelData(0);
+  sampleBuffer.push(...input);
+
+  // CD frame = 588 samples * 2ch = 1176 samples = 2352 bytes as s16le
+  const TARGET_SAMPLES = 1176;
+  while (sampleBuffer.length >= TARGET_SAMPLES) {
+    const frame = sampleBuffer.splice(0, TARGET_SAMPLES);
+
+    const int16 = new Int16Array(TARGET_SAMPLES);
+    for (let i = 0; i < TARGET_SAMPLES; i++) {
+	  let s = Math.max(-1, Math.min(1, frame[i]));
+      int16[i] = s < 0? s * 0x8000 : s * 0x7FFF;
+    }
+
+    const b64 = arrayBufferToBase64(int16.buffer);
+
+	socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{AudioFrame:{
+      sampleRate: 44100,
+      channels: 1,
+      format: 's16le',
+      data: b64
+}}]}}])); 
+  }
+};
+
+  source.connect(recordProcessor);
+  recordProcessor.connect(audioCtx.destination); // needed for Chrome to run it
+
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
+};
+
+stopBtn.onclick = () => {
+  recordProcessor?.disconnect();
+  playProcessor?.disconnect();
+  micStream?.getTracks().forEach(t => t.stop());
+  audioCtx?.close();
+  ws?.close();
+  playBuffer = [];
+  lastSample = 0;
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+};
+
+</script>
+    </body>
+</html>
