@@ -436,26 +436,30 @@ impl PeerState {
         {
             let cg = &mut (self.content_gateways[cg_index]);
             cg.serve_content_from_disk(&file);
-            return;
-        }
-
-        let id = cg.id.clone();
-        let i = match inbound_states.get_mut(&id) {
-            Some(i) => i,
-            _ => {
-                let mut new_i = InboundState::new(&id);
-                info!("http scheduling inbound file {:?}", id);
-                for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
-                    new_i.request_blocks(self, new_i.peers.clone()); // resume (un-stall)
+        } else {
+            let id = cg.id.clone();
+            let i = match inbound_states.get_mut(&id) {
+                Some(i) => i,
+                _ => {
+                    let mut new_i = InboundState::new(&id);
+                    info!("http scheduling inbound file {:?}", id);
+                    for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
+                        new_i.request_blocks(self, new_i.peers.clone()); // resume (un-stall)
+                    }
+                    new_i.request_blocks(self, self.best_peers(250, 6));
+                    inbound_states.insert(id.to_string(), new_i);
+                    inbound_states.get_mut(&id).unwrap()
                 }
-                new_i.request_blocks(self, self.best_peers(250, 6));
-                inbound_states.insert(id.to_string(), new_i);
-                inbound_states.get_mut(&id).unwrap()
-            }
-        };
+            };
 
+            let cg = &mut (self.content_gateways[cg_index]);
+            cg.serve_content_from_inbound_state(i);
+        }
         let cg = &mut (self.content_gateways[cg_index]);
-        cg.serve_content_from_inbound_state(i);
+        if cg.http_done {
+            let cg_ = self.content_gateways.remove(cg_index);
+            self.http_clients.push(cg_.http_socket);
+        }
     }
 
     fn handle_websocket2(
@@ -608,7 +612,6 @@ fn main() -> Result<(), std::io::Error> {
                 continue 'main;
             }
         }
-
 
         if read_fds.contains(stdin.as_fd()) {
             info!("handling stdin");
@@ -1436,9 +1439,14 @@ impl Receive for Content {
                 });
             }
             if i.finished() {
-                for cg in &mut ps.content_gateways {
+                for (index, cg) in (&mut (ps.content_gateways)).into_iter().enumerate() {
                     if cg.id == self.id {
                         cg.serve_content_from_inbound_state(i);
+                        if cg.http_done {
+                            let cg = ps.content_gateways.remove(index);
+                            ps.http_clients.push(cg.http_socket);
+                            break;
+                        }
                     }
                 }
                 inbound_states.remove(&self.id);
@@ -1531,7 +1539,6 @@ impl ContentGateway {
             let response = format!(
                                 "HTTP/1.1 206 Partial Content\r\n\
                                  Content-Length: {}\r\n\
-                                 Connnection: close\r\n\
                                  Content-Disposition: inline\r\n\
                                  Accept-Range: bytes\r\n\
                                  Content-Range: bytes {}-{}/{}\r\n\
@@ -1631,9 +1638,14 @@ impl InboundState {
                 .copy_from_slice(content.base64.as_ref());
             self.bytes_complete += content.base64.len();
             self.bitmap.set(block_number, true);
-            for cg in &mut ps.content_gateways {
+            for (index, cg) in (&mut (ps.content_gateways)).into_iter().enumerate() {
                 if cg.id == self.id {
                     cg.serve_content_from_inbound_state(self);
+                    if cg.http_done {
+                        let cg = ps.content_gateways.remove(index);
+                        ps.http_clients.push(cg.http_socket);
+                        break;
+                    }
                 }
             }
         }
@@ -1767,6 +1779,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         }
     }
     for tr in to_remove.iter().rev() {
+        warn!("removing cg");
         ps.content_gateways.remove(*tr);
     }
     ps.next_maintenance =
