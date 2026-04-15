@@ -62,7 +62,7 @@ debuging :
     const input = document.getElementById('input');
     let output = document.getElementById('output');
     const link = document.getElementById('link');
-    function ed25519_is_set() {
+    function update_links() {
         let url=location.origin+location.pathname;
         if (safe_address.value.length>1) 
             url += "?safe=" + safe_address.value;
@@ -76,9 +76,9 @@ debuging :
         document.getElementById('line_mode').textContent = "switch to line by line mode (no javascript needed)";
         input.readOnly = false;
     }
-    function set_ed25519(ed25519) {
+    function set_their_ed25519(ed25519) {
         their_ed25519.value=ed25519;
-        ed25519_is_set();
+        update_links();
     }
     let my_eth_address = null;
 
@@ -242,7 +242,7 @@ debuging :
                         log(  "\n\n-- " + signer + " signed \"" + unsigned_message + "\"  --verified in browser\n\n");
                         if (signer != null && their_eth_addr.value != null &&
                             signer.toUpperCase() == their_eth_addr.value.toUpperCase()) {
-                            set_ed25519(ed25519);
+                            set_their_ed25519(ed25519);
                             signed_ed25519s.set(ed25519,their_eth_addr.value);
                             log(  "\n\n****** MATCHED their ed25519 " + their_ed25519.value + " signed by eth_addr: " + signer);
                         }  else {
@@ -251,10 +251,12 @@ debuging :
                     }
                     if ("YourEd25519" in msg) {
                         my_ed25519 = msg.YourEd25519.ed25519
-                        ed25519_is_set();
+                        update_links();
                     }
                     if ("PleaseSignYourPub" in msg) {
                         my_ed25519_to_sign = msg.PleaseSignYourPub.ed25519
+                        my_ed25519 = my_ed25519_to_sign;
+                        update_links();
                     }
                 }
             });
@@ -274,14 +276,14 @@ debuging :
 					request_ed25519_from_eth_addr();
 					break;
 				case "ed25519":
-					set_ed25519(v);
+					set_their_ed25519(v);
 			}
 		});
 		if (old_way) { 
 			const parts = window.location.href.split('?');
 			if (parts.length > 1) {
 				if (parts[1].length > 50) {
-					set_ed25519(parts[1]);
+					set_their_ed25519(parts[1]);
 				} else {
 					safe_address.value=parts[1];
 				}
@@ -294,7 +296,7 @@ debuging :
     });
     their_ed25519.addEventListener('input', () => { 
         input.readOnly = false;
-        ed25519_is_set();
+        update_links();
     });
     input.addEventListener('input', () => { 
         lines = input.value.split(/\r?\n/);
