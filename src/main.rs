@@ -1531,6 +1531,7 @@ impl ContentGateway {
             let response = format!(
                                 "HTTP/1.1 206 Partial Content\r\n\
                                  Content-Length: {}\r\n\
+                                 Connnection: close\r\n\
                                  Content-Disposition: inline\r\n\
                                  Accept-Range: bytes\r\n\
                                  Content-Range: bytes {}-{}/{}\r\n\
