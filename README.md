@@ -77,7 +77,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - drop in socket() replacement that takes keys intead of ips(), in Rust?
 - group chat 
 - more mmaps, replace open file cache, and use for http content servce
-- autoscroll dual window
 - public websocket support?
 - put nostr or bitcoin addr in chat too ..however that is signed
 - make chat5 have chat memory again? like the generated pages did
@@ -89,3 +88,4 @@ why does signedpub exist, shouldnt it just senda MyPublicKey?
 - putting git files in cjp2p/public is breaking a git pull if cjp2p/ is a symlink
 - don break urls, make chat5/ still work
 - i guess i decided on Forward format, add ForwardS and change HTMLs
+- less latency on phone, thats all browser play side ..try a test button to add a clickk and see how much delay, then i can try to reduce without two browsers

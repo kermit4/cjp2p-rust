@@ -434,7 +434,7 @@ impl PeerState {
     ) {
         let cg = &(self.content_gateways[cg_index]);
         if cg.http_done {
-            error!("is this code ever called? why?");
+            warn!("is this code ever called? why?");
             return;
         }
 
@@ -1002,6 +1002,7 @@ fn handle_web_request(
                     .ok();
                 return;
             }
+            info!("got http request for {}",req.path);
 
             if req.path.starts_with("/chat/") {
                 let v = &req.path[6..];
@@ -1034,8 +1035,8 @@ fn handle_web_request(
                     page += &format!("{}\n",m);
                 }
 
-                if req.path.contains("?msg=") {
-                    let mut parts = v.split("?msg=");
+                if req.path.contains("?line_chat_msg=") {
+                    let mut parts = v.split("?line_chat_msg=");
                     let _ = parts.next().unwrap().to_string();
                     let msg_ = parts.next().unwrap().to_string();
                     let msg = urlencoding::decode(&msg_).unwrap().to_string();
@@ -1046,26 +1047,8 @@ fn handle_web_request(
                 stream.write_all(page.as_bytes()).ok();
                 return;
             }
-            page += "HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n";
-            if req.path.starts_with("/chat") {
-                if req.path.len() < 8 {
-                    return;
-                }
-                let their_pub_hex = req.path[7..].to_string();
-                if !ps.recorded_chats.get_mut(&their_pub_hex).is_some() {
-                    let mut past_chats = vec![];
-                    for (their_pub_hex_maybe, msg) in &ps.all_chats {
-                        if *their_pub_hex_maybe == their_pub_hex {
-                            past_chats.push(msg.to_string());
-                        }
-                    }
-                    ps.recorded_chats
-                        .insert(their_pub_hex.to_string(), past_chats);
-                }
-                stream.write_all(page.as_bytes()).ok();
-                return;
-            }
             let id = &req.path[1..].split('?').next().unwrap();
+            let id = &id.split('/').next().unwrap();
             if id.find("/") != None
                 || id.find("\\") != None
                 || *id == "favicon.ico"
