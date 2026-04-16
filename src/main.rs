@@ -1,4 +1,6 @@
+use igd::{search_gateway, PortMappingProtocol};
 use socket2::SockRef;
+use std::net::{Ipv4Addr, SocketAddrV4};
 //use std::thread;
 use tungstenite::{accept, WebSocket};
 //use base64::{engine::general_purpose, Engine as _};
@@ -173,6 +175,7 @@ struct PeerState {
     list_time: Instant,
     p: PersistentState,
     next_maintenance: Instant,
+    next_upnp: Instant,
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
     ws_vec: Vec<WebSocket<TcpStream>>,
@@ -232,6 +235,7 @@ impl PeerState {
             list_time: Instant::now(),
             p: PersistentState::load(),
             next_maintenance: Instant::now() - Duration::from_secs(99999),
+            next_upnp: Instant::now() - Duration::from_secs(99999),
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
             ws_vec: Vec::new(),
@@ -342,7 +346,10 @@ impl PeerState {
             trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             match self.socket.send_to(&message_out_bytes, sa) {
                 Ok(s) => trace!("sent {s}"),
-                Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
+                Err(e) => {
+                    self.next_upnp = Instant::now();
+                    warn!("failed to send {0} {e}", message_out_bytes.len());
+                }
             }
         }
     }
@@ -507,6 +514,64 @@ impl PeerState {
             }
         }
     }
+    fn upnp(&self) {
+        let local_port: u16 = 24254;
+        let external_port: u16 =
+            (((self.keypair.public[0] as u16) << 8) + self.keypair.public[1] as u16) | 0x401;
+        let lease_duration: u32 = 3600; // 0 = permanent
+        let protocol = PortMappingProtocol::UDP;
+        let description = "cjp2p";
+        if let Ok(gateway) = search_gateway(Default::default()) {
+            info!("UPNP Found gateway: {}", gateway.addr);
+            let local_ip = get_local_ip_for_gateway(gateway.addr.ip().clone());
+            let local_addr = SocketAddrV4::new(local_ip, local_port);
+            info!("UPNP Local addr: {local_addr}");
+            match gateway.add_port(
+                protocol,
+                external_port,
+                local_addr,
+                lease_duration,
+                description,
+            ) {
+                Ok(()) =>
+                    for index in 0..99 {
+                        match gateway.get_generic_port_mapping_entry(index) {
+                            Ok(entry) => {
+                                if entry.external_port == external_port
+                                    && entry.protocol == protocol
+                                {
+                                    info!("UPNP Found mapping at index {index}");
+                                    info!("UPNP Real lease: {}s", entry.lease_duration);
+                                    info!("UPNP Internal: {}:{}", entry.internal_client, entry.internal_port);
+                                    info!("UPNP Desc: {}", entry.port_mapping_description);
+                                    if entry.lease_duration != lease_duration {
+                                        info!("UPNP router Clamped from {lease_duration} to {}", entry.lease_duration);
+                                    }
+                                    break;
+                                }
+                            }
+                            Err(
+                                igd::GetGenericPortMappingEntryError::SpecifiedArrayIndexInvalid,
+                            ) => {
+                                info!("UPNP Mapping not found. Router didn't create it or deleted it.");
+                                break;
+                            }
+                            Err(e) => {
+                                info!("UPNP Error reading router index {index}: {:?}", e);
+                                break;
+                            }
+                        }
+                    },
+                Err(e) => {
+                    warn!("UPNP add_port failed: {e}");
+                }
+            }
+
+            if let Ok(ip) = gateway.get_external_ip() {
+                info!("Your gateway's IP: {ip}");
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -542,6 +607,17 @@ fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
     }
 
     Some(HttpRequest { path, headers })
+}
+fn get_local_ip_for_gateway(gateway_ip: Ipv4Addr) -> Ipv4Addr {
+    let socket = UdpSocket::bind("0.0.0.0:0").expect("bind failed");
+    socket.connect((gateway_ip, 1900)).expect("connect failed");
+    socket
+        .local_addr()
+        .expect("local_addr failed")
+        .ip()
+        .to_string()
+        .parse()
+        .expect("parse failed")
 }
 
 fn main() -> Result<(), std::io::Error> {
@@ -1764,6 +1840,10 @@ impl InboundState {
 fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
     if ps.next_maintenance.elapsed() <= Duration::ZERO {
         return;
+    }
+    if ps.next_upnp.elapsed() > Duration::ZERO {
+        ps.upnp();
+        ps.next_upnp = Instant::now() + Duration::from_secs(1200);
     }
     debug!("maintenance");
     let mut to_remove = vec![];
