@@ -2183,7 +2183,7 @@ impl Receive for ChatMessage {
                 info!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
                 return vec![];
             }
-            println!("\x1b[7m{} {src} 0x{} from {:?} away said \x07\x1b[33m{}\x1b[m",
+            println!("\x1b[7m{} {src} 0x{} from {:?} away said \x1b[33m{}\x1b[m",
                 Utc::now().to_rfc3339(),
                 hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
                 ps.peer_map[&src].delay,
