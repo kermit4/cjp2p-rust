@@ -526,6 +526,7 @@ impl PeerState {
             let local_ip = get_local_ip_for_gateway(gateway.addr.ip().clone());
             let local_addr = SocketAddrV4::new(local_ip, local_port);
             info!("UPNP Local addr: {local_addr}");
+            info!("UPNP exterrnal port requested base based on your public key: {}",external_port);
             match gateway.add_port(
                 protocol,
                 external_port,
@@ -540,7 +541,6 @@ impl PeerState {
                                 if entry.external_port == external_port
                                     && entry.protocol == protocol
                                 {
-                                    info!("UPNP your external port based on your public key: {}",external_port);
                                     info!("UPNP Found mapping at index {index}");
                                     info!("UPNP Real lease: {}s", entry.lease_duration);
                                     info!("UPNP Internal: {}:{}", entry.internal_client, entry.internal_port);
