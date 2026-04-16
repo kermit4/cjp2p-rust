@@ -2454,7 +2454,7 @@ fn msgs_to_pub(
             return;
         }
         let mut message_out: Vec<serde_json::Value> = vec![];
-        message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
+//        message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
         message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
         for m in messages {
             message_out.push(serde_json::to_value(m).unwrap());

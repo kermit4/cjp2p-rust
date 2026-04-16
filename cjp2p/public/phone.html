@@ -6,6 +6,24 @@
 
 <br>
             <p><a href=/>return to network status page</a>
+<div id="led" class="led off"></div>
+    <style>
+    .led {
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          border: 1px solid #222;
+          background: #400; /* dark red = off */
+          box-shadow: inset 0 0 4px #000;
+          transition: background 0.1s, box-shadow 0.1s;
+    }
+.led.on {
+      background: #f00; /* bright red = on */
+      box-shadow: 0 0 8px #f00, /* glow */
+                      inset 0 0 4px #fff8; /* highlight */
+}
+</style>
+
 <br>
 debuging : 
 <button onclick="logging=true">enable </button> (then scroll down)
@@ -20,6 +38,7 @@ let playBuffer = [];
 let lastSample = 0; // for underrun fade
 const startBtn = document.getElementById('start');
 const stopBtn = document.getElementById('stop');
+const led = document.getElementById('led');
 
 function base64ToArrayBuffer(b64) {
   const binary = atob(b64);
@@ -51,7 +70,8 @@ function base64ToArrayBuffer(b64) {
             });
         }
     function log(...args) { 
-        if (logging)  log_always(args);
+        if (logging)  
+            log_always(args);
     }
 
     document.body.appendChild(logDiv);
@@ -76,19 +96,20 @@ function base64ToArrayBuffer(b64) {
       catch { return String(obj); }
     }
     window.onerror = (msg, url, line, col, err) => {
-      log('ERROR:', msg, 'at', url + ':' + line + ':' + col);
-      if (err && err.stack) log(err.stack);
+      log_always('ERROR:', msg, 'at', url + ':' + line + ':' + col);
+      if (err && err.stack) 
+        log_always(err.stack);
         return false;
     };
     window.onunhandledrejection = e => {
-      log('UNHANDLED PROMISE:', e.reason?.stack || e.reason || e);
+      log_always('UNHANDLED PROMISE:', e.reason?.stack || e.reason || e);
     };
 
     ['log', 'warn', 'error', 'info'].forEach(k => {
       const orig = console[k].bind(console);
       console[k] = (...args) => {
         orig.apply(console, args); // still goes to real console if you have one
-        log(k.toUpperCase() + ':',...args);
+        log_always(k.toUpperCase() + ':',...args);
       };
     });
 
@@ -100,8 +121,7 @@ function base64ToArrayBuffer(b64) {
 		log("websocket connencting");
 		socket = new WebSocket("ws://localhost:24255/wt");
         socket.onclose = () => {
-            console.log('Socket closed. Reconnecting ...');
-            log("websocket reconnencting");
+            log('Socket closed. Reconnecting ...');
             setTimeout(connect, 200);
         };
 		socket.onopen = async() => {
@@ -130,13 +150,14 @@ function base64ToArrayBuffer(b64) {
                             if (audioCtx != null && af.sampleRate== 48000 && af.channels== 1 && af.format=='f32' ) {
 								const u8 = b64ToU8(af.data);
 								const f32 = new Float32Array(u8.buffer, u8.byteOffset, u8.byteLength / 4);
-                                log_always("--got frame " +  f32.length);
+                                led.classList.toggle('on', true);
                                 for (let i = 0; i < f32.length; i++) {
-                                    if (i<10) log_always(i,f32[i]);
 									  ring[writeIdx] = f32[i];
 									  writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
 									  if (writeIdx === readIdx) {
-										readIdx = (readIdx + 1024) & (RING_SIZE - 1); // skip 23ms ahead
+                                          if(startBtn.disabled) 
+                                              log_always("playback slower than source skipping ahead 20ms");
+										  readIdx = (readIdx + 48*20 ) & (RING_SIZE - 1); 
 								  }
 								}
 							}
@@ -169,17 +190,15 @@ function base64ToArrayBuffer(b64) {
     });
 
   // Ring buffer: 1 second of stereo = 88200 samples. Power of 2 for fast modulo.
-  const RING_SIZE = 65536; // ~1.5s @ 44.1kHz mono
+  const RING_SIZE = 8192; 
   const ring = new Float32Array(RING_SIZE);
   let writeIdx = 0;
   let readIdx = 0;
 
 startBtn.onclick = async () => {
 
-	audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+	audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
 	await audioCtx.resume();
-	  // 1. Get mic: CD quality = 44100Hz, stereo
-    log_always("herre");
     try {
 	micStream = await navigator.mediaDevices.getUserMedia({
 		audio: {
@@ -190,12 +209,8 @@ startBtn.onclick = async () => {
 		  autoGainControl: false
 		}
 	  });
-    log_always("herrexx",micStream);
-    log_always("herre",micStream);
         let _at = micStream.getAudioTracks();
-    log_always("herre");
         let atb = _at[0];
-    log_always("herre");
         let atbs = atb.getSettings();
 log_always("channelCount:",atbs.channelCount);
 log_always("sampleRate:",atbs.sampleRate);
@@ -203,7 +218,7 @@ log_always("echoCancellation:",atbs.echoCancellation);
 log_always("noiseSuppression:",atbs.noiseSuppression);
 log_always("autoGainControl:",atbs.autoGainControl);
 
-    playProcessor = audioCtx.createScriptProcessor(2048, 0, 1); // mono out
+    playProcessor = audioCtx.createScriptProcessor(1024, 1, 1); // mono out
 
   playProcessor.onaudioprocess = e => {
     const out = e.outputBuffer.getChannelData(0);
@@ -212,8 +227,8 @@ log_always("autoGainControl:",atbs.autoGainControl);
         lastSample = ring[readIdx];
         out[i] = lastSample;
         readIdx = (readIdx + 1) & (RING_SIZE - 1); // wrap with bitwise AND
-      } else {
-        // Underrun: fade last sample to avoid click
+      } else { // Underrun: fade last sample to avoid click
+          led.classList.toggle('on', false);
         lastSample *= 0.997;
         out[i] = lastSample;
       }
@@ -226,7 +241,7 @@ log_always("autoGainControl:",atbs.autoGainControl);
   let sampleBuffer = [];
 const RING = new Float32Array(131072);
 let w = 0, r = 0;
-const FRAME = 1176;
+const FRAME = 512;
 
 
 
@@ -238,21 +253,27 @@ recordProcessor.onaudioprocess = e => {
   for (let i = 0; i < input.length; i++) {
     RING[w] = input[i];
     w = (w + 1) & (RING.length - 1);
-    if (w === r) r = (r + FRAME) & (RING.length - 1); // drop on overflow
+      if (w === r) { 
+          r = (r + FRAME) & (RING.length - 1); 
+          log_always("record caught up to sending, that shouldnt happen");
+        }
   }
 
 
   while (((w - r + RING.length) & (RING.length - 1)) >= FRAME) {
     const out = new Float32Array(FRAME);
-    for (let i = 0; i < FRAME; i++) out[i] = RING[(r + i) & (RING.length - 1)];
+      for (let i = 0; i < FRAME; i++)  {
+      out[i] = RING[(r + i) & (RING.length - 1)];
+}
     r = (r + FRAME) & (RING.length - 1);
 
     const u8 = new Uint8Array(out.buffer);
+    const b64 = u8toB64(u8);
 	socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{AudioFrame:{
 			sampleRate: 48000,
 			channels: 1,
 			format: 'f32',
-			data: u8toB64(u8),
+			data: b64,
 		}}]}}])); 
 	}
 };
@@ -265,7 +286,10 @@ recordProcessor.onaudioprocess = e => {
 
   startBtn.disabled = true;
   stopBtn.disabled = false;
-    }catch (e) { log_always("caught ",e); }
+    }
+    catch (e) { 
+        log_always("caught ",e); 
+    }
 };
 
 stopBtn.onclick = () => {
