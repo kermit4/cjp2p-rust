@@ -1404,7 +1404,11 @@ impl Receive for PleaseSendContent {
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if self.id.find("/") != None || self.id.find("\\") != None || self.id.starts_with(".") || self.id.len()==0 {
+        if self.id.find("/") != None
+            || self.id.find("\\") != None
+            || self.id.starts_with(".")
+            || self.id.len() == 0
+        {
             return vec![];
         };
         let mut message_out: Vec<Message> = Vec::new();
