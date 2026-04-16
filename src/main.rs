@@ -540,6 +540,7 @@ impl PeerState {
                                 if entry.external_port == external_port
                                     && entry.protocol == protocol
                                 {
+                                    info!("UPNP your external port based on your public key: {}",external_port);
                                     info!("UPNP Found mapping at index {index}");
                                     info!("UPNP Real lease: {}s", entry.lease_duration);
                                     info!("UPNP Internal: {}:{}", entry.internal_client, entry.internal_port);
