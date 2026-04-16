@@ -227,8 +227,8 @@ debuging :
 								log("wrong key, wanted " + their_ed25519.value + " got " + src);
 								return;
 							}
-							log_always(signed_ed25519s.get(src));
-							log_always(their_eth_addr.value);
+							log("their ed25519 signature ",signed_ed25519s.get(src));
+							log("signed by  eth addr",their_eth_addr.value);
 							if (  signed_ed25519s.get(src) == their_eth_addr.value ) {
 								txt += "VERIFIED eth " + their_eth_addr.value + "\n";
 							}
