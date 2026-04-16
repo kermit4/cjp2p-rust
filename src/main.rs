@@ -1103,19 +1103,28 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let (message_in_len, src) = ps.socket.recv_from(&mut buf).unwrap();
     let message_in_bytes = &buf[0..message_in_len];
     trace!( "incoming message {} from {src}", String::from_utf8_lossy(message_in_bytes));
-    let message_out_string = serde_json::to_string(&json![
-            [Message::Forwarded(Forwarded{src:src,from_ed25519:None,messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
-    if ps.ws_vec.len() > 0 {
-        trace!( "sending raw message {} to {} websocket(s)", message_out_string,ps.ws_vec.len());
+    if !ps.peer_map.contains_key(&src) {
+        let mut pi = PeerInfo::new();
+        pi.delay = Duration::from_millis(120);
+        ps.peer_map.insert(src, pi);
+        info!("new peer spotted {src}");
     }
-    for ws in &mut ps.ws_vec {
-        if ws
-            .write(tungstenite::Message::Text(
-                message_out_string.clone().into(),
-            ))
-            .is_ok()
-        {
-            ws.flush().ok();
+    if ps.ws_vec.len() > 0 {
+        let message_out_string = serde_json::to_string(&json![
+            [Message::Forwarded(Forwarded{src:src,from_ed25519:None,
+        maybe_ed25519: if let Some(their_pub) = &ps.peer_map[&src].ed25519 { Some(hex::encode(their_pub))} else { None }
+            ,
+                messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
+        trace!( "sending raw message {} to {} websocket(s)", message_out_string,ps.ws_vec.len());
+        for ws in &mut ps.ws_vec {
+            if ws
+                .write(tungstenite::Message::Text(
+                    message_out_string.clone().into(),
+                ))
+                .is_ok()
+            {
+                ws.flush().ok();
+            }
         }
     }
     let messages: Messages = match serde_json::from_slice(message_in_bytes) {
@@ -1127,12 +1136,6 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
         }
     };
     let messages = messages.0;
-    if !ps.peer_map.contains_key(&src) {
-        let mut pi = PeerInfo::new();
-        pi.delay = Duration::from_millis(120);
-        ps.peer_map.insert(src, pi);
-        info!("new peer spotted {src}");
-    }
     // This ist a Vec<Value> because I don't know the structure of the Please*Returns
     let mut might_be_ip_spoofing = ps.check_key(&messages, src);
     let mut message_out = ps.handle_messages(
@@ -2015,10 +2018,12 @@ impl Receive for GetPubByEth {
                         };
                         let message_out = vec![Message::MyPublicKey(mpk)];
                         let from_ed25519 = Some(hex::encode(ed25519));
+                        let maybe_ed25519 = None;
+
                         let messages = serde_json::to_string(&message_out).unwrap();
                         info!("sending {:?} ed25519 {} for eth addr {}",src,from_ed25519.clone().unwrap(),signer);
                         let src = *k;
-                        return vec![Message::Forwarded(Forwarded{src,from_ed25519,messages})];
+                        return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
                     }
                 }
             }
@@ -2054,6 +2059,8 @@ impl Receive for SignedPub {
 struct Forwarded {
     src: SocketAddr,
     from_ed25519: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    maybe_ed25519: Option<String>,
     messages: String,
 }
 impl Receive for Forwarded {
@@ -2352,7 +2359,10 @@ impl Receive for EncryptedMessages {
 
                 *might_be_ip_spoofing &= ps.check_key(&messages, src);
                 let message_out_string = serde_json::to_string(&json![
-                        [Message::Forwarded(Forwarded{src:src,from_ed25519:Some(their_pub_hex),messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
+                        [Message::Forwarded(Forwarded{src:src,from_ed25519:Some(their_pub_hex),
+        maybe_ed25519:None,
+                        messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]])
+                .unwrap();
                 if ps.ws_vec.len() > 0 {
                     trace!( "sending decrypted message {} to {} websockets", message_out_string,ps.ws_vec.len());
                 }
