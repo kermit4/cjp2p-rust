@@ -730,6 +730,8 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             inbound_states.insert(arg.clone(), InboundState::new(&arg));
         } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
             chat_to_pub(ps, &arg, &arg2);
+        } else if sscanf!(line.as_str(), "/addpeer {}",arg).is_ok() {
+            ps.peer_map.insert(arg.parse().unwrap(), PeerInfo::new());
         } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
             let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
             if let Message::EncryptedMessages(_) = message_out[0] {
@@ -829,6 +831,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             println!("
                         - /ping
                         - /get hash
+                        - /addpeer 1.2.3.4:5678
                         - /list
                         - /recommend hash
                         - /recommended
