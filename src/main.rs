@@ -434,34 +434,43 @@ impl PeerState {
     ) {
         let cg = &(self.content_gateways[cg_index]);
         if cg.http_done {
+            error!("is this code ever called? why?");
             return;
         }
-        if let Ok(file) = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open("./cjp2p/public/".to_owned() + &cg.id)
-        {
-            let cg = &mut (self.content_gateways[cg_index]);
-            cg.serve_content_from_disk(&file);
-        } else {
-            let id = cg.id.clone();
-            let i = match inbound_states.get_mut(&id) {
-                Some(i) => i,
-                _ => {
-                    let mut new_i = InboundState::new(&id);
-                    info!("http scheduling inbound file {:?}", id);
-                    for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
-                        new_i.request_blocks(self, new_i.peers.clone()); // resume (un-stall)
-                    }
-                    new_i.request_blocks(self, self.best_peers(250, 6));
-                    inbound_states.insert(id.to_string(), new_i);
-                    inbound_states.get_mut(&id).unwrap()
-                }
-            };
 
-            let cg = &mut (self.content_gateways[cg_index]);
-            cg.serve_content_from_inbound_state(i);
+        if !std::env::var("SKIP_LOCAL").is_ok() {
+            if let Ok(file) = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open("./cjp2p/public/".to_owned() + &cg.id)
+            {
+                let cg = &mut (self.content_gateways[cg_index]);
+                cg.serve_content_from_disk(&file);
+
+                if cg.http_done {
+                    let cg_ = self.content_gateways.remove(cg_index);
+                    self.http_clients.push(cg_.http_socket);
+                }
+                return;
+            }
         }
+        let id = cg.id.clone();
+        let i = match inbound_states.get_mut(&id) {
+            Some(i) => i,
+            _ => {
+                let mut new_i = InboundState::new(&id);
+                info!("http scheduling inbound file {:?}", id);
+                for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
+                    new_i.request_blocks(self, new_i.peers.clone()); // resume (un-stall)
+                }
+                new_i.request_blocks(self, self.best_peers(250, 6));
+                inbound_states.insert(id.to_string(), new_i);
+                inbound_states.get_mut(&id).unwrap()
+            }
+        };
+
+        let cg = &mut (self.content_gateways[cg_index]);
+        cg.serve_content_from_inbound_state(i);
         let cg = &mut (self.content_gateways[cg_index]);
         if cg.http_done {
             let cg_ = self.content_gateways.remove(cg_index);
@@ -1454,6 +1463,7 @@ impl Content {
             info!("randomly ignoring unverified source IPs for {} so ba dumb client doesn't get stuck in a loop",req.id);
             return vec![];
         }
+
         let length = if *might_be_ip_spoofing {
             1
         } else if req.length > 0xa000 {
@@ -1461,6 +1471,9 @@ impl Content {
         } else {
             req.length
         };
+        if std::env::var("SKIP_LOCAL").is_ok() {
+            return vec![];
+        }
         let ofr = if let Some(ofr) = ps.open_file_cache.get(&req.id) {
             ofr
         } else if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &req.id) {

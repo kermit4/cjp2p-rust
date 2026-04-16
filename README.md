@@ -78,14 +78,14 @@ or HTML pages with many page components, individually downloaded from the networ
 - group chat 
 - more mmaps, replace open file cache, and use for http content servce
 - autoscroll dual window
-- debug option or /option to just never serve anything off local disk..network test mode, so i dont have to keep deleteing files
-- would this compile faster if it wasnt one big file
 - public websocket support?
 - put nostr or bitcoin addr in chat too ..however that is signed
 - make chat5 have chat memory again? like the generated pages did
 - peers save would be substantially more efficient if it only saved the LAST peer of an ed25519, if known, but not everyone has or announces that
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
-- put main.rs in public? host itself publicly? very open source
+- put this as a git bundle in cjp2p/public
 - why is Forward.messages JSON values and Forwarded.messages a single string of JSON? thats not consistent, but idk which one to pick. im leaning toward string but CPU is really not an isssue here regardless, it a question of transparency and ease of implemenatation.
-- update protoocl tracking page wiht al my new messages
 why does signedpub exist, shouldnt it just senda MyPublicKey?
+- putting git files in cjp2p/public is breaking a git pull if cjp2p/ is a symlink
+- don break urls, make chat5/ still work
+- i guess i decided on Forward format, add ForwardS and change HTMLs
