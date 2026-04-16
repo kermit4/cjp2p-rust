@@ -570,6 +570,8 @@ impl PeerState {
             if let Ok(ip) = gateway.get_external_ip() {
                 info!("Your gateway's IP: {ip}");
             }
+        } else {
+            info!("UPNP no gateway found");
         }
     }
 }
