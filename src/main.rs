@@ -698,7 +698,7 @@ fn main() -> Result<(), std::io::Error> {
             continue 'main;
         }
         if read_fds.contains(web_server.as_fd()) {
-            info!("handling new http");
+            debug!("handling new http");
             if let Ok((stream, _)) = web_server.accept() {
                 stream.set_nonblocking(true).unwrap();
                 ps.http_clients.push(stream);
@@ -707,7 +707,7 @@ fn main() -> Result<(), std::io::Error> {
         }
         for (k, hc) in ps.http_clients.iter().enumerate() {
             if read_fds.contains(hc.as_fd()) {
-                info!("handling http");
+                debug!("handling http");
                 handle_web_request(k, &mut inbound_states, &mut ps);
                 continue 'main;
             }
@@ -1510,7 +1510,7 @@ impl Receive for Content {
             let block_number = self.offset / BLOCK_SIZE!();
             debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
             let mut message_out = i.receive_content(&self, ps);
-            if self.eof.is_some() {
+            if self.eof.is_some() && hex::decode(self.id.to_owned()).is_ok() {
                 ps.p.i_just_saw_this = Some(IJustSawThis {
                     id: self.id.to_owned(),
                     length: self.eof.unwrap() as u64,
@@ -2454,7 +2454,7 @@ fn msgs_to_pub(
             return;
         }
         let mut message_out: Vec<serde_json::Value> = vec![];
-//        message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
+        //        message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
         message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
         for m in messages {
             message_out.push(serde_json::to_value(m).unwrap());

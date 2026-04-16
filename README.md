@@ -91,5 +91,4 @@ put main.rs in public? host itself publicly? very open source
 - why is forward and forwarded different layers of encoing?
 - maybe__ed25519 on unencrypted forwards
 - chat seen highlight for dual window
-- update tracking page wiht al my new messages
-lasteen only for hashed files
+- update protoocl tracking page wiht al my new messages
