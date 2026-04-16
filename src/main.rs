@@ -474,7 +474,7 @@ impl PeerState {
         index: usize,
         inbound_states: &mut HashMap<String, InboundState>,
     ) {
-        info!("handling {} websockets",self.ws_vec.len());
+        debug!("handling {} websockets",self.ws_vec.len());
         match self.ws_vec[index].read() {
             Ok(buf) => {
                 //dbg!(msg);
@@ -686,7 +686,7 @@ fn main() -> Result<(), std::io::Error> {
 
         for (k, ws) in ps.ws_vec.iter().enumerate() {
             if read_fds.contains(ws.get_ref().as_fd()) {
-                info!("handling ws vec");
+                debug!("handling ws vec");
                 ps.handle_websocket2(k, &mut inbound_states);
                 continue 'main;
             }
@@ -967,7 +967,7 @@ fn handle_web_request(
         }
         if buf.starts_with(b"GET /wt") {
             let mut ws = accept(stream).unwrap();
-            info!("websocket2 request:");
+            info!("websocket connected");
             let message_out_string = if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
                 format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]",ps.keypair.public_hex.clone().unwrap())
             } else {
