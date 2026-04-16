@@ -87,5 +87,4 @@ peers save would be substantially more efficient if it only saved the LAST peer 
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 put main.rs in public? host itself publicly? very open source
 - why is Forward.messages JSON values and Forwarded.messages a single string of JSON? thats not consistent, but idk which one to pick. im leaning toward string but CPU is really not an isssue here regardless, it a question of transparency and ease of implemenatation.
-- chat seen highlight for dual window
 - update protoocl tracking page wiht al my new messages

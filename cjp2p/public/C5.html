@@ -21,6 +21,7 @@ when the bottom one filed<p>
             <textarea id='input' style='width: 50%; height: 100%;' readonly></textarea>
             <textarea id='output' style='width: 50%; height: 100%;' readonly></textarea>
         </div>
+<div id="saw-status" style="font-size:12px; padding:4px; color:#888;">Seen by them: never</div>
 <br>
 debuging : 
 <button onclick="logging=true">enable </button> (then scroll down)
@@ -112,6 +113,45 @@ debuging :
         } );
     }
 
+    async function sha256hex(text) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    let lastReceivedHash = null;
+    let lastSentHash = null;
+    let seenTop = false;
+    let seenBottom = false;
+    let sawSent = false;
+    const sawStatus = document.getElementById('saw-status');
+
+    function updateScrollSeen() {
+        const el = document.getElementById('output');
+        if (el.scrollTop <= 1) seenTop = true;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 1) seenBottom = true;
+    }
+
+    async function checkAndSendSaw() {
+        updateScrollSeen();
+        if (seenTop && seenBottom && !sawSent && lastReceivedHash && their_ed25519.value) {
+            sawSent = true;
+            socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value, messages:[{SawMessage:{hash:lastReceivedHash}}]}}]));
+        }
+    }
+
+    document.getElementById('output').addEventListener('scroll', () => checkAndSendSaw());
+
+    function updateSawStatus(receivedHash, receivedTime) {
+        const timeStr = receivedTime.toLocaleTimeString();
+        if (lastSentHash && receivedHash === lastSentHash) {
+            sawStatus.textContent = 'Seen by them: ' + timeStr + ' \u2713';
+            sawStatus.style.color = '#2a2';
+        } else {
+            sawStatus.textContent = 'Seen by them: ' + timeStr + ' (older message)';
+            sawStatus.style.color = '#a80';
+        }
+    }
+
     let originalTitle = document.title;
     let blinkInterval;
     function notifyNewMessage() {
@@ -125,6 +165,7 @@ debuging :
     window.addEventListener('focus', () => {
         clearInterval(blinkInterval);
         document.title = originalTitle;
+        checkAndSendSaw();
     });
 
     let my_ed25519_to_sign = null;
@@ -216,12 +257,12 @@ debuging :
 					for (i in messages) {
 						let msg = messages[i]
 						log("\n" + JSON.stringify(msg));
-						if ("ChatMessage" in msg)  { 
-							txt = "NOT VERIFIED\n"; 
+						if ("ChatMessage" in msg)  {
+							txt = "NOT VERIFIED\n";
 							if (
 								their_ed25519.value == src
-								|| their_ed25519.value == ("0x"+ src) 
-							) { 
+								|| their_ed25519.value == ("0x"+ src)
+							) {
 								txt = "VERIFIED ed25519 " + their_ed25519.value + "\n";
 							} else {
 								log("wrong key, wanted " + their_ed25519.value + " got " + src);
@@ -235,6 +276,11 @@ debuging :
 							txt += "\n";
 							txt += msg.ChatMessage.message;
 							output.value = txt;
+							seenTop = false; seenBottom = false; sawSent = false;
+							sha256hex(msg.ChatMessage.message).then(h => { lastReceivedHash = h; });
+						}
+						if ("SawMessage" in msg && forwarded) {
+							updateSawStatus(msg.SawMessage.hash, new Date());
 						}
 						if ("MyPublicKey" in msg) {
 							let mpk=msg.MyPublicKey;
@@ -313,9 +359,9 @@ debuging :
         input.readOnly = false;
         update_links();
     });
-    input.addEventListener('input', () => { 
+    input.addEventListener('input', () => {
         lines = input.value.split(/\r?\n/);
-        while ( single_window 
+        while ( single_window
             && ( lines[0].startsWith("VERIFIED " )
                 || lines[0].length==0)
         ) {
@@ -323,7 +369,11 @@ debuging :
                 log_always("len " + lines[0].length);
         }
         txt = lines.join('\n');
-        socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{ChatMessage:{message:txt}}]}}]  )); 
+        socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{ChatMessage:{message:txt}}]}}]  ));
+        sha256hex(txt).then(h => {
+            lastSentHash = h;
+            sawStatus.style.color = '#888';
+        });
     });
 </script>
     </body>
