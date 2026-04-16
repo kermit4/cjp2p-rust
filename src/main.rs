@@ -939,7 +939,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
         if let IpAddr::V4(ip) = v.ip() {
             let d = ps.peer_map[v].delay;
             if d < Duration::from_millis(119) {
-                page += &format!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21}\n",
+                page += &format!("{:02x}{:02x}{:02x}{:02x}{:04x} {:21?} {:21}\n",
                     ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
                     v.port(),
                     d,
@@ -1404,7 +1404,7 @@ impl Receive for PleaseSendContent {
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if self.id.find("/") != None || self.id.find("\\") != None || self.id.starts_with(".") {
+        if self.id.find("/") != None || self.id.find("\\") != None || self.id.starts_with(".") || self.id.len()==0 {
             return vec![];
         };
         let mut message_out: Vec<Message> = Vec::new();
