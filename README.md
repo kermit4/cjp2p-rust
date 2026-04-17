@@ -1,4 +1,4 @@
-This implements everything in spotted and listed in the https://github.com/kermit4/lcdp protocol repo, plus some other things.   The primary purpose of this repo, is to demonstrate sample use cases connectionless JSON (externally tagged) P2P aka the Least Common Denominator Protocol.
+This implements everything in spotted and listed in the https://github.com/kermit4/LCDP protocol repo, plus some other things.   The primary purpose of this repo, is to demonstrate sample use cases connectionless JSON (externally tagged) P2P aka the Least Common Denominator Protocol.
 
 It's functional for end users, but the current target audience is p2p devs, so the UI IS minimal and not clearly documented.
 
