@@ -1,0 +1,281 @@
+<html><head><title>Pong over CJP2P</title></head>
+<body>
+<p>Their ed25519 addr: <input id=their_ed25519 size=80>
+<p>Share this link with your opponent: <a id=link href=""></a>
+<p><a href=/>return to network status page</a>
+<p>
+<button id=serve_btn disabled>Serve</button>
+<span id=status_msg>Waiting for connection...</span>
+<p>
+<canvas id=canvas width=800 height=500 style="border:2px solid #fff; background:#000; cursor:none;"></canvas>
+<p>
+<span id=scoreboard style="font-family:monospace;font-size:20px;color:#fff;"></span>
+
+<style>
+body { background:#222; color:#fff; font-family:monospace; }
+canvas { display:block; margin:0 auto; }
+#scoreboard { display:block; text-align:center; }
+</style>
+
+<div id=logbox style="font-family:monospace;font-size:11px;color:#0f0;background:#111;padding:4px;white-space:pre-wrap;word-break:break-all;max-height:20vh;overflow:auto;margin-top:8px;"></div>
+
+<script>
+const W = 800, H = 500;
+const PADDLE_W = 12, PADDLE_H = 80;
+const BALL_R = 8;
+const BASE_SPEED = 5;
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const their_ed25519 = document.getElementById('their_ed25519');
+const link = document.getElementById('link');
+const serve_btn = document.getElementById('serve_btn');
+const status_msg = document.getElementById('status_msg');
+const scoreboard = document.getElementById('scoreboard');
+const logbox = document.getElementById('logbox');
+
+let my_ed25519 = null;
+let socket;
+
+function log(...args) {
+    const line = document.createElement('div');
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
+    logbox.appendChild(line);
+    while (logbox.children.length > 200) logbox.removeChild(logbox.firstChild);
+}
+
+window.onerror = (msg, url, line, col, err) => { log('ERROR:', msg, 'at', url+':'+line); return false; };
+window.onunhandledrejection = e => log('UNHANDLED:', e.reason?.stack || e.reason || e);
+
+function update_links() {
+    if (!my_ed25519) return;
+    let url = location.origin + location.pathname + '?ed25519=' + my_ed25519;
+    link.href = url;
+    link.textContent = url;
+}
+function set_their_ed25519(v) {
+    their_ed25519.value = v;
+    update_links();
+    check_ready();
+}
+
+// ── game state ────────────────────────────────────────────────────────────────
+let ballX = W/2, ballY = H/2, ballVX = 0, ballVY = 0;
+let myPaddleY = H/2;       // center of my paddle
+let theirPaddleY = H/2;
+let myScore = 0, theirScore = 0;
+let lastTheirMove = -1;    // discard moves ≤ this
+let myMoveNum = 0;
+let gameActive = false;
+let amLeft = false;        // determined from ed25519 comparison
+
+// mouse / touch controls
+canvas.addEventListener('mousemove', e => {
+    const r = canvas.getBoundingClientRect();
+    myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, e.clientY - r.top));
+});
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, e.touches[0].clientY - r.top));
+}, {passive:false});
+
+function myPaddleX()    { return amLeft ? PADDLE_W              : W - PADDLE_W; }
+function theirPaddleX() { return amLeft ? W - PADDLE_W          : PADDLE_W; }
+function myGoalX()      { return amLeft ? 0                     : W; }   // ball past here = I lost
+
+// ── serve ─────────────────────────────────────────────────────────────────────
+serve_btn.onclick = () => {
+    if (!their_ed25519.value || !my_ed25519) return;
+    // random angle 30-60° toward opponent
+    const angle = (Math.random() * 60 - 30) * Math.PI / 180;
+    const vx = amLeft ? Math.cos(angle) * BASE_SPEED : -Math.cos(angle) * BASE_SPEED;
+    const vy = Math.sin(angle) * BASE_SPEED;
+    ballX = W/2; ballY = H/2;
+    ballVX = vx; ballVY = vy;
+    gameActive = true;
+    myMoveNum++;
+    send_pong_move(myMoveNum, ballX, ballY, ballVX, ballVY);
+    log('served move', myMoveNum, 'vx', vx.toFixed(2), 'vy', vy.toFixed(2));
+};
+
+function send_pong_move(move_number, bx, by, vx, vy) {
+    if (!their_ed25519.value || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify([{Forward:{
+        to_ed25519: their_ed25519.value,
+        messages: [{PongMove:{move_number, ball_x:bx, ball_y:by, vx, vy}}]
+    }}]));
+}
+
+// ── receive PongMove ──────────────────────────────────────────────────────────
+function handle_pong_move(msg) {
+    const m = msg.PongMove;
+    if (m.move_number <= lastTheirMove) {
+        log('discarding stale move', m.move_number, '(last:', lastTheirMove+')');
+        return;
+    }
+    lastTheirMove = m.move_number;
+    ballX = m.ball_x; ballY = m.ball_y;
+    ballVX = m.vx;    ballVY = m.vy;
+    gameActive = true;
+    log('recv move', m.move_number, 'vx', m.vx.toFixed(2), 'vy', m.vy.toFixed(2));
+}
+
+// ── physics ───────────────────────────────────────────────────────────────────
+function tick() {
+    if (!gameActive) return;
+    ballX += ballVX;
+    ballY += ballVY;
+
+    // bounce top/bottom
+    if (ballY - BALL_R < 0)  { ballY = BALL_R;      ballVY = Math.abs(ballVY); }
+    if (ballY + BALL_R > H)  { ballY = H - BALL_R;  ballVY = -Math.abs(ballVY); }
+
+    // reflect off MY paddle
+    const mpx = myPaddleX();
+    const movingTowardMe = amLeft ? ballVX < 0 : ballVX > 0;
+    if (movingTowardMe) {
+        const dx = amLeft ? ballX - (mpx + PADDLE_W/2 + BALL_R)
+                          : ballX - (mpx - PADDLE_W/2 - BALL_R);
+        const nearMyPaddle = amLeft ? ballX - BALL_R <= mpx + PADDLE_W/2
+                                    : ballX + BALL_R >= mpx - PADDLE_W/2;
+        if (nearMyPaddle && Math.abs(ballY - myPaddleY) < PADDLE_H/2 + BALL_R) {
+            // reflect
+            const rel = (ballY - myPaddleY) / (PADDLE_H/2); // -1 to 1
+            const speed = Math.hypot(ballVX, ballVY);
+            const angle = rel * 60 * Math.PI / 180;
+            ballVX = amLeft ?  Math.cos(angle) * speed : -Math.cos(angle) * speed;
+            ballVY =           Math.sin(angle) * speed;
+            // nudge ball out of paddle
+            ballX = amLeft ? mpx + PADDLE_W/2 + BALL_R + 1
+                           : mpx - PADDLE_W/2 - BALL_R - 1;
+            myMoveNum++;
+            send_pong_move(myMoveNum, ballX, ballY, ballVX, ballVY);
+            log('reflected move', myMoveNum);
+        }
+    }
+
+    // ball past my goal → opponent scores
+    const pastMe = amLeft ? ballX - BALL_R < 0 : ballX + BALL_R > W;
+    if (pastMe) {
+        theirScore++;
+        update_scoreboard();
+        gameActive = false;
+        ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
+        status_msg.textContent = 'You lost the point. Opponent to serve.';
+        log('lost point. scores my:', myScore, 'theirs:', theirScore);
+    }
+
+    // ball past their goal → I score (they will handle it on their side too)
+    const pastThem = amLeft ? ballX + BALL_R > W : ballX - BALL_R < 0;
+    if (pastThem) {
+        myScore++;
+        update_scoreboard();
+        gameActive = false;
+        ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
+        status_msg.textContent = 'You scored! Click Serve to continue.';
+        log('scored. scores my:', myScore, 'theirs:', theirScore);
+    }
+}
+
+// ── render ────────────────────────────────────────────────────────────────────
+function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    // net
+    ctx.setLineDash([10, 10]);
+    ctx.strokeStyle = '#444';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // my paddle
+    ctx.fillStyle = '#0af';
+    ctx.fillRect(myPaddleX() - PADDLE_W/2, myPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
+
+    // their paddle
+    ctx.fillStyle = '#f80';
+    ctx.fillRect(theirPaddleX() - PADDLE_W/2, theirPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
+
+    // ball
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(ballX, ballY, BALL_R, 0, Math.PI*2);
+    ctx.fill();
+}
+
+function update_scoreboard() {
+    scoreboard.textContent = `You ${myScore}  :  ${theirScore} Them`;
+}
+
+function loop() {
+    tick();
+    draw();
+    requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+update_scoreboard();
+
+// ── connectivity ──────────────────────────────────────────────────────────────
+function check_ready() {
+    if (my_ed25519 && their_ed25519.value) {
+        amLeft = my_ed25519 < their_ed25519.value;
+        status_msg.textContent = `Connected. You are the ${amLeft ? 'LEFT':'RIGHT'} paddle (${amLeft?'blue':'orange'}). ${amLeft ? 'Click Serve to start.' : 'Wait for opponent to serve.'}`;
+        serve_btn.disabled = false;
+    }
+}
+
+function connect() {
+    socket = new WebSocket('ws://localhost:24255/wt');
+    socket.onclose = () => { log('ws closed, reconnecting'); setTimeout(connect, 200); };
+    socket.onopen = () => {
+        log('ws open');
+        let work = Promise.resolve();
+        socket.onmessage = async (event) => {
+            work = work.then(async () => {
+                let messages_;
+                try { messages_ = JSON.parse(event.data); } catch(e) { log('parse err', e); return; }
+                let messages, forwarded = false;
+                if ('Forwarded' in messages_[0]) {
+                    forwarded = true;
+                    try { messages = JSON.parse(messages_[0].Forwarded.messages); }
+                    catch(e) { log('inner parse err', e); return; }
+                } else {
+                    messages = messages_;
+                }
+                for (const msg of messages) {
+                    if (!forwarded && 'YourEd25519' in msg) {
+                        my_ed25519 = msg.YourEd25519.ed25519;
+                        update_links();
+                        check_ready();
+                    }
+                    if (!forwarded && 'PleaseSignYourPub' in msg) {
+                        my_ed25519 = msg.PleaseSignYourPub.ed25519;
+                        update_links();
+                        check_ready();
+                    }
+                    if (forwarded && 'PongMove' in msg) {
+                        handle_pong_move(msg);
+                    }
+                }
+            });
+        };
+
+        // parse ?ed25519=... from URL
+        const params = new URLSearchParams(window.location.search);
+        params.forEach((v, k) => {
+            if (k === 'ed25519') set_their_ed25519(v);
+        });
+    };
+}
+connect();
+
+their_ed25519.addEventListener('input', () => {
+    update_links();
+    check_ready();
+});
+</script>
+</body>
+</html>
