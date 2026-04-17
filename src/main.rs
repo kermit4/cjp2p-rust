@@ -167,6 +167,9 @@ impl Keypair {
 struct PeerState {
     peer_map: HashMap<SocketAddr, PeerInfo>,
     peer_vec: Vec<SocketAddr>,
+    recent_peers: HashSet<SocketAddr>,
+    recent_peer_timer: Instant,
+    recent_peer_counter_max: usize,
     socket: UdpSocket,
     boot: Instant,
     keypair: Keypair,
@@ -227,6 +230,9 @@ impl PeerState {
         let mut ps = Self {
             peer_map: PeerState::load_peers(),
             peer_vec: vec![],
+            recent_peers: HashSet::new(),
+            recent_peer_timer: Instant::now(),
+            recent_peer_counter_max: 0,
             socket: UdpSocket::bind("0.0.0.0:24254").unwrap(),
             boot: Instant::now(),
             keypair: Keypair::load_key(),
@@ -1120,6 +1126,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
         let mut pi = PeerInfo::new();
         pi.delay = Duration::from_millis(120);
         ps.peer_map.insert(src, pi);
+        ps.recent_peers.insert(src);
         info!("new peer spotted {src}");
     }
     if ps.ws_vec.len() > 0 {
@@ -1868,6 +1875,16 @@ impl InboundState {
 fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
     if ps.next_maintenance.elapsed() <= Duration::ZERO {
         return;
+    }
+    if ps.recent_peer_timer.elapsed() > Duration::from_secs(5 * 60) {
+        if ps.recent_peers.len() < ps.recent_peer_counter_max * 4 / 5 {
+            error!("apocalypse? only {} peers in 5 minutes, vs max of {}",ps.recent_peers.len(),ps.recent_peer_counter_max);
+        }
+        if ps.recent_peers.len() > ps.recent_peer_counter_max * 4 / 5 {
+            ps.recent_peer_counter_max = ps.recent_peers.len()
+        }
+        ps.recent_peer_timer = Instant::now();
+        ps.recent_peers = HashSet::new();
     }
     if ps.next_upnp.elapsed() > Duration::ZERO {
         ps.upnp();

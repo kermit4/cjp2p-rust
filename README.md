@@ -70,19 +70,14 @@ or HTML pages with many page components, individually downloaded from the networ
 -  some equivalent of wikipedia
 ## unnsorted
 - make it do what i actually do each day, check for news basically, from friends or weigthed by importance/distance. like /trending but scoped/weighted.  user defined algorithm. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
-- alerts if a large set of IPs stop responding suddenly - this is basically why i check the news constantly
 - need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming)
 - reputation, ip-time? web of trust? what would i actually use this for
 - polls, approval voting style..which need some kind of scarcity
 - drop in socket() replacement that takes keys intead of ips(), in Rust?
 - group chat 
-- more mmaps, replace open file cache, and use for http content servce
-- public websocket support?
+- public websocket support? / gateway /  consider more the model where anyone can connect to any node but keep the identity and security browser side
 - put nostr or bitcoin addr in chat too ..however that is signed
-- peers save would be substantially more efficient if it only saved the LAST peer of an ed25519, if known, but not everyone has or announces that
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 - put this as a git bundle in cjp2p/public
-- why is Forward.messages JSON values and Forwarded.messages a single string of JSON? thats not consistent, but idk which one to pick. im leaning toward string but CPU is really not an isssue here regardless, it a question of transparency and ease of implemenatation.
 - putting git files in cjp2p/public is breaking a git pull if cjp2p/ is a symlink
 - i guess i decided on Forward format, add ForwardS and change HTMLs
-- consider more the model where anyone can connect to any node but keep the identity and security browser side
