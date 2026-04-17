@@ -33,6 +33,8 @@ debuging :
 <button id="stop" disabled>Stop</button>
 <script>
 let audioCtx;
+let offset_sent=0;
+let offset_received=0;
 let recordProcessor, playProcessor, micStream;
 let playBuffer = [];
 let lastSample = 0; // for underrun fade
@@ -145,22 +147,24 @@ function base64ToArrayBuffer(b64) {
 					for (i in messages) {
 						let msg = messages[i]
 						log("\n" + JSON.stringify(msg));
-						if ("AudioFrame" in msg)  { 
+						if (("AudioFrame" in msg) && startBtn.disabled) { 
                             af=msg.AudioFrame;
                             if (audioCtx != null && af.sampleRate== 48000 && af.channels== 1 && af.format=='f32' ) {
+                                if (af.offset>offset_received) {
+                                    offset_received = af.offset;
 								const u8 = b64ToU8(af.data);
 								const f32 = new Float32Array(u8.buffer, u8.byteOffset, u8.byteLength / 4);
                                 led.classList.toggle('on', true);
                                 for (let i = 0; i < f32.length; i++) {
 									  ring[writeIdx] = f32[i];
 									  writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
-									  if (writeIdx === readIdx) {
-                                          if(startBtn.disabled) 
+                                    if (writeIdx === readIdx) { {
                                               log_always("playback slower than source skipping ahead 20ms");
-										  readIdx = (readIdx + 48*20 ) & (RING_SIZE - 1); 
+                                              readIdx = (readIdx + 48*20 ) & (RING_SIZE - 1); 
+                                          }
 								  }
 								}
-							}
+                                }}
 						}
 						if (!forwarded && "YourEd25519" in msg) {
 							my_ed25519 = msg.YourEd25519.ed25519
@@ -269,11 +273,13 @@ recordProcessor.onaudioprocess = e => {
 
     const u8 = new Uint8Array(out.buffer);
     const b64 = u8toB64(u8);
+    offset_sent+=FRAME;
 	socket.send(JSON.stringify([{Forward:{to_ed25519:their_ed25519.value,messages:[{AudioFrame:{
 			sampleRate: 48000,
 			channels: 1,
 			format: 'f32',
 			data: b64,
+            offset: offset_sent,
 		}}]}}])); 
 	}
 };
