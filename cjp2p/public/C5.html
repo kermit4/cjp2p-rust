@@ -32,7 +32,6 @@ debuging :
 <script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
 <script>
     const logBox = document.createElement('div');
-    const cbtn = document.createElement('connect-btn');
     logBox.id = 'log';
     logBox.style.cssText = 'font-family:monospace; font-size:12px; padding:8px; white-space:pre-wrap; word-break:break-all;';
     document.body.appendChild(logBox); // safe, no reset
@@ -214,7 +213,7 @@ debuging :
                 method: 'personal_sign',
                 params: ["my ed25519 public key is " + my_ed25519_to_sign,my_eth_address],
             });
-            socket.send(JSON.stringify([{SignedPub:{ed25519:my_ed25519_to_sign,signature:sig}}]  )); 
+            socket.send(JSON.stringify([{MyPublicKey:{ed25519h:my_ed25519,ed25519_eth_signed:sig}}]  ));
         }
         await getSigners();
         document.getElementById('connect-btn').disabled = true;
@@ -347,10 +346,12 @@ debuging :
 				switch (k) {
 					case "safe":
 						safe_address.value=v;
+                        document.getElementById('ethstuff').hidden=false;
 						break;
 					case "eth":
 						their_eth_addr.value = v;
 						request_ed25519_from_eth_addr();
+                        document.getElementById('ethstuff').hidden=false;
 						break;
 					case "ed25519":
 						set_their_ed25519(v);
@@ -366,7 +367,7 @@ debuging :
 					}
 				}
 			}
-
+            update_links();
 		}
 	}
 	connect();

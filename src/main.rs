@@ -494,7 +494,7 @@ impl PeerState {
                     let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
                         Ok(r) => r,
                         Err(e) => {
-                            info!( "could not deserialize incoming messages from websocket {e}  :  {}",
+                            debug!( "could not deserialize incoming messages from websocket {e}  :  {}",
                     String::from_utf8_lossy(&message_in_bytes));
                             return;
                         }
@@ -740,6 +740,13 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             inbound_states.insert(arg.clone(), InboundState::new(&arg));
         } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
             chat_to_pub(ps, &arg, &arg2);
+        } else if line == "/quit\n" {
+            ps.save_peers();
+            ps.p.save();
+            std::process::exit(0);
+        } else if line == "/save\n" {
+            ps.save_peers();
+            ps.p.save();
         } else if sscanf!(line.as_str(), "/addpeer {}",arg).is_ok() {
             ps.peer_map.insert(arg.parse().unwrap(), PeerInfo::new());
         } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
@@ -842,6 +849,8 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                         - /ping
                         - /get hash
                         - /addpeer 1.2.3.4:5678
+                        - /save  (because an on-exit handler looks hard)
+                        - /quit
                         - /list
                         - /recommend hash
                         - /recommended
@@ -1134,7 +1143,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let messages: Messages = match serde_json::from_slice(message_in_bytes) {
         Ok(r) => r,
         Err(e) => {
-            info!( "could not deserialize incoming messages from {} {e}  :  {}",src,
+            debug!( "could not deserialize incoming messages from {} {e}  :  {}",src,
                     String::from_utf8_lossy(message_in_bytes));
             return;
         }
@@ -2056,7 +2065,7 @@ impl Receive for SignedPub {
         if let Source::S(_) = src {
             return vec![];
         }
-        info!("websocket sent signed {:?} to ",
+        info!("websocket used old SignedPub (just use MyPublicKey now) sent signed {:?} to ",
             &self.signature);
         ps.p.my_ed25519_signed_by_web_wallet = Some(self.signature);
         return vec![];
@@ -2136,29 +2145,47 @@ impl Receive for MyPublicKey {
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
+        use alloy::signers::Signature;
+        use std::str::FromStr;
+        let mut recovered_address: Option<String> = None;
+        let ed25519h_hex = hex::encode(&self.ed25519h);
+        if let Some(sig) = &self.ed25519_eth_signed {
+            if let Ok(sig) = Signature::from_str(sig.as_str()) {
+                // takes 0.0003s so do this in advance
+                if let Ok(address) = sig
+                    .recover_address_from_msg(format!("my ed25519 public key is {}",ed25519h_hex))
+                {
+                    debug!("Recovered address: {}", address);
+                    // comes out like 0x9aE035dEE8318A9b9fD080Dda31D7524098f65EF
+                    // address
+                    recovered_address = Some(address.to_string());
+                } else {
+                    warn!("eth signature failed recover from {:?}",src);
+                    return vec![];
+                }
+            } else {
+                warn!("eth signature failed from {:?}",src);
+                return vec![];
+            }
+        }
         if let Source::S(src) = *src {
             let pi = ps.peer_map.get_mut(&src).unwrap();
-
-            use alloy::signers::Signature;
-            use std::str::FromStr;
-            if let Some(sig) = &self.ed25519_eth_signed {
-                if let Some(ed25519) = &pi.ed25519 {
-                    let ed25519h = hex::encode(ed25519);
-                    if let Ok(sig) = Signature::from_str(sig.as_str()) {
-                        // takes 0.0003s so do this in advance
-                        if let Ok(address) = sig.recover_address_from_msg(
-                            format!("my ed25519 public key is {}",ed25519h),
-                        ) {
-                            debug!("Recovered address: {}", address);
-                            // comes out like 0x9aE035dEE8318A9b9fD080Dda31D7524098f65EF
-                            pi.ed25519_eth_signer = Some(address.to_string());
-                        }
-                    }
-                }
+            if let Some(a) = recovered_address {
+                pi.ed25519_eth_signer = Some(a);
+                pi.ed25519_eth_signed = self.ed25519_eth_signed;
             }
-
-            pi.ed25519 = Some(self.ed25519h.clone());
-            pi.ed25519_eth_signed = self.ed25519_eth_signed;
+            pi.ed25519 = Some(self.ed25519h);
+        } else {
+            info!("websocket sent signed {} to ", ed25519h_hex);
+            if ed25519h_hex == ps.keypair.public_hex.clone().unwrap() {
+                if let Some(ed25519_eth_signed) = self.ed25519_eth_signed {
+                    info!("websocket signature saved");
+                    ps.p.my_ed25519_signed_by_web_wallet = Some(ed25519_eth_signed);
+                    ps.p.save();
+                }
+            } else {
+                warn!("why is websocket eth signing someone else's ed25519 pub");
+            }
         }
         return vec![];
     }
@@ -2358,7 +2385,7 @@ impl Receive for EncryptedMessages {
                 let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
                     Ok(r) => r,
                     Err(e) => {
-                        info!( "could not deserialize incoming messages from {} {e}  :  {}",src,
+                        debug!( "could not deserialize incoming messages from {} {e}  :  {}",src,
                     String::from_utf8_lossy(&message_in_bytes));
                         return vec![];
                     }
@@ -2432,7 +2459,7 @@ struct ErrorInspector;
 
 impl InspectError for ErrorInspector {
     fn inspect_error(error: impl serde::de::Error) {
-        info!( "could not deserialize an incoming message {error}");
+        debug!( "could not deserialize an incoming message {error}");
     }
 }
 
