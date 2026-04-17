@@ -103,9 +103,19 @@ function canvasToGame(clientX, clientY) {
 }
 
 // -- paddle controls -----------------------------------------------------------
+let lastPaddleSend = 0;
+function movePaddle(y) {
+    myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, y));
+    const now = Date.now();
+    if (now - lastPaddleSend > 33) { // ~30fps
+        lastPaddleSend = now;
+        send_pong_paddle(myPaddleY);
+    }
+}
+
 canvas.addEventListener('mousemove', e => {
     const pos = canvasToGame(e.clientX, e.clientY);
-    myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, pos.y));
+    movePaddle(pos.y);
 });
 
 let touchStartPos = null;
@@ -117,7 +127,7 @@ canvas.addEventListener('touchstart', e => {
 canvas.addEventListener('touchmove', e => {
     e.preventDefault();
     const pos = canvasToGame(e.touches[0].clientX, e.touches[0].clientY);
-    myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, pos.y));
+    movePaddle(pos.y);
 }, {passive:false});
 canvas.addEventListener('touchend', e => {
     e.preventDefault();
@@ -166,6 +176,14 @@ function send_pong_move(move_number, bx, by, vx, vy) {
     socket.send(JSON.stringify([{Forward:{
         to_ed25519: their_ed25519.value,
         messages: [{PongMove:{move_number, ball_x:bx, ball_y:by, vx, vy}}]
+    }}]));
+}
+
+function send_pong_paddle(y) {
+    if (!their_ed25519.value || !socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify([{Forward:{
+        to_ed25519: their_ed25519.value,
+        messages: [{PongPaddle:{paddle_y: y}}]
     }}]));
 }
 
@@ -350,6 +368,9 @@ function connect() {
                     }
                     if (forwarded && 'PongMove' in msg) {
                         handle_pong_move(msg);
+                    }
+                    if (forwarded && 'PongPaddle' in msg) {
+                        theirPaddleY = msg.PongPaddle.paddle_y;
                     }
                 }
             });
