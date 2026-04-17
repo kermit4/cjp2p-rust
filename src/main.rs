@@ -885,9 +885,13 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
     let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>cjp2p status {}</title></head><body>\n\
         {}\n\n\
+        <p>
+        <p> your public key {}
+        <p>
         <div style='height: 200px; overflow: auto; border: 1px solid #ccc;'>",
         env!("BUILD_VERSION"),
-        env!("BUILD_VERSION"));
+        env!("BUILD_VERSION"),
+        hex::encode(ps.keypair.public.clone()));
 
     for (their_pub_hex, msg) in (&ps.all_chats).into_iter().rev() {
         page += &format!("<p><a href=/C5.html?{} target=_blank>0x{}</a> {}</p>\n",
