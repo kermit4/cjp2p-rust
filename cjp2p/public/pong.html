@@ -78,6 +78,43 @@ function set_their_ed25519(v) {
     check_ready();
 }
 
+// -- audio ---------------------------------------------------------------------
+let audioCtx = null;
+
+function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+}
+
+function beep(freq, duration, type = 'square', gain = 0.3) {
+    try {
+        const ac = getAudioCtx();
+        const osc = ac.createOscillator();
+        const vol = ac.createGain();
+        osc.connect(vol);
+        vol.connect(ac.destination);
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, ac.currentTime);
+        vol.gain.setValueAtTime(gain, ac.currentTime);
+        vol.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + duration);
+        osc.start(ac.currentTime);
+        osc.stop(ac.currentTime + duration);
+    } catch(e) { /* audio not available */ }
+}
+
+function snd_paddle() { beep(480, 0.04, 'square', 0.25); }
+function snd_wall()   { beep(300, 0.04, 'square', 0.18); }
+function snd_score()  {
+    // rising two-tone fanfare
+    beep(523, 0.12, 'sine', 0.35);
+    setTimeout(() => beep(784, 0.18, 'sine', 0.35), 120);
+}
+function snd_lose()   {
+    // falling two-tone
+    beep(330, 0.12, 'sine', 0.3);
+    setTimeout(() => beep(220, 0.2, 'sine', 0.3), 120);
+}
+
 // -- game state ----------------------------------------------------------------
 let ballX = W/2, ballY = H/2, ballVX = 0, ballVY = 0;
 let myPaddleY = H/2;
@@ -131,12 +168,12 @@ canvas.addEventListener('touchmove', e => {
 }, {passive:false});
 canvas.addEventListener('touchend', e => {
     e.preventDefault();
-    if (canServe && !gameActive) doServe();
+    if (!gameActive) doServe();
     touchStartPos = null;
 }, {passive:false});
 
 canvas.addEventListener('click', e => {
-    if (!canServe || gameActive) return;
+    if (gameActive) return;
     doServe();
 });
 
@@ -186,6 +223,12 @@ function handle_pong_move(msg) {
         log('discarding stale move', m.move_number, '(last:', lastTheirMove+')');
         return;
     }
+    // If we just scored (canServe=true) and the game is inactive, this move is
+    // from the rally that just ended -- ignore it so it can't claw back our point.
+    if (!gameActive && canServe) {
+        log('ignoring post-score stale move', m.move_number);
+        return;
+    }
     lastTheirMove = m.move_number;
     ballX = m.ball_x; ballY = m.ball_y;
     ballVX = m.vx;    ballVY = m.vy;
@@ -195,13 +238,16 @@ function handle_pong_move(msg) {
 }
 
 // -- physics -------------------------------------------------------------------
+let prevBallY = H/2;
+
 function tick() {
     if (!gameActive) return;
+    prevBallY = ballY;
     ballX += ballVX;
     ballY += ballVY;
 
-    if (ballY - BALL_R < 0)  { ballY = BALL_R;      ballVY = Math.abs(ballVY); }
-    if (ballY + BALL_R > H)  { ballY = H - BALL_R;  ballVY = -Math.abs(ballVY); }
+    if (ballY - BALL_R < 0)  { ballY = BALL_R;      ballVY = Math.abs(ballVY);  snd_wall(); }
+    if (ballY + BALL_R > H)  { ballY = H - BALL_R;  ballVY = -Math.abs(ballVY); snd_wall(); }
 
     const mpx = myPaddleX();
     const movingTowardMe = amLeft ? ballVX < 0 : ballVX > 0;
@@ -218,10 +264,10 @@ function tick() {
                            : mpx - PADDLE_W/2 - BALL_R - 1;
             myMoveNum++;
             send_pong_move(myMoveNum, ballX, ballY, ballVX, ballVY);
+            snd_paddle();
             log('reflected move', myMoveNum);
         }
     }
-
 
     const pastMe = amLeft ? ballX - BALL_R < 0 : ballX + BALL_R > W;
     if (pastMe) {
@@ -230,6 +276,7 @@ function tick() {
         gameActive = false;
         ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
         set_can_serve(false);
+        snd_lose();
         status_msg.textContent = 'You lost the point. Opponent to serve.';
         log('lost point. scores my:', myScore, 'theirs:', theirScore);
     }
@@ -241,6 +288,7 @@ function tick() {
         gameActive = false;
         ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
         set_can_serve(true);
+        snd_score();
         status_msg.textContent = 'You scored!';
         log('scored. scores my:', myScore, 'theirs:', theirScore);
     }
