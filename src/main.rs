@@ -1047,6 +1047,8 @@ fn handle_web_request(
                     ,hex::encode(&ps.keypair.public)
                     ,their_pub
                     ,their_pub
+                    ,their_pub
+                    ,their_pub
                     );
                 if !ps.recorded_chats.get_mut(their_pub).is_some() {
                     let mut past_chats = vec![];
