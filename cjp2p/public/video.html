@@ -1,0 +1,263 @@
+<html><head><title>video chat over CJP2P</title></head>
+<body>
+their ed25519 addr<input id=their_ed25519 size=80>
+<p>Give this URL to the other person:
+<p><a id=link href=""></a>
+<br>
+<p><a href=/>return to network status page</a>
+<div id="led" class="led off"></div>
+<style>
+.led { width:16px; height:16px; border-radius:50%; border:1px solid #222; background:#040; box-shadow:inset 0 0 4px #000; transition:background 0.1s,box-shadow 0.1s; display:inline-block; }
+.led.on { background:#0f0; box-shadow:0 0 8px #0f0,inset 0 0 4px #fff8; }
+</style>
+<br>
+<div style="display:flex;gap:16px;margin:8px 0;">
+  <div><div>Local</div><video id=localVideo autoplay muted playsinline style="width:320px;height:240px;background:#111;display:block;"></video></div>
+  <div><div>Remote</div><canvas id=remoteCanvas width=320 height=240 style="background:#111;display:block;"></canvas></div>
+</div>
+<br>
+<button id="start">Start</button>
+<button id="stop" disabled>Stop</button>
+<br>debugging:
+<button onclick="logging=true">enable</button>
+<button onclick="logging=false">disable</button>
+
+<script>
+const startBtn = document.getElementById('start');
+const stopBtn  = document.getElementById('stop');
+const led      = document.getElementById('led');
+const localVideo   = document.getElementById('localVideo');
+const remoteCanvas = document.getElementById('remoteCanvas');
+
+// -- logging ------------------------------------------------------------------
+const logBox = document.createElement('div');
+logBox.style.cssText = 'font-family:monospace;font-size:12px;padding:8px;white-space:pre-wrap;word-break:break-all;';
+document.body.appendChild(logBox);
+const logDiv = document.createElement('div');
+logDiv.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:30vh;overflow:auto;background:#111;color:#0f0;font-family:monospace;font-size:12px;padding:4px;z-index:9999;';
+document.body.appendChild(logDiv);
+
+let logging = false;
+let logQueue = Promise.resolve();
+function log_always(...args) {
+    const line = document.createElement('div');
+    logQueue = logQueue.then(() => {
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
+        logBox.appendChild(line);
+        while (logBox.children.length > 2000) logBox.removeChild(logBox.firstChild);
+    });
+}
+function log(...args) { if (logging) log_always(...args); }
+
+['log','warn','error','info'].forEach(k => {
+    const orig = console[k].bind(console);
+    console[k] = (...args) => { orig(...args); log_always(k.toUpperCase()+':',...args); };
+});
+window.onerror = (msg, url, line, col, err) => {
+    log_always('ERROR:', msg, 'at', url+':'+line+':'+col);
+    if (err?.stack) log_always(err.stack);
+    return false;
+};
+window.onunhandledrejection = e => log_always('UNHANDLED PROMISE:', e.reason?.stack || e.reason || e);
+
+// -- base64 helpers ------------------------------------------------------------
+function u8toB64(u8) {
+    let bin = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < u8.length; i += chunk)
+        bin += String.fromCharCode.apply(null, u8.subarray(i, i + chunk));
+    return btoa(bin);
+}
+function b64ToU8(b64) {
+    const bin = atob(b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+}
+
+// -- identity / links ----------------------------------------------------------
+let my_ed25519 = null;
+const their_ed25519 = document.getElementById('their_ed25519');
+const link = document.getElementById('link');
+
+function update_links() {
+    const url = location.origin + location.pathname + '?ed25519=' + my_ed25519;
+    link.href = url;
+    link.textContent = url;
+}
+function set_their_ed25519(v) { their_ed25519.value = v; update_links(); }
+their_ed25519.addEventListener('input', update_links);
+
+// -- session state -------------------------------------------------------------
+let camStream = null;
+let encoder   = null;
+let decoder   = null;
+let frameReader = null;
+let needKeyframe = true;
+let frameCount = 0;
+
+// -- VP8 decoder ---------------------------------------------------------------
+function makeDecoder() {
+    const d = new VideoDecoder({
+        output: frame => {
+            const ctx = remoteCanvas.getContext('2d');
+            ctx.drawImage(frame, 0, 0, remoteCanvas.width, remoteCanvas.height);
+            frame.close();
+            led.classList.add('on');
+            needKeyframe = false;
+        },
+        error: e => {
+            log_always('decoder error:', e.message || e);
+            needKeyframe = true;
+        }
+    });
+    d.configure({ codec: 'vp8' });
+    return d;
+}
+
+// -- WebSocket -----------------------------------------------------------------
+let socket;
+function connect() {
+    log_always('websocket connecting');
+    socket = new WebSocket('ws://localhost:24255/wt');
+    socket.onclose = () => { log_always('socket closed, reconnecting...'); setTimeout(connect, 200); };
+    socket.onopen = () => {
+        let work = Promise.resolve();
+        socket.onmessage = event => {
+            work = work.then(() => {
+                let messages_, messages, src, forwarded = false;
+                try { messages_ = JSON.parse(event.data); } catch(e) { log_always('parse error', e); return; }
+                if ('Forwarded' in messages_[0]) {
+                    src = messages_[0].Forwarded.from_ed25519;
+                    forwarded = true;
+                    try { messages = JSON.parse(messages_[0].Forwarded.messages); }
+                    catch(e) { log_always('inner parse error', e); return; }
+                } else {
+                    messages = messages_;
+                }
+                for (const msg of messages) {
+                    log(JSON.stringify(msg));
+                    if (!forwarded && 'YourEd25519' in msg) {
+                        my_ed25519 = msg.YourEd25519.ed25519;
+                        update_links();
+                    }
+                    if (!forwarded && 'PleaseSignYourPub' in msg) {
+                        my_ed25519 = msg.PleaseSignYourPub.ed25519;
+                        update_links();
+                    }
+                    if (forwarded && 'VideoFrame' in msg && startBtn.disabled) {
+                        const vf = msg.VideoFrame;
+                        if (vf.codec !== 'vp8') continue;
+                        if (needKeyframe && !vf.keyframe) continue; // wait for keyframe
+                        const data = b64ToU8(vf.data);
+                        const chunk = new EncodedVideoChunk({
+                            type: vf.keyframe ? 'key' : 'delta',
+                            timestamp: vf.timestamp,
+                            data: data
+                        });
+                        if (decoder == null || decoder.state === 'closed') decoder = makeDecoder();
+                        try { decoder.decode(chunk); }
+                        catch(e) { log_always('decode err:', e.message || e); }
+                    }
+                }
+            });
+        };
+        // parse URL params
+        new URLSearchParams(window.location.search).forEach((v, k) => {
+            log_always('url param:', k, '=', v);
+            if (k === 'ed25519') set_their_ed25519(v);
+        });
+    };
+}
+connect();
+
+// -- start / stop --------------------------------------------------------------
+startBtn.onclick = async () => {
+    if (!('VideoEncoder' in window)) {
+        log_always('WebCodecs not supported in this browser');
+        return;
+    }
+    try {
+        camStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 320, height: 240, frameRate: 15 },
+            audio: false
+        });
+        localVideo.srcObject = camStream;
+
+        const track = camStream.getVideoTracks()[0];
+        const settings = track.getSettings();
+        const W = settings.width  || 320;
+        const H = settings.height || 240;
+        log_always('camera:', W, 'x', H, '@', settings.frameRate, 'fps');
+
+        // encoder -- one keyframe every 30 encoded frames (~2 s at 15 fps)
+        encoder = new VideoEncoder({
+            output: (chunk) => {
+                if (socket.readyState !== WebSocket.OPEN) return;
+                if (!their_ed25519.value) return;
+                const data = new Uint8Array(chunk.byteLength);
+                chunk.copyTo(data);
+                const msg = JSON.stringify([{Forward:{
+                    to_ed25519: their_ed25519.value,
+                    messages: [{VideoFrame:{
+                        codec: 'vp8',
+                        keyframe: chunk.type === 'key',
+                        timestamp: chunk.timestamp,
+                        data: u8toB64(data)
+                    }}]
+                }}]);
+                socket.send(msg);
+            },
+            error: e => log_always('encoder error:', e.message || e)
+        });
+        encoder.configure({
+            codec: 'vp8',
+            width: W,
+            height: H,
+            bitrate: 200_000,   // 200 kbps -- keeps frames well under 8 KB at 15 fps
+            framerate: 15,
+        });
+
+        // pull frames from the camera track
+        const processor = new MediaStreamTrackProcessor({ track });
+        frameReader = processor.readable.getReader();
+        frameCount = 0;
+        (async () => {
+            while (true) {
+                let result;
+                try { result = await frameReader.read(); } catch { break; }
+                if (result.done) break;
+                const frame = result.value;
+                // drop frames if encoder is falling behind -- avoids UDP pile-up
+                if (encoder.encodeQueueSize > 2) { frame.close(); continue; }
+                const keyFrame = (frameCount % 30 === 0);
+                try { encoder.encode(frame, { keyFrame }); } catch(e) { log_always('encode err:', e); }
+                frame.close();
+                frameCount++;
+            }
+        })();
+
+        decoder = makeDecoder();
+        needKeyframe = true;
+
+        startBtn.disabled = true;
+        stopBtn.disabled  = false;
+    } catch(e) {
+        log_always('start error:', e.message || e);
+    }
+};
+
+stopBtn.onclick = async () => {
+    if (frameReader) { try { frameReader.cancel(); } catch {} frameReader = null; }
+    if (encoder && encoder.state !== 'closed') { try { await encoder.flush(); encoder.close(); } catch {} encoder = null; }
+    if (decoder && decoder.state !== 'closed') { try { decoder.close(); } catch {} decoder = null; }
+    if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+    localVideo.srcObject = null;
+    led.classList.remove('on');
+    startBtn.disabled = false;
+    stopBtn.disabled  = true;
+    needKeyframe = true;
+};
+</script>
+</body>
+</html>
