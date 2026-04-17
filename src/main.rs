@@ -354,8 +354,13 @@ impl PeerState {
             match self.socket.send_to(&message_out_bytes, sa) {
                 Ok(s) => trace!("sent {s}"),
                 Err(e) => {
-                    self.next_upnp = Instant::now();
-                    warn!("failed to send {0} {e}", message_out_bytes.len());
+                    if e.raw_os_error() != Some(11) {
+                        // EWOULDBLOCK
+                        self.next_upnp = Instant::now();
+                        warn!("failed to send {0} {e}", message_out_bytes.len());
+                    } else {
+                        warn!("EWOULDBLOCK failed to send {0} {e}", message_out_bytes.len());
+                    }
                 }
             }
         }
