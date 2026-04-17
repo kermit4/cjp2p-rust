@@ -4,7 +4,7 @@
 <p>Share this link with your opponent: <a id=link href=""></a>
 <p><a href=/>return to network status page</a>
 <p>
-<span id=serve_hint style="display:none;color:#0f0;font-family:monospace;font-size:14px;">&#x25ba; Tap the ball to serve</span>
+<span id=serve_hint style="display:none;color:#fff;font-family:monospace;font-size:14px;">&#x25ba; Tap the ball to serve</span>
 <span id=status_msg>Waiting for connection...</span>
 &nbsp;<button id=fs_btn>&#x26F6; Fullscreen</button>
 <p>
@@ -78,7 +78,7 @@ function set_their_ed25519(v) {
     check_ready();
 }
 
-// ── game state ────────────────────────────────────────────────────────────────
+// -- game state ----------------------------------------------------------------
 let ballX = W/2, ballY = H/2, ballVX = 0, ballVY = 0;
 let myPaddleY = H/2;
 let theirPaddleY = H/2;
@@ -89,7 +89,11 @@ let gameActive = false;
 let canServe = false;
 let amLeft = false;
 
-// ── coordinate helpers ────────────────────────────────────────────────────────
+// -- coordinate helpers --------------------------------------------------------
+// Each player always sees themselves on the left. For the "right" player
+// in game coordinates, we mirror X for display and for input hit-testing.
+function displayX(gameX) { return amLeft ? gameX : W - gameX; }
+
 function canvasToGame(clientX, clientY) {
     const r = canvas.getBoundingClientRect();
     return {
@@ -98,31 +102,30 @@ function canvasToGame(clientX, clientY) {
     };
 }
 
-// ── paddle controls ───────────────────────────────────────────────────────────
+// -- paddle controls -----------------------------------------------------------
 canvas.addEventListener('mousemove', e => {
     const pos = canvasToGame(e.clientX, e.clientY);
     myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, pos.y));
 });
 
 let touchStartPos = null;
-let touchMoved = false;
 canvas.addEventListener('touchstart', e => {
     e.preventDefault();
-    touchMoved = false;
     const t = e.touches[0];
     touchStartPos = canvasToGame(t.clientX, t.clientY);
 }, {passive:false});
 canvas.addEventListener('touchmove', e => {
     e.preventDefault();
-    touchMoved = true;
     const pos = canvasToGame(e.touches[0].clientX, e.touches[0].clientY);
     myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, pos.y));
 }, {passive:false});
 canvas.addEventListener('touchend', e => {
     e.preventDefault();
-    if (!touchMoved && touchStartPos && canServe && !gameActive) {
-        const dist = Math.hypot(touchStartPos.x - ballX, touchStartPos.y - ballY);
-        if (dist < BALL_R * 5) doServe();
+    // Serve on tap near ball -- don't require touchMoved==false since any finger
+    // placement can trigger a tiny move event even for intentional taps.
+    if (canServe && !gameActive && touchStartPos) {
+        const dist = Math.hypot(touchStartPos.x - displayX(ballX), touchStartPos.y - ballY);
+        if (dist < BALL_R * 8) doServe();
     }
     touchStartPos = null;
 }, {passive:false});
@@ -131,14 +134,14 @@ canvas.addEventListener('touchend', e => {
 canvas.addEventListener('click', e => {
     if (!canServe || gameActive) return;
     const pos = canvasToGame(e.clientX, e.clientY);
-    const dist = Math.hypot(pos.x - ballX, pos.y - ballY);
-    if (dist < BALL_R * 4) doServe();
+    const dist = Math.hypot(pos.x - displayX(ballX), pos.y - ballY);
+    if (dist < BALL_R * 5) doServe();
 });
 
-function myPaddleX()    { return amLeft ? PADDLE_W              : W - PADDLE_W; }
-function theirPaddleX() { return amLeft ? W - PADDLE_W          : PADDLE_W; }
+function myPaddleX()    { return amLeft ? PADDLE_W     : W - PADDLE_W; }
+function theirPaddleX() { return amLeft ? W - PADDLE_W : PADDLE_W; }
 
-// ── serve ─────────────────────────────────────────────────────────────────────
+// -- serve ---------------------------------------------------------------------
 function set_can_serve(v) {
     canServe = v;
     serve_hint.style.display = v ? 'inline' : 'none';
@@ -147,7 +150,7 @@ function set_can_serve(v) {
 function doServe() {
     if (!their_ed25519.value || !my_ed25519) return;
     const angle = (Math.random() * 60 - 30) * Math.PI / 180;
-    const vx = amLeft ? Math.cos(angle) * BASE_SPEED : -Math.cos(angle) * BASE_SPEED;
+    const vx = amLeft ? -Math.cos(angle) * BASE_SPEED : Math.cos(angle) * BASE_SPEED;
     const vy = Math.sin(angle) * BASE_SPEED;
     ballX = W/2; ballY = H/2;
     ballVX = vx; ballVY = vy;
@@ -166,7 +169,7 @@ function send_pong_move(move_number, bx, by, vx, vy) {
     }}]));
 }
 
-// ── receive PongMove ──────────────────────────────────────────────────────────
+// -- receive PongMove ----------------------------------------------------------
 function handle_pong_move(msg) {
     const m = msg.PongMove;
     if (m.move_number <= lastTheirMove) {
@@ -181,7 +184,7 @@ function handle_pong_move(msg) {
     log('recv move', m.move_number, 'vx', m.vx.toFixed(2), 'vy', m.vy.toFixed(2));
 }
 
-// ── physics ───────────────────────────────────────────────────────────────────
+// -- physics -------------------------------------------------------------------
 function tick() {
     if (!gameActive) return;
     ballX += ballVX;
@@ -232,7 +235,7 @@ function tick() {
     }
 }
 
-// ── render ────────────────────────────────────────────────────────────────────
+// -- render --------------------------------------------------------------------
 let servePulse = 0;
 function draw() {
     ctx.clearRect(0, 0, W, H);
@@ -245,30 +248,32 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.fillStyle = '#0af';
-    ctx.fillRect(myPaddleX() - PADDLE_W/2, myPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
+    // My paddle always appears on the left; theirs on the right.
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(displayX(myPaddleX()) - PADDLE_W/2, myPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
 
-    ctx.fillStyle = '#f80';
-    ctx.fillRect(theirPaddleX() - PADDLE_W/2, theirPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
+    ctx.fillStyle = '#888';
+    ctx.fillRect(displayX(theirPaddleX()) - PADDLE_W/2, theirPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
 
-    // ball — pulse ring when waiting to serve
+    // ball -- pulse ring when waiting to serve
+    const dbx = displayX(ballX);
     if (canServe && !gameActive) {
         servePulse = (servePulse + 0.07) % (Math.PI * 2);
         const ring = BALL_R + 6 + Math.sin(servePulse) * 4;
-        ctx.strokeStyle = `rgba(0,255,0,${0.5 + 0.5 * Math.sin(servePulse)})`;
+        ctx.strokeStyle = `rgba(255,255,255,${0.5 + 0.5 * Math.sin(servePulse)})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(ballX, ballY, ring, 0, Math.PI * 2);
+        ctx.arc(dbx, ballY, ring, 0, Math.PI * 2);
         ctx.stroke();
     }
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(ballX, ballY, BALL_R, 0, Math.PI*2);
+    ctx.arc(dbx, ballY, BALL_R, 0, Math.PI*2);
     ctx.fill();
 }
 
 function update_scoreboard() {
-    scoreboard.textContent = `You ${myScore}  :  ${theirScore} Them`;
+    scoreboard.textContent = `You ${myScore}  :  ${theirScore} Opponent`;
 }
 
 function loop() {
@@ -279,7 +284,7 @@ function loop() {
 requestAnimationFrame(loop);
 update_scoreboard();
 
-// ── fullscreen ────────────────────────────────────────────────────────────────
+// -- fullscreen ----------------------------------------------------------------
 function resizeCanvas() {
     if (document.fullscreenElement === canvas_wrap ||
         document.webkitFullscreenElement === canvas_wrap) {
@@ -305,13 +310,12 @@ fs_btn.onclick = () => {
     }
 };
 
-// ── connectivity ──────────────────────────────────────────────────────────────
+// -- connectivity --------------------------------------------------------------
 function check_ready() {
     if (my_ed25519 && their_ed25519.value) {
         amLeft = my_ed25519 < their_ed25519.value;
-        const side = amLeft ? 'LEFT (blue)' : 'RIGHT (orange)';
-        status_msg.textContent = `Connected. You are the ${side} paddle.`;
-        if (amLeft) set_can_serve(true);
+        status_msg.textContent = 'Connected. Tap the ball to serve -- first tap goes first!';
+        set_can_serve(true);
     }
 }
 
