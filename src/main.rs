@@ -1005,6 +1005,14 @@ fn handle_web_request(
             info!("got http request for {}",req.path);
 
             if req.path.starts_with("/chat/") {
+                if stream.peer_addr().unwrap().ip()
+                    != "127.0.0.1:1".parse::<SocketAddr>().unwrap().ip()
+                {
+                    let page = format!("HTTP/1.0 403 OK\r\n\n");
+                    stream.write_all(page.as_bytes()).ok();
+                    return;
+                }
+
                 let v = &req.path[6..];
                 let their_pub = v.split('?').next().unwrap();
                 page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ><title>cjp2p chat {}</title></head><body><pre>\n\
@@ -1012,7 +1020,7 @@ fn handle_web_request(
                 If they can't find you through main page, the URL they need to get here (not the same as yours) is 
                 <a href=http://127.0.0.1:24255/chat/{}>http://127.0.0.1:24255/chat/{}</a>
                     <br><a href=/phone.html?ed25519={}>click here</a> for high quality audio all (no echo surpression, use a headset)</a>\n
-                    send a message (type fast before the next page refresh) : <form><input name=msg></form>\n\n\
+                    send a message (type fast before the next page refresh) : <form><input name=line_chat_msg></form>\n\n\
                     <a href=/C5.html?{}>click here</a> to switch to character-by-character mode\n\
                     "
                     ,their_pub
