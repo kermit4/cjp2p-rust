@@ -6,98 +6,119 @@
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
-  --bg: #0d1117; --surface: #161b22; --border: #30363d;
-  --text: #c9d1d9; --muted: #8b949e;
-  --green: #3fb950; --blue: #58a6ff; --yellow: #d29922;
-  --red: #f85149; --purple: #bc8cff; --orange: #e3b341;
-  --font: 'Courier New', Courier, monospace;
+  --bg: #f5f5f5; --surface: #fff; --border: #ccc;
+  --text: #111; --muted: #666;
+  --green: #1a7a2e; --blue: #0055cc; --yellow: #7a5200;
+  --red: #cc2200; --purple: #7722bb; --orange: #b06000;
+  --mono: 'Courier New', Courier, monospace;
 }
-body { background:var(--bg); color:var(--text); font-family:var(--font); font-size:13px;
-       height:100vh; display:flex; flex-direction:column; overflow:hidden; }
 
-header { background:var(--surface); border-bottom:1px solid var(--border);
-         padding:6px 14px; display:flex; align-items:center; gap:14px;
-         flex-shrink:0; flex-wrap:wrap; }
-header h1 { color:var(--blue); font-size:15px; letter-spacing:2px; white-space:nowrap; }
-#ws-badge { font-size:11px; padding:2px 8px; border-radius:3px; white-space:nowrap; }
-#ws-badge.connected    { background:#0d2a0d; color:var(--green);  border:1px solid var(--green); }
-#ws-badge.disconnected { background:#2a0d0d; color:var(--red);    border:1px solid var(--red);   }
-#ws-badge.reconnecting { background:#2a1f0d; color:var(--yellow); border:1px solid var(--yellow);}
-#pubkey-wrap { font-size:11px; overflow:hidden; }
-#pubkey-wrap .label { color:var(--muted); }
-#my-pubkey { color:var(--blue); cursor:pointer; word-break:break-all; }
-#copy-hint { font-size:9px; color:var(--muted); }
-#header-right { margin-left:auto; font-size:10px; color:var(--muted); text-align:right; white-space:nowrap; }
+/* Body scrolls normally -- no locked viewport */
+body { background: var(--bg); color: var(--text); font-size: 16px; line-height: 1.5; }
 
-nav { background:#0a0e14; border-bottom:1px solid var(--border);
-      padding:3px 14px; display:flex; gap:8px; flex-wrap:wrap; flex-shrink:0; }
-nav a { color:var(--blue); text-decoration:none; font-size:11px;
-        padding:2px 7px; border:1px solid var(--border); border-radius:3px; }
-nav a:hover { background:var(--surface); border-color:var(--blue); }
+header { background: var(--surface); border-bottom: 1px solid var(--border);
+         padding: 8px 16px; display: flex; align-items: center; gap: 14px;
+         position: sticky; top: 0; z-index: 10; flex-wrap: wrap; }
+header h1 { color: var(--blue); font-size: 20px; letter-spacing: 2px; }
+#ws-badge { font-size: 13px; padding: 3px 10px; border-radius: 3px; white-space: nowrap; }
+#ws-badge.connected    { background: #e8ffe8; color: var(--green); border: 1px solid var(--green); }
+#ws-badge.disconnected { background: #ffe8e8; color: var(--red);   border: 1px solid var(--red); }
+#ws-badge.reconnecting { background: #fff8e0; color: var(--yellow); border: 1px solid var(--yellow); }
+#pubkey-wrap { font-size: 13px; overflow: hidden; }
+#pubkey-wrap .label { color: var(--muted); }
+#my-pubkey { font-family: var(--mono); color: var(--blue); cursor: pointer; word-break: break-all; }
+#copy-hint { font-size: 11px; color: var(--muted); }
+#header-right { margin-left: auto; font-size: 13px; color: var(--muted); text-align: right; white-space: nowrap; }
 
-main { display:flex; flex:1; overflow:hidden; }
+nav { background: #ebebeb; border-bottom: 1px solid var(--border);
+      padding: 5px 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+nav a { color: var(--blue); text-decoration: none; font-size: 14px;
+        padding: 2px 10px; border: 1px solid var(--border); border-radius: 3px; }
+nav a:hover { background: var(--surface); border-color: var(--blue); }
 
-/* Left stats panel */
-#stats { width:300px; min-width:200px; background:var(--surface);
-         border-right:1px solid var(--border); overflow-y:auto;
-         flex-shrink:0; padding:8px; font-size:11px; }
-.sec { margin-bottom:12px; }
-.sec h2 { color:var(--yellow); font-size:10px; letter-spacing:1px; text-transform:uppercase;
-          border-bottom:1px solid var(--border); padding-bottom:3px; margin-bottom:5px; }
-.row { display:flex; justify-content:space-between; padding:1px 0; }
-.row .k { color:var(--muted); }
-.row .v { color:var(--text); }
+/* Main: side-by-side, items align to top, NO overflow:hidden so page can scroll */
+main { display: flex; align-items: flex-start; }
 
-.peer { padding:3px 0; border-bottom:1px solid #1c2333; }
-.peer .pk { color:var(--purple); }
-.peer .pk a { color:var(--purple); text-decoration:none; }
-.peer .pk a:hover { text-decoration:underline; }
-.peer .meta { color:var(--muted); font-size:9px; }
+/* Left stats -- naturally tall, scrolls if needed */
+#stats { width: 260px; flex-shrink: 0; background: var(--surface);
+         border-right: 1px solid var(--border);
+         padding: 10px; font-size: 13px; min-height: 100vh; }
+.sec { margin-bottom: 16px; }
+.sec h2 { color: var(--yellow); font-size: 11px; font-weight: bold; letter-spacing: 1px;
+          text-transform: uppercase; border-bottom: 1px solid var(--border);
+          padding-bottom: 3px; margin-bottom: 6px; }
+.row { display: flex; justify-content: space-between; padding: 2px 0; }
+.row .k { color: var(--muted); }
+.row .v { font-family: var(--mono); font-size: 12px; }
 
-.citem { padding:2px 0; border-bottom:1px solid #1c2333; }
-.citem a { color:var(--blue); text-decoration:none; font-size:10px; word-break:break-all; }
-.citem a:hover { text-decoration:underline; }
-.citem .meta { color:var(--muted); font-size:9px; }
+.peer { padding: 4px 0; border-bottom: 1px solid #e0e0e0; }
+.peer .pk a { font-family: var(--mono); font-size: 12px; color: var(--purple); text-decoration: none; }
+.peer .pk a:hover { text-decoration: underline; }
+.peer .meta { color: var(--muted); font-size: 11px; }
 
-.chat-msg { padding:3px 6px; margin:2px 0; background:#0a1a0a;
-            border-left:2px solid var(--green); border-radius:0 3px 3px 0; }
-.chat-msg .from { color:var(--purple); font-size:9px; }
-.chat-msg .txt  { color:var(--text); white-space:pre-wrap; word-break:break-word; }
+.citem { padding: 3px 0; border-bottom: 1px solid #e0e0e0; }
+.citem a { font-family: var(--mono); color: var(--blue); text-decoration: none; font-size: 11px; word-break: break-all; }
+.citem a:hover { text-decoration: underline; }
+.citem .meta { color: var(--muted); font-size: 11px; }
 
-input[type=text] { background:#0a0e14; border:1px solid var(--border); color:var(--text);
-                   font-family:var(--font); font-size:11px; padding:3px 5px;
-                   border-radius:3px; outline:none; }
-input[type=text]:focus { border-color:var(--blue); }
-button { font-family:var(--font); font-size:10px; padding:2px 8px; cursor:pointer;
-         background:#1a2030; color:var(--text); border:1px solid var(--border); border-radius:3px; }
-button:hover { border-color:var(--blue); color:var(--blue); }
-button.danger { background:#2a0d0d; color:var(--red); border-color:var(--red); }
-button.danger:hover { background:#3a1010; }
+input[type=text] { border: 1px solid var(--border); font-size: 15px; padding: 5px 8px;
+                   border-radius: 3px; outline: none; width: 100%; }
+input[type=text]:focus { border-color: var(--blue); }
+button { font-size: 14px; padding: 4px 12px; cursor: pointer;
+         background: #e8e8e8; border: 1px solid var(--border); border-radius: 3px; }
+button:hover { border-color: var(--blue); color: var(--blue); }
+button.danger { background: #fff0f0; color: var(--red); border-color: var(--red); }
+button.danger:hover { background: #ffe0e0; }
 
-/* Right log panel */
-#log-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
-#log-controls { padding:5px 10px; background:var(--surface); border-bottom:1px solid var(--border);
-                display:flex; gap:10px; align-items:center; flex-shrink:0; flex-wrap:wrap; }
-#log-controls label { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:3px; cursor:pointer; }
-#log-controls label:hover { color:var(--text); }
-#msg-count { font-size:10px; color:var(--muted); margin-left:auto; }
+/* Right column: chat stacked above log */
+#right-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
-#messages { flex:1; overflow-y:auto; padding:6px 8px; }
-.entry { padding:3px 5px; border-bottom:1px solid #161b22; word-break:break-all; }
-.entry:hover { background:#161b22; }
-.ets  { color:var(--muted); font-size:10px; margin-right:5px; }
-.etag { font-weight:bold; margin-right:4px; font-size:10px; }
-.etag.chat    { color:var(--green);  }
-.etag.system  { color:var(--yellow); }
-.etag.content { color:var(--blue);   }
-.etag.raw     { color:var(--muted);  }
-.etag.game    { color:var(--orange); }
-.etag.av      { color:#7090a0;       }
-.esummary { font-size:11px; }
-.rawbtn  { color:var(--muted); cursor:pointer; font-size:9px; }
-.rawdata { display:none; font-size:9px; color:#4a6070; white-space:pre-wrap; margin-top:2px; background:#0a0e14; padding:3px; border-radius:2px; }
-.rawdata.show { display:block; }
-.none { color:var(--muted); font-size:10px; font-style:italic; }
+/* Chat panel */
+#chat-panel { background: var(--surface); border-bottom: 2px solid var(--border); }
+#chat-panel-header { padding: 7px 12px; border-bottom: 1px solid var(--border);
+                     display: flex; align-items: center; gap: 8px; }
+#chat-panel-header h2 { font-size: 15px; color: var(--yellow); font-weight: bold; }
+#chat-recipient-info { font-size: 13px; color: var(--muted); margin-left: auto; }
+#chat-messages { height: 52vh; overflow-y: auto; padding: 10px 14px; }
+.cbubble { padding: 6px 10px; margin: 5px 0; border-left: 3px solid var(--green);
+           background: #f8fff8; border-radius: 0 4px 4px 0; }
+.cbubble.mine { border-left-color: var(--blue); background: #f4f8ff; }
+.cbubble .cfrom { font-family: var(--mono); font-size: 11px; color: var(--purple); margin-bottom: 3px; }
+.cbubble .cfrom a { color: var(--purple); text-decoration: none; cursor: pointer; }
+.cbubble .cfrom a:hover { text-decoration: underline; }
+.cbubble.mine .cfrom { color: var(--blue); }
+.cbubble .ctext { font-size: 16px; white-space: pre-wrap; word-break: break-word; }
+.cbubble .ctime { font-size: 11px; color: var(--muted); margin-top: 3px; }
+#chat-input-row { padding: 8px 10px; border-top: 1px solid var(--border);
+                  display: flex; gap: 8px; align-items: center; background: var(--surface); }
+#chat-input { flex: 1; }
+#chat-send-btn { flex-shrink: 0; }
+
+/* Log panel */
+#log-panel { background: var(--surface); }
+#log-controls { padding: 6px 12px; background: #f0f0f0; border-bottom: 1px solid var(--border);
+                display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+#log-controls label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+#log-controls label:hover { color: var(--text); }
+#msg-count { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+#messages { height: 35vh; overflow-y: auto; padding: 4px 8px; }
+.entry { padding: 3px 5px; border-bottom: 1px solid #eee; word-break: break-all; }
+.entry:hover { background: #f5f5f5; }
+.ets  { font-family: var(--mono); color: var(--muted); font-size: 11px; margin-right: 5px; }
+.etag { font-weight: bold; margin-right: 4px; font-size: 12px; }
+.etag.chat    { color: var(--green); }
+.etag.system  { color: var(--yellow); }
+.etag.content { color: var(--blue); }
+.etag.raw     { color: var(--muted); }
+.etag.game    { color: var(--orange); }
+.etag.av      { color: #507080; }
+.esummary { font-size: 13px; }
+.rawbtn  { color: var(--muted); cursor: pointer; font-size: 11px; margin-left: 4px; }
+.rawdata { display: none; font-family: var(--mono); font-size: 11px; color: #607080;
+           white-space: pre-wrap; margin-top: 2px; background: #f0f0f0; padding: 4px; border-radius: 2px; }
+.rawdata.show { display: block; }
+.none { color: var(--muted); font-style: italic; }
 </style>
 </head>
 <body>
@@ -105,12 +126,12 @@ button.danger:hover { background:#3a1010; }
 <header>
   <h1>CJP2P</h1>
   <div id="pubkey-wrap">
-    <span class="label">Your key: </span><span id="my-pubkey">connecting…</span><br>
+    <span class="label">Your key: </span><span id="my-pubkey">connecting...</span><br>
     <span id="copy-hint"></span>
   </div>
   <div id="ws-badge" class="disconnected">disconnected</div>
   <div id="header-right">
-    uptime: <span id="uptime">—</span><br>
+    uptime: <span id="uptime">--</span><br>
     msgs rcvd: <span id="total-msgs">0</span>
   </div>
 </header>
@@ -121,8 +142,8 @@ button.danger:hover { background:#3a1010; }
   <a href="/phone.html">Audio</a>
   <a href="/video.html">Video</a>
   <a href="/pong.html">Pong</a>
-  <a href="javascript:void(0)" id="open-chat-btn">Chat w/ peer…</a>
-  <a href="javascript:void(0)" id="dl-link">Download hash…</a>
+  <a href="javascript:void(0)" id="open-chat-btn">Chat w/ peer...</a>
+  <a href="javascript:void(0)" id="dl-link">Download hash...</a>
 </nav>
 
 <main>
@@ -130,31 +151,26 @@ button.danger:hover { background:#3a1010; }
 <div id="stats">
   <div class="sec">
     <h2>Connection</h2>
-    <div class="row"><span class="k">Status</span><span class="v" id="s-conn">—</span></div>
-    <div class="row"><span class="k">Connected</span><span class="v" id="s-conn-at">—</span></div>
+    <div class="row"><span class="k">Status</span><span class="v" id="s-conn">--</span></div>
+    <div class="row"><span class="k">Connected</span><span class="v" id="s-conn-at">--</span></div>
     <div class="row"><span class="k">Reconnects</span><span class="v" id="s-reconn">0</span></div>
     <div class="row"><span class="k">Messages in</span><span class="v" id="s-msgs-in">0</span></div>
   </div>
 
   <div class="sec">
     <h2>Your Identity</h2>
-    <div id="s-pubkey" style="color:var(--purple); word-break:break-all; margin-bottom:3px;">—</div>
+    <div id="s-pubkey" style="color:var(--purple); word-break:break-all; margin-bottom:3px;">--</div>
     <div id="s-eth" style="color:var(--muted); font-size:10px; margin-bottom:3px;">Ethereum: not signed</div>
-    <div class="row"><span class="k">UPnP port (est.)</span><span class="v" id="s-upnp">—</span></div>
+    <div class="row"><span class="k">UPnP port (est.)</span><span class="v" id="s-upnp">--</span></div>
     <div style="margin-top:4px;">
       <div style="color:var(--muted); font-size:9px; margin-bottom:2px;">Share your chat link:</div>
-      <div id="s-chatlink" style="word-break:break-all; font-size:10px; color:var(--blue);">—</div>
+      <div id="s-chatlink" style="word-break:break-all; font-size:10px; color:var(--blue);">--</div>
     </div>
   </div>
 
   <div class="sec">
-    <h2>Peers Observed — <span id="peer-count">0</span></h2>
+    <h2>Peers Observed -- <span id="peer-count">0</span></h2>
     <div id="peer-list"><span class="none">none yet</span></div>
-  </div>
-
-  <div class="sec">
-    <h2>Recent Chat</h2>
-    <div id="chat-log"><span class="none">no messages yet</span></div>
   </div>
 
   <div class="sec">
@@ -177,6 +193,19 @@ button.danger:hover { background:#3a1010; }
   </div>
 </div>
 
+<div id="right-col">
+<div id="chat-panel">
+  <div id="chat-panel-header">
+    <h2>Public Chat</h2>
+    <span id="chat-recipient-info">waiting for peers...</span>
+  </div>
+  <div id="chat-messages"><span class="none" style="padding:8px;display:block;">No messages yet.</span></div>
+  <div id="chat-input-row">
+    <input id="chat-input" type="text" placeholder="Message everyone on the network... (Enter to send)" autocomplete="off">
+    <button id="chat-send-btn">Send</button>
+  </div>
+</div>
+
 <div id="log-panel">
   <div id="log-controls">
     <label><input type="checkbox" id="f-chat"    checked> Chat</label>
@@ -191,17 +220,18 @@ button.danger:hover { background:#3a1010; }
   <div id="messages"></div>
 </div>
 
+</div><!-- #right-col -->
 </main>
 
 <script>
-// ── constants ──────────────────────────────────────────────────────────────
+// -- constants --------------------------------------------------------------
 const WS_URL   = 'ws://localhost:24255/wt';
 const LS_MSGS  = 'cjp2p_dash_v1_msgs';
 const LS_STATE = 'cjp2p_dash_v1_state';
 const MAX_STORE = 5000;
 const MAX_DISPLAY = 1500;
 
-// ── runtime state ──────────────────────────────────────────────────────────
+// -- runtime state ----------------------------------------------------------
 let myPubKey    = null;
 let socket      = null;
 let reconnects  = 0;
@@ -216,7 +246,7 @@ let trending    = {};   // hash   -> {count,size,lastSeen}
 let recommended = {};   // hash   -> {count,size,lastSeen}
 let chatHistory = [];   // [{from,ip,text,time,isoTs}]
 
-// ── persistence ────────────────────────────────────────────────────────────
+// -- persistence ------------------------------------------------------------
 function loadState() {
   try { storedMsgs = JSON.parse(localStorage.getItem(LS_MSGS) || '[]'); } catch(e) { storedMsgs = []; }
   try {
@@ -233,16 +263,16 @@ function scheduleSave() {
   _saveTimer = setTimeout(() => {
     _saveTimer = null;
     try { localStorage.setItem(LS_MSGS, JSON.stringify(storedMsgs.slice(-MAX_STORE))); } catch(e){}
-    try { localStorage.setItem(LS_STATE, JSON.stringify({peers, trending, recommended, chatHistory: chatHistory.slice(-200)})); } catch(e){}
+    try { localStorage.setItem(LS_STATE, JSON.stringify({peers, trending, recommended, chatHistory: chatHistory.slice(-500)})); } catch(e){}
     document.getElementById('s-saved').textContent = storedMsgs.length;
   }, 3000);
 }
 
-// ── formatting helpers ─────────────────────────────────────────────────────
+// -- formatting helpers -----------------------------------------------------
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function ts()   { return new Date().toLocaleTimeString(); }
 function isoTs(){ return new Date().toISOString(); }
-function shortKey(k) { if (!k) return '?'; return '0x'+k.slice(0,8)+'…'+k.slice(-4); }
+function shortKey(k) { if (!k) return '?'; return '0x'+k.slice(0,8)+'...'+k.slice(-4); }
 function fmtSize(b) {
   if (!b || b===0) return '?';
   if (b < 1024)        return b+'B';
@@ -259,14 +289,14 @@ function fmtAge(ms) {
   return Math.floor(d/86400)+'d ago';
 }
 
-// ── WebSocket status ───────────────────────────────────────────────────────
+// -- WebSocket status -------------------------------------------------------
 function setWsBadge(cls, text) {
   const el = document.getElementById('ws-badge');
   el.className = cls; el.textContent = text;
   document.getElementById('s-conn').textContent = text;
 }
 
-// ── peer tracking ──────────────────────────────────────────────────────────
+// -- peer tracking ----------------------------------------------------------
 function trackPeer(key, ip) {
   if (!key) return;
   const now = Date.now();
@@ -276,17 +306,20 @@ function trackPeer(key, ip) {
   if (ip && !peers[key].ips.includes(ip)) peers[key].ips.push(ip);
 }
 
-// ── render panels ──────────────────────────────────────────────────────────
+// -- render panels ----------------------------------------------------------
 function renderPeers() {
   const entries = Object.entries(peers).sort((a,b)=>b[1].lastSeen-a[1].lastSeen);
   document.getElementById('peer-count').textContent = entries.length;
+  const n = Math.min(entries.length, 100);
+  document.getElementById('chat-recipient-info').textContent =
+    n ? `broadcasts to ${n} peer${n===1?'':'s'}` : 'no peers yet -- message will send when peers appear';
   const el = document.getElementById('peer-list');
   if (!entries.length) { el.innerHTML='<span class="none">none yet</span>'; return; }
   el.innerHTML = entries.slice(0,30).map(([k,p])=>`
     <div class="peer">
       <div class="pk"><a href="/C5.html?${k}" target="_blank">${shortKey(k)}</a></div>
-      <div class="meta">${p.ips.slice(0,3).join(', ')||'—'} · ${p.msgCount} msg(s)</div>
-      <div class="meta">first: ${new Date(p.firstSeen).toLocaleTimeString()} · last: ${fmtAge(p.lastSeen)}</div>
+      <div class="meta">${p.ips.slice(0,3).join(', ')||'--'} ? ${p.msgCount} msg(s)</div>
+      <div class="meta">first: ${new Date(p.firstSeen).toLocaleTimeString()} ? last: ${fmtAge(p.lastSeen)}</div>
     </div>`).join('');
 }
 
@@ -296,24 +329,63 @@ function renderContentList(obj, elId) {
   if (!entries.length) { el.innerHTML='<span class="none">none seen yet</span>'; return; }
   el.innerHTML = entries.slice(0,15).map(([h,v])=>`
     <div class="citem">
-      <a href="/${h}" target="_blank">${h.slice(0,24)}…</a>
-      <div class="meta">${fmtSize(v.size)} · ${v.count} peer(s) · ${fmtAge(v.lastSeen)}</div>
+      <a href="/${h}" target="_blank">${h.slice(0,24)}...</a>
+      <div class="meta">${fmtSize(v.size)} ? ${v.count} peer(s) ? ${fmtAge(v.lastSeen)}</div>
     </div>`).join('');
+}
+
+function isChatNoise(c) {
+  if (c.from === 'me') return false;
+  return /^\/(ping|version)\b/i.test(c.text);
 }
 
 function renderChatLog() {
-  const el = document.getElementById('chat-log');
-  const recent = chatHistory.slice(-15);
-  if (!recent.length) { el.innerHTML='<span class="none">no messages yet</span>'; return; }
-  el.innerHTML = recent.map(c=>`
-    <div class="chat-msg">
-      <div class="from">${shortKey(c.from)} · ${c.time}</div>
-      <div class="txt">${esc(c.text.slice(0,300))}</div>
-    </div>`).join('');
-  el.scrollTop = el.scrollHeight;
+  const panel = document.getElementById('chat-messages');
+  const all = chatHistory.filter(c => !isChatNoise(c));
+  if (!all.length) { panel.innerHTML='<span class="none" style="padding:8px;display:block;">No messages yet.</span>'; return; }
+  panel.innerHTML = all.map(c => {
+    const mine = c.from === myPubKey || c.from === 'me';
+    const fromHtml = mine
+      ? 'You'
+      : `<a href="javascript:void(0)" onclick="openChat('${esc(c.from)}')" title="Open 1:1 chat with ${esc(c.from)}">${shortKey(c.from)}</a>${c.ip ? ' ('+c.ip+')' : ''}`;
+    return `<div class="cbubble${mine?' mine':''}">
+      <div class="cfrom">${fromHtml}</div>
+      <div class="ctext">${esc(c.text)}</div>
+      <div class="ctime">${c.time}</div>
+    </div>`;
+  }).join('');
+  panel.scrollTop = panel.scrollHeight;
 }
 
-// ── message log ───────────────────────────────────────────────────────────
+function openChat(pubkey) {
+  // Pre-populate C5.html's localStorage with messages we've seen from this peer
+  const msgs = chatHistory.filter(c => c.from === pubkey);
+  if (msgs.length) {
+    const text = msgs.map(c => `[${c.time}] ${c.text}`).join('\n');
+    try { localStorage.setItem('cjp2p_' + pubkey + '_output', text); } catch(e) {}
+  }
+  window.open('/C5.html?' + pubkey, '_blank');
+}
+
+function broadcastChat(text) {
+  if (!text.trim() || !socket || socket.readyState !== WebSocket.OPEN) return;
+  const targets = Object.entries(peers)
+    .sort((a,b) => b[1].lastSeen - a[1].lastSeen)
+    .slice(0, 100)
+    .map(([k]) => k);
+  if (!targets.length) { sysMsg('No peers known yet -- message not sent.'); return; }
+  for (const key of targets) {
+    socket.send(JSON.stringify([{Forward:{to_ed25519:key, messages:[{ChatMessage:{message:text}}]}}]));
+  }
+  // add to local history immediately
+  chatHistory.push({from:'me', ip:'', text, time:ts(), isoTs:isoTs()});
+  if (chatHistory.length > 500) chatHistory = chatHistory.slice(-500);
+  renderChatLog();
+  scheduleSave();
+  document.getElementById('chat-recipient-info').textContent = `sent to ${targets.length} peer(s)`;
+}
+
+// -- message log -----------------------------------------------------------
 const msgEl = document.getElementById('messages');
 let displayedCount = 0;
 
@@ -363,7 +435,7 @@ function sysMsg(text) {
   appendEntry(e, true);
 }
 
-// ── WebSocket message dispatch ────────────────────────────────────────────
+// -- WebSocket message dispatch --------------------------------------------
 function onMessage(rawStr) {
   msgsIn++;
   document.getElementById('s-msgs-in').textContent  = msgsIn;
@@ -381,7 +453,7 @@ function onMessage(rawStr) {
 
   const outer = parsed[0];
 
-  // ── Identity ──
+  // -- Identity --
   if ('YourEd25519' in outer || 'PleaseSignYourPub' in outer) {
     const key = (outer.YourEd25519 || outer.PleaseSignYourPub).ed25519;
     const unsigned = 'PleaseSignYourPub' in outer;
@@ -404,7 +476,7 @@ function onMessage(rawStr) {
     return;
   }
 
-  // ── Forwarded P2P messages ──
+  // -- Forwarded P2P messages --
   if ('Forwarded' in outer) {
     const fwd  = outer.Forwarded;
     const src  = fwd.src;
@@ -420,6 +492,11 @@ function onMessage(rawStr) {
 
       if ('ChatMessage' in msg) {
         const text = msg.ChatMessage.message;
+        if (from && /^\/ping\b/i.test(text)) {
+          socket.send(JSON.stringify([{Forward:{to_ed25519:from, messages:[{ChatMessage:{message:'PONG'}}]}}]));
+        } else if (from && /^\/version\b/i.test(text)) {
+          socket.send(JSON.stringify([{Forward:{to_ed25519:from, messages:[{ChatMessage:{message:'VERSION cjp2p-dashboard/html'}}]}}]));
+        }
         chatHistory.push({from, ip:src, text, time:ts(), isoTs:isoTs()});
         if (chatHistory.length > 500) chatHistory = chatHistory.slice(-500);
         renderChatLog();
@@ -428,7 +505,7 @@ function onMessage(rawStr) {
 
       } else if ('SawMessage' in msg) {
         appendEntry({ts:ts(),isoTs:isoTs(),cat:'system',
-          summary:`SawMessage from ${shortKey(from)}: ${msg.SawMessage.hash.slice(0,24)}…`}, true);
+          summary:`SawMessage from ${shortKey(from)}: ${msg.SawMessage.hash.slice(0,24)}...`}, true);
 
       } else if ('IJustSawThis' in msg) {
         const {id,length} = msg.IJustSawThis;
@@ -436,7 +513,7 @@ function onMessage(rawStr) {
         trending[id].count++; trending[id].lastSeen=Date.now();
         renderContentList(trending,'trending-list');
         appendEntry({ts:ts(),isoTs:isoTs(),cat:'content',
-          summary:`Trending: ${id.slice(0,32)}… (${fmtSize(length)}) — seen by ${shortKey(from)}`}, true);
+          summary:`Trending: ${id.slice(0,32)}... (${fmtSize(length)}) -- seen by ${shortKey(from)}`}, true);
 
       } else if ('YouSouldSeeThis' in msg) {
         const {id,length} = msg.YouSouldSeeThis;
@@ -444,13 +521,13 @@ function onMessage(rawStr) {
         recommended[id].count++; recommended[id].lastSeen=Date.now();
         renderContentList(recommended,'rec-list');
         appendEntry({ts:ts(),isoTs:isoTs(),cat:'content',
-          summary:`Recommended: ${id.slice(0,32)}… (${fmtSize(length)}) — by ${shortKey(from)}`}, true);
+          summary:`Recommended: ${id.slice(0,32)}... (${fmtSize(length)}) -- by ${shortKey(from)}`}, true);
 
       } else if ('MyPublicKey' in msg) {
         const mpk = msg.MyPublicKey;
         const signed = mpk.ed25519_eth_signed ? '(eth-signed)' : '(unsigned)';
         appendEntry({ts:ts(),isoTs:isoTs(),cat:'system',
-          summary:`MyPublicKey ${signed} from ${shortKey(from)} (${src}): 0x${(mpk.ed25519h||'').slice(0,20)}…`,raw:rawStr}, true);
+          summary:`MyPublicKey ${signed} from ${shortKey(from)} (${src}): 0x${(mpk.ed25519h||'').slice(0,20)}...`,raw:rawStr}, true);
 
       } else if ('AudioFrame' in msg || 'VideoFrame' in msg) {
         const type = 'AudioFrame' in msg ? 'AudioFrame' : 'VideoFrame';
@@ -464,12 +541,12 @@ function onMessage(rawStr) {
       } else if ('PleaseSendContent' in msg) {
         const r = msg.PleaseSendContent;
         appendEntry({ts:ts(),isoTs:isoTs(),cat:'content',
-          summary:`Download request for ${r.id?.slice(0,32)}… offset=${r.offset} len=${fmtSize(r.length)}`}, true);
+          summary:`Download request for ${r.id?.slice(0,32)}... offset=${r.offset} len=${fmtSize(r.length)}`}, true);
 
       } else if ('Content' in msg) {
         const c = msg.Content;
         appendEntry({ts:ts(),isoTs:isoTs(),cat:'content',
-          summary:`Content block ${c.id?.slice(0,24)}… offset=${c.offset} eof=${fmtSize(c.eof)}`}, true);
+          summary:`Content block ${c.id?.slice(0,24)}... offset=${c.offset} eof=${fmtSize(c.eof)}`}, true);
 
       } else if ('Peers' in msg) {
         const pcount = msg.Peers.peers?.length || 0;
@@ -496,7 +573,7 @@ function onMessage(rawStr) {
     }
 
     if (!handled) {
-      // no inner messages parsed — show raw
+      // no inner messages parsed -- show raw
       appendEntry({ts:ts(),isoTs:isoTs(),cat:'raw',
         summary:`P2P traffic from ${src} (${shortKey(from)})`,raw:rawStr}, true);
     }
@@ -511,11 +588,11 @@ function onMessage(rawStr) {
     summary:JSON.stringify(outer).slice(0,200),raw:rawStr}, true);
 }
 
-// ── WebSocket lifecycle ────────────────────────────────────────────────────
+// -- WebSocket lifecycle ----------------------------------------------------
 function connect() {
-  setWsBadge('reconnecting','connecting…');
+  setWsBadge('reconnecting','connecting...');
   try { socket = new WebSocket(WS_URL); } catch(e) {
-    sysMsg('WebSocket error: '+e.message+' — retrying in 3s');
+    sysMsg('WebSocket error: '+e.message+' -- retrying in 3s');
     setTimeout(connect, 3000); return;
   }
 
@@ -540,7 +617,7 @@ function connect() {
     reconnects++;
     document.getElementById('s-reconn').textContent = reconnects;
     if (uptimeTick) { clearInterval(uptimeTick); uptimeTick=null; }
-    sysMsg('Disconnected — reconnecting in 2s…');
+    sysMsg('Disconnected -- reconnecting in 2s...');
     setTimeout(connect, 2000);
   };
 
@@ -550,7 +627,7 @@ function connect() {
   };
 }
 
-// ── Filter toggles → rebuild display ──────────────────────────────────────
+// -- Filter toggles -> rebuild display --------------------------------------
 ['f-chat','f-system','f-content','f-game','f-av','f-raw'].forEach(id => {
   document.getElementById(id).addEventListener('change', () => {
     msgEl.innerHTML = '';
@@ -560,7 +637,7 @@ function connect() {
   });
 });
 
-// ── Nav actions ───────────────────────────────────────────────────────────
+// -- Nav actions -----------------------------------------------------------
 document.getElementById('open-chat-btn').addEventListener('click', () => {
   const key = prompt('Their ed25519 public key (with or without 0x):');
   if (!key) return;
@@ -574,7 +651,7 @@ document.getElementById('dl-link').addEventListener('click', () => {
   window.open('/?get='+hash.trim(), '_blank');
 });
 
-// ── Export / Clear ────────────────────────────────────────────────────────
+// -- Export / Clear --------------------------------------------------------
 document.getElementById('export-btn').addEventListener('click', () => {
   const blob = new Blob([JSON.stringify({messages:storedMsgs, peers, trending, recommended, chatHistory},null,2)],
                         {type:'application/json'});
@@ -600,7 +677,22 @@ document.getElementById('clear-btn').addEventListener('click', () => {
   sysMsg('Local storage cleared.');
 });
 
-// ── Replay stored messages on load ────────────────────────────────────────
+// -- Chat input ------------------------------------------------------------
+document.getElementById('chat-send-btn').addEventListener('click', () => {
+  const inp = document.getElementById('chat-input');
+  broadcastChat(inp.value);
+  inp.value = '';
+});
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    const inp = e.target;
+    broadcastChat(inp.value);
+    inp.value = '';
+  }
+});
+
+// -- Replay stored messages on load ----------------------------------------
 loadState();
 // Show last 300 stored messages before live traffic arrives
 storedMsgs.slice(-300).forEach(e => appendEntry(e, false));
