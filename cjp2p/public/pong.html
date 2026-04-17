@@ -4,29 +4,29 @@
 <p>Share this link with your opponent: <a id=link href=""></a>
 <p><a href=/>return to network status page</a>
 <p>
-<span id=serve_hint style="display:none;color:#fff;font-family:monospace;font-size:14px;">&#x25ba; Tap the ball to serve</span>
-<span id=status_msg>Waiting for connection...</span>
+<span id=serve_hint style="display:none;font-family:monospace;font-size:14px;">&#x25ba; Tap the ball to serve</span>
+<span id=status_msg>Waiting for opponent...</span>
 &nbsp;<button id=fs_btn>&#x26F6; Fullscreen</button>
 <p>
 <div id=canvas_wrap style="display:inline-block;">
-<canvas id=canvas width=800 height=500 style="border:2px solid #fff; background:#000; cursor:none; display:block;"></canvas>
+<canvas id=canvas width=800 height=500 style="border:2px solid #333; background:#fff; cursor:none; display:block;"></canvas>
 </div>
 <p>
-<span id=scoreboard style="font-family:monospace;font-size:20px;color:#fff;"></span>
+<span id=scoreboard style="font-family:monospace;font-size:20px;"></span>
 
 <style>
-body { background:#222; color:#fff; font-family:monospace; }
+body { background:#f5f5f5; color:#111; font-family:monospace; }
 #canvas_wrap { display:block; margin:0 auto; text-align:center; }
 canvas { display:block; margin:0 auto; }
 #scoreboard { display:block; text-align:center; }
 
 #canvas_wrap:fullscreen {
     display:flex; align-items:center; justify-content:center;
-    width:100vw; height:100vh; background:#000;
+    width:100vw; height:100vh; background:#fff;
 }
 #canvas_wrap:-webkit-full-screen {
     display:-webkit-flex; -webkit-align-items:center; -webkit-justify-content:center;
-    width:100vw; height:100vh; background:#000;
+    width:100vw; height:100vh; background:#fff;
 }
 #canvas_wrap:fullscreen canvas,
 #canvas_wrap:-webkit-full-screen canvas {
@@ -34,7 +34,7 @@ canvas { display:block; margin:0 auto; }
 }
 </style>
 
-<div id=logbox style="font-family:monospace;font-size:11px;color:#0f0;background:#111;padding:4px;white-space:pre-wrap;word-break:break-all;max-height:20vh;overflow:auto;margin-top:8px;"></div>
+<div id=logbox style="font-family:monospace;font-size:11px;color:#333;background:#e8e8e8;padding:4px;white-space:pre-wrap;word-break:break-all;max-height:20vh;overflow:auto;margin-top:8px;"></div>
 
 <script>
 const W = 800, H = 500;
@@ -160,7 +160,7 @@ function set_can_serve(v) {
 function doServe() {
     if (!their_ed25519.value || !my_ed25519) return;
     const angle = (Math.random() * 60 - 30) * Math.PI / 180;
-    const vx = amLeft ? -Math.cos(angle) * BASE_SPEED : Math.cos(angle) * BASE_SPEED;
+    const vx = amLeft ? Math.cos(angle) * BASE_SPEED : -Math.cos(angle) * BASE_SPEED;
     const vy = Math.sin(angle) * BASE_SPEED;
     ballX = W/2; ballY = H/2;
     ballVX = vx; ballVY = vy;
@@ -257,20 +257,20 @@ function tick() {
 let servePulse = 0;
 function draw() {
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, W, H);
 
     ctx.setLineDash([10, 10]);
-    ctx.strokeStyle = '#444';
+    ctx.strokeStyle = '#bbb';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
     ctx.setLineDash([]);
 
     // My paddle always appears on the left; theirs on the right.
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#111';
     ctx.fillRect(displayX(myPaddleX()) - PADDLE_W/2, myPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
 
-    ctx.fillStyle = '#888';
+    ctx.fillStyle = '#666';
     ctx.fillRect(displayX(theirPaddleX()) - PADDLE_W/2, theirPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
 
     // ball -- pulse ring when waiting to serve
@@ -278,13 +278,13 @@ function draw() {
     if (canServe && !gameActive) {
         servePulse = (servePulse + 0.07) % (Math.PI * 2);
         const ring = BALL_R + 6 + Math.sin(servePulse) * 4;
-        ctx.strokeStyle = `rgba(255,255,255,${0.5 + 0.5 * Math.sin(servePulse)})`;
+        ctx.strokeStyle = `rgba(0,0,0,${0.5 + 0.5 * Math.sin(servePulse)})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(dbx, ballY, ring, 0, Math.PI * 2);
         ctx.stroke();
     }
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#111';
     ctx.beginPath();
     ctx.arc(dbx, ballY, BALL_R, 0, Math.PI*2);
     ctx.fill();
@@ -328,11 +328,10 @@ fs_btn.onclick = () => {
     }
 };
 
-// -- connectivity --------------------------------------------------------------
 function check_ready() {
     if (my_ed25519 && their_ed25519.value) {
         amLeft = my_ed25519 < their_ed25519.value;
-        status_msg.textContent = 'Connected. Tap the ball to serve -- first tap goes first!';
+        status_msg.textContent = 'Tap the ball to serve -- first tap goes first!';
         set_can_serve(true);
     }
 }
