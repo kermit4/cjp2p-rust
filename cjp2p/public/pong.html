@@ -4,7 +4,7 @@
 <p>Share this link with your opponent: <a id=link href=""></a>
 <p><a href=/>return to network status page</a>
 <p>
-<span id=serve_hint style="display:none;font-family:monospace;font-size:14px;">&#x25ba; Tap the ball to serve</span>
+<span id=serve_hint style="display:none;font-family:monospace;font-size:14px;">&#x25ba; Click/tap anywhere to serve</span>
 <span id=status_msg>Waiting for opponent...</span>
 &nbsp;<button id=fs_btn>&#x26F6; Fullscreen</button>
 <p>
@@ -131,21 +131,13 @@ canvas.addEventListener('touchmove', e => {
 }, {passive:false});
 canvas.addEventListener('touchend', e => {
     e.preventDefault();
-    // Serve on tap near ball -- don't require touchMoved==false since any finger
-    // placement can trigger a tiny move event even for intentional taps.
-    if (canServe && !gameActive && touchStartPos) {
-        const dist = Math.hypot(touchStartPos.x - displayX(ballX), touchStartPos.y - ballY);
-        if (dist < BALL_R * 8) doServe();
-    }
+    if (canServe && !gameActive) doServe();
     touchStartPos = null;
 }, {passive:false});
 
-// click (mouse) on ball to serve
 canvas.addEventListener('click', e => {
     if (!canServe || gameActive) return;
-    const pos = canvasToGame(e.clientX, e.clientY);
-    const dist = Math.hypot(pos.x - displayX(ballX), pos.y - ballY);
-    if (dist < BALL_R * 5) doServe();
+    doServe();
 });
 
 function myPaddleX()    { return amLeft ? PADDLE_W     : W - PADDLE_W; }
@@ -332,7 +324,7 @@ fs_btn.onclick = () => {
 function check_ready() {
     if (my_ed25519 && their_ed25519.value) {
         amLeft = my_ed25519 < their_ed25519.value;
-        status_msg.textContent = 'Tap the ball to serve -- first tap goes first!';
+        status_msg.textContent = 'Click or tap anywhere to serve -- first one goes first!';
         set_can_serve(true);
     }
 }
