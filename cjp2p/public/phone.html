@@ -159,7 +159,7 @@ function base64ToArrayBuffer(b64) {
 									  ring[writeIdx] = f32[i];
 									  writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
                                     if (writeIdx === readIdx) { {
-                                              log_always("playback slower than source skipping ahead 20ms");
+//                                              log_always("overrun, skipping ahead 20ms");
                                               readIdx = (readIdx + 48*20 ) & (RING_SIZE - 1); 
                                           }
 								  }
@@ -194,7 +194,7 @@ function base64ToArrayBuffer(b64) {
     });
 
   // Ring buffer: 1 second of stereo = 88200 samples. Power of 2 for fast modulo.
-  const RING_SIZE = 8192; 
+  const RING_SIZE = 4096; 
   const ring = new Float32Array(RING_SIZE);
   let writeIdx = 0;
   let readIdx = 0;
@@ -226,12 +226,17 @@ log_always("autoGainControl:",atbs.autoGainControl);
 
   playProcessor.onaudioprocess = e => {
     const out = e.outputBuffer.getChannelData(0);
+      let already_logged=false;
     for (let i = 0; i < out.length; i++) {
       if (readIdx!== writeIdx) { // buffer not empty
         lastSample = ring[readIdx];
         out[i] = lastSample;
         readIdx = (readIdx + 1) & (RING_SIZE - 1); // wrap with bitwise AND
       } else { // Underrun: fade last sample to avoid click
+          if(!already_logged){
+              //log_always("underrun, filling milliseconds: ",(out.length-i)/48);
+              already_logged=true;
+}
           led.classList.toggle('on', false);
         lastSample *= 0.997;
         out[i] = lastSample;
@@ -243,7 +248,7 @@ log_always("autoGainControl:",atbs.autoGainControl);
     recordProcessor = audioCtx.createScriptProcessor(1024, 1, 1); // mono in/out
 
   let sampleBuffer = [];
-const RING = new Float32Array(131072);
+const RING = new Float32Array(4096);
 let w = 0, r = 0;
 const FRAME = 512;
 

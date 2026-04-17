@@ -243,6 +243,7 @@ impl PeerState {
             content_gateways: Vec::new(),
         };
         ps.socket.set_broadcast(true).ok();
+        ps.socket.set_nonblocking(true).unwrap();
         SockRef::from(&ps.socket)
             .set_recv_buffer_size(0x100000)
             .ok();
