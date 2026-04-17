@@ -1,4 +1,4 @@
-This implements everything in spotted and listed in the https://github.com/kermit4/cjp2p protocol repo, plus some other things.   The primary purpose of this repo, is to demonstrate sample use cases connectionless JSON (externally tagged) P2P aka the CJP2P protocol.
+This implements everything in spotted and listed in the https://github.com/kermit4/lcdp protocol repo, plus some other things.   The primary purpose of this repo, is to demonstrate sample use cases connectionless JSON (externally tagged) P2P aka the Least Common Denominator Protocol.
 
 It's functional for end users, but the current target audience is p2p devs, so the UI IS minimal and not clearly documented.
 
@@ -80,3 +80,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 - put this as a git bundle in cjp2p/public
 - putting git files in cjp2p/public is breaking a git pull if cjp2p/ is a symlink
+- your put at top of status page
+- only error 101 should retry upnp? i think 11 is icmp dont redo on 11 anyway
+- really need updatiable signed content for all these html UIs
