@@ -79,13 +79,12 @@ or HTML pages with many page components, individually downloaded from the networ
 - more mmaps, replace open file cache, and use for http content servce
 - public websocket support?
 - put nostr or bitcoin addr in chat too ..however that is signed
-- make chat5 have chat memory again? like the generated pages did
 - peers save would be substantially more efficient if it only saved the LAST peer of an ed25519, if known, but not everyone has or announces that
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 - put this as a git bundle in cjp2p/public
 - why is Forward.messages JSON values and Forwarded.messages a single string of JSON? thats not consistent, but idk which one to pick. im leaning toward string but CPU is really not an isssue here regardless, it a question of transparency and ease of implemenatation.
 why does signedpub exist, shouldnt it just senda MyPublicKey?
 - putting git files in cjp2p/public is breaking a git pull if cjp2p/ is a symlink
-- don break urls, make chat5/ still work
 - i guess i decided on Forward format, add ForwardS and change HTMLs
 - less latency on phone, thats all browser play side ..try a test button to add a clickk and see how much delay, then i can try to reduce without two browsers
+does very old style /chat just let anyone read any history if the web port is open

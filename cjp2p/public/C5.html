@@ -86,8 +86,25 @@ debuging :
         document.getElementById('line_mode').textContent = "switch to line by line mode (no javascript needed)";
         input.readOnly = false;
     }
+    function lsKey(ed, suffix) { return 'cjp2p_' + ed + '_' + suffix; }
+    function saveChat() {
+        const ed = their_ed25519.value;
+        if (!ed) return;
+        localStorage.setItem('cjp2p_last_ed25519', ed);
+        localStorage.setItem(lsKey(ed, 'input'), input.value);
+        localStorage.setItem(lsKey(ed, 'output'), document.getElementById('output').value);
+    }
+    function loadChat(ed) {
+        if (!ed) return;
+        const si = localStorage.getItem(lsKey(ed, 'input'));
+        const so = localStorage.getItem(lsKey(ed, 'output'));
+        if (si !== null) input.value = si;
+        if (so !== null) document.getElementById('output').value = so;
+    }
+
     function set_their_ed25519(ed25519) {
         their_ed25519.value=ed25519;
+        loadChat(ed25519);
         update_links();
     }
     let my_eth_address = null;
@@ -276,6 +293,7 @@ debuging :
 							txt += "\n";
 							txt += msg.ChatMessage.message;
 							output.value = txt;
+							saveChat();
 							seenTop = false; seenBottom = false; sawSent = false;
 							sha256hex(msg.ChatMessage.message).then(h => { lastReceivedHash = h; if (document.hasFocus()) checkAndSendSaw(); });
 						}
@@ -352,12 +370,13 @@ debuging :
 		}
 	}
 	connect();
-    their_eth_addr.addEventListener('input', () => { 
+    their_eth_addr.addEventListener('input', () => {
         request_ed25519_from_eth_addr();
     });
-    their_ed25519.addEventListener('input', () => { 
+    their_ed25519.addEventListener('input', () => {
         input.readOnly = false;
         update_links();
+        saveChat();
     });
     input.addEventListener('input', () => {
         lines = input.value.split(/\r?\n/);
@@ -374,6 +393,7 @@ debuging :
             lastSentHash = h;
             sawStatus.style.color = '#888';
         });
+        saveChat();
     });
 </script>
     </body>
