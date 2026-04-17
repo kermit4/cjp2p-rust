@@ -241,12 +241,13 @@ debuging :
       };
     });
 
-    const url = new URL('/wt', window.location.href);
-    url.protocol = url.protocol.replace('http', 'ws');
     let socket;
 
 	function connect() {
 		log("websocket connencting");
+        const url = new URL('/wt', window.location.href);
+        url.protocol = url.protocol.replace('http', 'ws');
+        // use url to use the websocket on the page's source system
 		socket = new WebSocket("ws://localhost:24255/wt");
         socket.onclose = () => {
             console.log('Socket closed. Reconnecting ...');
