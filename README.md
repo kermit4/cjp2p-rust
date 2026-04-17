@@ -34,7 +34,7 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 
 or watch Sintel http://localhost:24255/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
-or the status page (soon to be a WEB INTERFACE that looks like a console.) http://localhost:24255/
+or the Claude made status page http://localhost:24255/dashboard.html
 
 or HTML pages with many page components, individually downloaded from the network live (unless you already did.)
 - http://localhost:24255/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
