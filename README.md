@@ -83,7 +83,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 - put this as a git bundle in cjp2p/public
 - why is Forward.messages JSON values and Forwarded.messages a single string of JSON? thats not consistent, but idk which one to pick. im leaning toward string but CPU is really not an isssue here regardless, it a question of transparency and ease of implemenatation.
-why does signedpub exist, shouldnt it just senda MyPublicKey?
 - putting git files in cjp2p/public is breaking a git pull if cjp2p/ is a symlink
 - i guess i decided on Forward format, add ForwardS and change HTMLs
 - consider more the model where anyone can connect to any node but keep the identity and security browser side
