@@ -87,4 +87,3 @@ why does signedpub exist, shouldnt it just senda MyPublicKey?
 - putting git files in cjp2p/public is breaking a git pull if cjp2p/ is a symlink
 - i guess i decided on Forward format, add ForwardS and change HTMLs
 - less latency on phone, thats all browser play side ..try a test button to add a clickk and see how much delay, then i can try to reduce without two browsers
-does very old style /chat just let anyone read any history if the web port is open
