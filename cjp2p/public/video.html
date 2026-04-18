@@ -98,8 +98,6 @@ let frameReader     = null;
 let needKeyframe    = true;
 let frameCount      = 0;
 let videoMuted      = false;
-let fragBuf         = new Map(); // ts -> {total, parts[]} for reassembly
-const MAX_FRAG      = 8000;      // max bytes per video fragment
 
 // -- audio state ---------------------------------------------------------------
 let audioCtx        = null;
@@ -107,8 +105,7 @@ let recordProcessor = null;
 let playProcessor   = null;
 let audioEncoder    = null;
 let audioDecoder    = null;
-let audioTsOut      = 0;   // microsecond timestamp for AudioData
-let audioQueue      = [];  // pending Opus chunks waiting to be batched
+let audioTsOut      = 0;   // microsecond timestamp for AudioData (WebCodecs internal only)
 let offset_sent     = 0;
 let offset_received = 0;
 let lastSample      = 0;
@@ -172,29 +169,7 @@ function connect() {
                         if (vf.codec !== 'vp8') continue;
                         if (needKeyframe && !vf.keyframe) continue;
 
-                        // reassemble fragments; nfrags absent or 1 = unfragmented
-                        let frameData;
-                        const nfrags = vf.frags || 1;
-                        if (nfrags === 1) {
-                            frameData = b64ToU8(vf.data);
-                        } else {
-                            if (!fragBuf.has(vf.timestamp))
-                                fragBuf.set(vf.timestamp, { total: nfrags, parts: [] });
-                            const entry = fragBuf.get(vf.timestamp);
-                            entry.parts[vf.frag] = b64ToU8(vf.data);
-                            if (entry.parts.filter(Boolean).length < entry.total) continue;
-                            const totalLen = entry.parts.reduce((s, p) => s + p.length, 0);
-                            frameData = new Uint8Array(totalLen);
-                            let off = 0;
-                            for (const p of entry.parts) { frameData.set(p, off); off += p.length; }
-                            fragBuf.delete(vf.timestamp);
-                            // evict stale incomplete entries (lost fragment = lost frame)
-                            if (fragBuf.size > 8) {
-                                const oldest = [...fragBuf.keys()].sort((a,b)=>a-b)[0];
-                                fragBuf.delete(oldest);
-                            }
-                        }
-
+                        const frameData = b64ToU8(vf.data);
                         if (decoder == null || decoder.state === 'closed') decoder = makeDecoder();
                         try {
                             decoder.decode(new EncodedVideoChunk({
@@ -209,28 +184,23 @@ function connect() {
                     }
                     if (forwarded && 'AudioFrame' in msg && startBtn.disabled) {
                         const af = msg.AudioFrame;
-                        if (!audioCtx || af.offset <= offset_received) { /* skip */ }
-                        else if (af.codec === 'opus' && audioDecoder && audioDecoder.state === 'configured') {
-                            // batch: [[data,ts,seq], ...] -- or legacy single frame
-                            const items = af.batch || [[af.data, af.timestamp, af.offset]];
-                            for (const [data, ts, seq] of items) {
-                                if (seq <= offset_received) continue;
-                                offset_received = seq;
+                        if (audioCtx && af.sampleRate === 48000 && af.channels === 1 && af.offset > offset_received) {
+                            offset_received = af.offset;
+                            if (af.format === 'opus' && audioDecoder && audioDecoder.state === 'configured') {
                                 try {
                                     audioDecoder.decode(new EncodedAudioChunk({
-                                        type: 'key', timestamp: ts, data: b64ToU8(data)
+                                        type: 'key', timestamp: af.offset * 21333, data: b64ToU8(af.data)
                                     }));
                                 } catch(e) { log_always('audio decode err:', e.message || e); }
-                            }
-                        } else if (af.sampleRate === 48000 && af.channels === 1 && af.format === 'f32') {
-                            offset_received = af.offset;
-                            const u8  = b64ToU8(af.data);
-                            const f32 = new Float32Array(u8.buffer, u8.byteOffset, u8.byteLength / 4);
-                            led.classList.add('on');
-                            for (let i = 0; i < f32.length; i++) {
-                                ring[writeIdx] = f32[i];
-                                writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
-                                if (writeIdx === readIdx) readIdx = (readIdx + 48 * 20) & (RING_SIZE - 1);
+                            } else if (af.format === 'f32') {
+                                const u8  = b64ToU8(af.data);
+                                const f32 = new Float32Array(u8.buffer, u8.byteOffset, u8.byteLength / 4);
+                                led.classList.add('on');
+                                for (let i = 0; i < f32.length; i++) {
+                                    ring[writeIdx] = f32[i];
+                                    writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
+                                    if (writeIdx === readIdx) readIdx = (readIdx + 48 * 20) & (RING_SIZE - 1);
+                                }
                             }
                         }
                     }
@@ -293,17 +263,6 @@ startBtn.onclick = async () => {
         playProcessor.connect(audioCtx.destination);
 
         // -- audio encoder (Opus via WebCodecs, raw PCM fallback) -------------
-        function flushAudioQueue() {
-            if (!audioQueue.length || socket.readyState !== WebSocket.OPEN || !their_ed25519.value) {
-                audioQueue = []; return;
-            }
-            socket.send(JSON.stringify([{Forward:{
-                to_ed25519: their_ed25519.value,
-                messages: [{AudioFrame:{ codec:'opus', batch: audioQueue }}]
-            }}]));
-            audioQueue = [];
-        }
-
         if ('AudioEncoder' in window) {
             audioEncoder = new AudioEncoder({
                 output: (chunk) => {
@@ -311,9 +270,10 @@ startBtn.onclick = async () => {
                     const data = new Uint8Array(chunk.byteLength);
                     chunk.copyTo(data);
                     offset_sent++;
-                    // [base64_data, timestamp_ms, seq] -- array tuples keep JSON compact
-                    audioQueue.push([u8toB64(data), chunk.timestamp, offset_sent]);
-                    if (audioQueue.length >= 4) flushAudioQueue();
+                    socket.send(JSON.stringify([{Forward:{
+                        to_ed25519: their_ed25519.value,
+                        messages: [{AudioFrame:{ sampleRate:48000, channels:1, format:'opus', data:u8toB64(data), offset:offset_sent }}]
+                    }}]));
                 },
                 error: e => log_always('audio encoder error:', e.message || e)
             });
@@ -376,10 +336,7 @@ startBtn.onclick = async () => {
                 offset_sent += input.length;
                 socket.send(JSON.stringify([{Forward:{
                     to_ed25519: their_ed25519.value,
-                    messages: [{AudioFrame:{
-                        sampleRate: 48000, channels: 1, format: 'f32',
-                        data: u8toB64(u8), offset: offset_sent
-                    }}]
+                    messages: [{AudioFrame:{ sampleRate:48000, channels:1, format:'f32', data:u8toB64(u8), offset:offset_sent }}]
                 }}]));
             }
         };
@@ -395,20 +352,15 @@ startBtn.onclick = async () => {
                 const data = new Uint8Array(chunk.byteLength);
                 chunk.copyTo(data);
                 log('video', chunk.type, chunk.byteLength + 'B');
-                const nfrags = Math.ceil(data.length / MAX_FRAG);
-                for (let i = 0; i < nfrags; i++) {
-                    const slice = data.subarray(i * MAX_FRAG, (i + 1) * MAX_FRAG);
-                    socket.send(JSON.stringify([{Forward:{
-                        to_ed25519: their_ed25519.value,
-                        messages: [{VideoFrame:{
-                            codec: 'vp8',
-                            keyframe: chunk.type === 'key',
-                            timestamp: chunk.timestamp,
-                            data: u8toB64(slice),
-                            frag: i, frags: nfrags
-                        }}]
-                    }}]));
-                }
+                socket.send(JSON.stringify([{Forward:{
+                    to_ed25519: their_ed25519.value,
+                    messages: [{VideoFrame:{
+                        codec: 'vp8',
+                        keyframe: chunk.type === 'key',
+                        timestamp: chunk.timestamp,
+                        data: u8toB64(data)
+                    }}]
+                }}]));
             },
             error: e => log_always('encoder error:', e.message || e)
         });
@@ -444,11 +396,9 @@ startBtn.onclick = async () => {
 };
 
 stopBtn.onclick = async () => {
-    fragBuf.clear();
     if (frameReader) { try { frameReader.cancel(); } catch {} frameReader = null; }
     if (encoder && encoder.state !== 'closed') { try { await encoder.flush(); encoder.close(); } catch {} encoder = null; }
     if (decoder && decoder.state !== 'closed') { try { decoder.close(); } catch {} decoder = null; }
-    audioQueue = [];
     if (audioEncoder && audioEncoder.state !== 'closed') { try { await audioEncoder.flush(); audioEncoder.close(); } catch {} audioEncoder = null; }
     if (audioDecoder && audioDecoder.state !== 'closed') { try { audioDecoder.close(); } catch {} audioDecoder = null; }
     recordProcessor?.disconnect(); recordProcessor = null;
