@@ -758,7 +758,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                 warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
             }
         } else if line == "/peers\n" {
-            println!("========== active IP4 peer/ports");
+            println!("========== active peer/ports");
             for v in ps.peer_vec.iter().rev() {
                 let d = ps.peer_map[v].delay;
                 if d < Duration::from_secs(1) {
