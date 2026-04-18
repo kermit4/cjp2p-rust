@@ -144,7 +144,7 @@ let lastPaddleSend = 0;
 function movePaddle(y) {
     myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, y));
     const now = Date.now();
-    if (now - lastPaddleSend > 33) { // ~30fps
+    if (now - lastPaddleSend > 8) { // ~30fps
         lastPaddleSend = now;
         send_pong_paddle(myPaddleY);
     }

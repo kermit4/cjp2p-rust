@@ -211,7 +211,7 @@ function connect() {
                         const af = msg.AudioFrame;
                         if (!audioCtx || af.offset <= offset_received) { /* skip */ }
                         else if (af.codec === 'opus' && audioDecoder && audioDecoder.state === 'configured') {
-                            // batch: [[data,ts,seq], ...] — or legacy single frame
+                            // batch: [[data,ts,seq], ...] -- or legacy single frame
                             const items = af.batch || [[af.data, af.timestamp, af.offset]];
                             for (const [data, ts, seq] of items) {
                                 if (seq <= offset_received) continue;
@@ -311,7 +311,7 @@ startBtn.onclick = async () => {
                     const data = new Uint8Array(chunk.byteLength);
                     chunk.copyTo(data);
                     offset_sent++;
-                    // [base64_data, timestamp_μs, seq] — array tuples keep JSON compact
+                    // [base64_data, timestamp_ms, seq] -- array tuples keep JSON compact
                     audioQueue.push([u8toB64(data), chunk.timestamp, offset_sent]);
                     if (audioQueue.length >= 4) flushAudioQueue();
                 },
@@ -321,7 +321,7 @@ startBtn.onclick = async () => {
                 audioEncoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 32000 });
                 log_always('audio: Opus 32kbps');
             } catch(e) {
-                log_always('AudioEncoder configure failed:', e.message, '— falling back to raw PCM');
+                log_always('AudioEncoder configure failed:', e.message, '-- falling back to raw PCM');
                 audioEncoder = null;
             }
         } else {
@@ -347,7 +347,7 @@ startBtn.onclick = async () => {
             try {
                 audioDecoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1 });
             } catch(e) {
-                log_always('AudioDecoder configure failed:', e.message, '— raw PCM receive only');
+                log_always('AudioDecoder configure failed:', e.message, '-- raw PCM receive only');
                 audioDecoder = null;
             }
         }
