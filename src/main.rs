@@ -178,7 +178,7 @@ struct PeerState {
     list_time: Instant,
     p: PersistentState,
     next_maintenance: Instant,
-    next_upnp: Instant,
+    next_upnp: std::time::SystemTime,
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
     ws_vec: Vec<WebSocket<TcpStream>>,
@@ -241,7 +241,7 @@ impl PeerState {
             list_time: Instant::now(),
             p: PersistentState::load(),
             next_maintenance: Instant::now() - Duration::from_secs(99999),
-            next_upnp: Instant::now() - Duration::from_secs(99999),
+            next_upnp: std::time::SystemTime::now() - Duration::from_secs(99999),
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
             ws_vec: Vec::new(),
@@ -356,7 +356,7 @@ impl PeerState {
                 Err(e) => {
                     if e.raw_os_error() != Some(11) {
                         // EWOULDBLOCK
-                        self.next_upnp = Instant::now();
+                        self.next_upnp = std::time::SystemTime::now();
                         warn!("failed to send {0} {e}", message_out_bytes.len());
                     } else {
                         warn!("EWOULDBLOCK failed to send {0} {e}", message_out_bytes.len());
@@ -1899,9 +1899,11 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         ps.recent_peer_timer = Instant::now();
         ps.recent_peers = HashSet::new();
     }
-    if ps.next_upnp.elapsed() > Duration::ZERO {
-        ps.upnp();
-        ps.next_upnp = Instant::now() + Duration::from_secs(1200);
+    if let Ok(dur) = ps.next_upnp.elapsed() {
+        if dur > Duration::ZERO {
+            ps.upnp();
+            ps.next_upnp = std::time::SystemTime::now() + Duration::from_secs(1200);
+        }
     }
     debug!("maintenance");
     let mut to_remove = vec![];
