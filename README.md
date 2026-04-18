@@ -15,7 +15,7 @@ make release
 
 or 
 
-RUST_BACKTRACE=1 RUST_LOG=info ./target/debug/cjp2p
+RUST_BACKTRACE=1 RUST_LOG=info ./target/release/cjp2p
 
 for some noise
 
@@ -80,4 +80,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - put nostr or bitcoin addr in chat too ..however that is signed
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 - put this as a git bundle in cjp2p/public
-- putting git files in cjp2p/public is breaking a git pull if cjp2p/ is a symlink
+- putting git files in cjp2p/public is breaking a git pull if the directory is beyond is a symlink

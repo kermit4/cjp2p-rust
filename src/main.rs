@@ -1139,9 +1139,9 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
         let mut pi = PeerInfo::new();
         pi.delay = Duration::from_millis(120);
         ps.peer_map.insert(src, pi);
-        ps.recent_peers.insert(src);
         info!("new peer spotted {src}");
     }
+    ps.recent_peers.insert(src);
     if ps.ws_vec.len() > 0 {
         let message_out_string = serde_json::to_string(&json![
             [Message::Forwarded(Forwarded{src:src,from_ed25519:None,
