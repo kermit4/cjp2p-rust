@@ -43,34 +43,15 @@ use std::{io, str};
 //use nix::NixPath;
 use std::path::Path;
 //use std::convert::TryInto;
-use std::fmt;
+//use std::fmt;
 //use std::io::copy;
 
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
+#[derive(Clone, Serialize, Deserialize, Debug)]
 enum Source {
     // <'a> {
     None, // W(&'a WebSocket<TcpStream>), // borrow checker, this really has to be the index, or taken out of peerstate, or maybe just pass the IP/port of the websocket instead of an index, make that the index
     S(SocketAddr),
-}
-
-//impl<'a> fmt::Debug for Source<'a> {
-impl fmt::Debug for Source {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Source::None => f.write_str("websocket"),
-            // Source::W(ws) => {
-            //     // WebSocket doesn't impl Debug, so we can't print it
-            //     // Print the peer addr if we can get it, otherwise just the type
-            //     match ws.get_ref().peer_addr() {
-            //         Ok(addr) => f.debug_tuple("W")
-            //             .field(&format_args!("WebSocket -> {}", addr))
-            //             .finish(),
-            //         Err(_) => f.write_str("W(WebSocket)"),
-            //     }
-            // }
-            Source::S(addr) => f.debug_tuple("S").field(addr).finish(),
-        }
-    }
 }
 
 macro_rules! BLOCK_SIZE {
@@ -87,7 +68,7 @@ struct PeerInfo {
     delay: Duration,
     anti_ip_spoofing_cookie_they_expect: Option<String>,
     #[serde_as(as = "Option<Hex>")]
-    ed25519: Option<Vec<u8>>,
+    ed25519: Option<[u8; 32]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,9 +103,9 @@ struct OpenFile {
 #[derive(Serialize, Deserialize, Debug)]
 struct Keypair {
     #[serde_as(as = "Base64")]
-    public: Vec<u8>,
+    public: [u8; 32],
     #[serde_as(as = "Base64")]
-    private: Vec<u8>,
+    private: [u8; 32],
     public_hex: Option<String>,
     private_hex: Option<String>,
 }
@@ -151,8 +132,8 @@ impl Keypair {
             .generate_keypair()
             .unwrap();
         let keypair = Self {
-            public: keypair_.public.clone(),
-            private: keypair_.private.clone(),
+            public: keypair_.public.clone().as_slice().try_into().unwrap(),
+            private: keypair_.private.clone().as_slice().try_into().unwrap(),
             public_hex: Some(hex::encode(keypair_.public)),
             private_hex: Some(hex::encode(keypair_.private)),
         };
@@ -166,6 +147,7 @@ impl Keypair {
 
 struct PeerState {
     peer_map: HashMap<SocketAddr, PeerInfo>,
+    peer_map_by_pub: HashMap<[u8; 8], Source>,
     peer_vec: Vec<SocketAddr>,
     recent_peers: HashSet<SocketAddr>,
     recent_peer_timer: Instant,
@@ -229,6 +211,7 @@ impl PeerState {
         fs::create_dir("./cjp2p/state").ok();
         let mut ps = Self {
             peer_map: PeerState::load_peers(),
+            peer_map_by_pub: HashMap::new(),
             peer_vec: vec![],
             recent_peers: HashSet::new(),
             recent_peer_timer: Instant::now(),
@@ -2157,7 +2140,7 @@ impl Receive for Forward {
 #[derive(Serialize, Deserialize, Debug)]
 struct MyPublicKey {
     #[serde_as(as = "Hex")]
-    ed25519h: Vec<u8>,
+    ed25519h: [u8; 32],
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signed: Option<String>,
 }
@@ -2181,6 +2164,7 @@ impl Receive for MyPublicKey {
         use std::str::FromStr;
         let mut recovered_address: Option<String> = None;
         let ed25519h_hex = hex::encode(&self.ed25519h);
+        ps.peer_map_by_pub.insert(self.ed25519h[..8].try_into().unwrap(),src.to_owned());
         if let Some(sig) = &self.ed25519_eth_signed {
             if let Ok(sig) = Signature::from_str(sig.as_str()) {
                 // takes 0.0003s so do this in advance
@@ -2380,7 +2364,7 @@ struct EncryptedMessages {
     noise_params: String,
 }
 impl EncryptedMessages {
-    fn new(ps: &PeerState, their_pub: &Vec<u8>, message: Vec<u8>) -> Message {
+    fn new(ps: &PeerState, their_pub: &[u8; 32], message: Vec<u8>) -> Message {
         let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
             .local_private_key(&ps.keypair.private)
             .remote_public_key(their_pub)
@@ -2512,50 +2496,45 @@ fn msgs_to_pub(
     messages: &Vec<serde_json::Value>,
 ) -> () {
     let their_pub_hex = their_pub_hex_.strip_prefix("0x").unwrap_or(their_pub_hex_);
-    if let Ok(to) = hex::decode(their_pub_hex) {
-        let mut who: HashSet<SocketAddr> = HashSet::new();
-        for k in &ps.peer_vec {
-            let v = &ps.peer_map[k];
-            trace!("looing for {} trying {} at {:?} ",their_pub_hex,k,v.delay);
-            if v.delay < Duration::from_millis(3000 / (who.len() + 1) as u64) {
-                if let Some(key) = &v.ed25519 {
-                    trace!("looing for {} trying {} at {:?} for {}",their_pub_hex,k,v.delay, hex::encode(key));
-                    if *key == to {
-                        who.insert(*k);
+    if let Ok(to__) = hex::decode(their_pub_hex) {
+        let to_: Result<[u8; 32], _> = to__.try_into();
+        if let Ok(to) = to_ {
+            if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&to[..8]) {
+                if let Some(pi) = ps.peer_map.get(&sa) {
+                    if let Some(key) = &pi.ed25519 {
+                        if *key == to {
+                            let mut message_out: Vec<serde_json::Value> = vec![];
+                            //        message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
+                            message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
+                            for m in messages {
+                                message_out.push(serde_json::to_value(m).unwrap());
+                            }
+                            message_out = vec![
+                                serde_json::to_value(&EncryptedMessages::new(ps,&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
+                            ];
+                            let c = ps.always_returned(*sa);
+                            if c.len() > 0 {
+                                message_out.push(serde_json::to_value(&c[0]).unwrap());
+                            }
+                            let message_out_bytes: Vec<u8> =
+                                serde_json::to_vec(&message_out).unwrap();
+                            message_out.pop();
+                            trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
+                            ps.socket.send_to(&message_out_bytes, sa).ok();
+                            return;
+                        }
                     }
                 }
             }
-        }
-        if who.len() == 0 {
-            warn!("user {} not found",their_pub_hex);
-            return;
-        }
-        let mut message_out: Vec<serde_json::Value> = vec![];
-        //        message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
-        message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
-        for m in messages {
-            message_out.push(serde_json::to_value(m).unwrap());
-        }
-        message_out = vec![
-            serde_json::to_value(&EncryptedMessages::new(ps,&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
-            ];
-        for sa in who {
-            let c = ps.always_returned(sa);
-            if c.len() > 0 {
-                message_out.push(serde_json::to_value(&c[0]).unwrap());
-            }
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            message_out.pop();
-            trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
-            ps.socket.send_to(&message_out_bytes, sa).ok();
+            error!("user {} not found",their_pub_hex);
         }
     } else {
-        warn!("failed to decode hex {} ",their_pub_hex_);
+        error!("failed to decode hex {} ",their_pub_hex_);
     }
 }
 
 fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {
-    let to = hex::decode(&their_pub_hex).unwrap();
+    let to: [u8; 32] = hex::decode(&their_pub_hex).unwrap().try_into().unwrap();
     let mut who: HashSet<SocketAddr> = HashSet::new();
     for k in &ps.peer_vec {
         let v = &ps.peer_map[k];
