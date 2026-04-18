@@ -1114,6 +1114,15 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     let mut buf = [0; 0x10000];
 
     let (message_in_len, src) = ps.socket.recv_from(&mut buf).unwrap();
+
+    let src = match src {
+        SocketAddr::V4(_) => src,
+        SocketAddr::V6(v6) => match v6.ip().to_ipv4() {
+            Some(ip) => SocketAddr::new(std::net::IpAddr::V4(ip), src.port()),
+            _ => src,
+        },
+    };
+
     let message_in_bytes = &buf[0..message_in_len];
     trace!( "incoming message {} from {src}", String::from_utf8_lossy(message_in_bytes));
     if !ps.peer_map.contains_key(&src) {
