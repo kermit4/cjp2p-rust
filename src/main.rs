@@ -244,6 +244,7 @@ impl PeerState {
             "148.71.89.128:24254",
             "159.69.54.127:24254",
             "[2a01:4f8:c013:5bc5::1]:24254",
+            "[2001:818:e876:f700:e008:c723:26f1:561f]:24254",
         ] {
             let mut pi = PeerInfo::new();
             pi.delay = Duration::from_millis(20);
