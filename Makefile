@@ -1,6 +1,6 @@
 SHELL = /bin/bash -ue
 
-default: debug releasae
+default: debug release
 
 chat5: src/chat5.html Makefile
 	mkdir -p cjp2p/public
