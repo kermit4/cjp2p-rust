@@ -11,7 +11,7 @@ use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
 use memmap2::MmapMut;
-use std::net::IpAddr;
+//use std::net::IpAddr;
 //use nix::NixPath;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -209,6 +209,7 @@ impl PeerState {
         fs::create_dir("./cjp2p/public").ok();
         fs::create_dir("./cjp2p/metadata").ok();
         fs::create_dir("./cjp2p/state").ok();
+        use std::net::Ipv6Addr;
         let mut ps = Self {
             peer_map: PeerState::load_peers(),
             peer_map_by_pub: HashMap::new(),
@@ -216,7 +217,7 @@ impl PeerState {
             recent_peers: HashSet::new(),
             recent_peer_timer: Instant::now(),
             recent_peer_counter_max: 0,
-            socket: UdpSocket::bind("0.0.0.0:24254").unwrap(),
+            socket: UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 24254)).unwrap(),
             boot: Instant::now(),
             keypair: Keypair::load_key(),
             open_file_cache: HashMap::new(),
@@ -239,7 +240,11 @@ impl PeerState {
         ps.socket
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
-        for bootstrap in ["148.71.89.128:24254", "159.69.54.127:24254"] {
+        for bootstrap in [
+            "148.71.89.128:24254",
+            "159.69.54.127:24254",
+            "[2a01:4f8:c013:5bc5::1]:24254",
+        ] {
             let mut pi = PeerInfo::new();
             pi.delay = Duration::from_millis(20);
             let sa: SocketAddr = bootstrap.parse().unwrap();
@@ -755,15 +760,11 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
         } else if line == "/peers\n" {
             println!("========== active IP4 peer/ports");
             for v in ps.peer_vec.iter().rev() {
-                if let IpAddr::V4(ip) = v.ip() {
-                    let d = ps.peer_map[v].delay;
-                    if d < Duration::from_secs(1) {
-                        println!("{:02x}{:02x}{:02x}{:02x}:{:04x} {:21?} {:21}",
-                            ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
-                            v.port(),
+                let d = ps.peer_map[v].delay;
+                if d < Duration::from_secs(1) {
+                    println!("{:21?} {}",
                             d,
                             v);
-                    }
                 }
             }
             println!("{} total peers",ps.peer_map.len());
@@ -956,15 +957,11 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
     }
     page += &format!("{} total unique IP peers\n--- active peers: \n",unique_ips.len());
     for v in ps.peer_vec.iter() {
-        if let IpAddr::V4(ip) = v.ip() {
-            let d = ps.peer_map[v].delay;
-            if d < Duration::from_millis(119) {
-                page += &format!("{:02x}{:02x}{:02x}{:02x}{:04x} {:21?} {:21}\n",
-                    ip.octets()[0], ip.octets()[1], ip.octets()[2], ip.octets()[3],
-                    v.port(),
+        let d = ps.peer_map[v].delay;
+        if d < Duration::from_millis(119) {
+            page += &format!("{:21?} {:21}\n",
                     d,
                     v);
-            }
         }
     }
     page += &format!("</pre><body></html>");
@@ -2164,7 +2161,8 @@ impl Receive for MyPublicKey {
         use std::str::FromStr;
         let mut recovered_address: Option<String> = None;
         let ed25519h_hex = hex::encode(&self.ed25519h);
-        ps.peer_map_by_pub.insert(self.ed25519h[..8].try_into().unwrap(),src.to_owned());
+        ps.peer_map_by_pub
+            .insert(self.ed25519h[..8].try_into().unwrap(), src.to_owned());
         if let Some(sig) = &self.ed25519_eth_signed {
             if let Ok(sig) = Signature::from_str(sig.as_str()) {
                 // takes 0.0003s so do this in advance
