@@ -225,7 +225,7 @@ impl PeerState {
             list_time: Instant::now(),
             p: PersistentState::load(),
             next_maintenance: Instant::now() - Duration::from_secs(99999),
-            next_upnp: std::time::SystemTime::now() - Duration::from_secs(99999),
+            next_upnp: std::time::SystemTime::now() + Duration::from_secs(1200),
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
             ws_vec: Vec::new(),
@@ -260,6 +260,7 @@ impl PeerState {
                 ps.peer_map.insert(bootstrap.parse().unwrap(), pi);
             }
         }
+        ps.upnp();
         return ps;
     }
     fn hash_ip(&self, src: SocketAddr) -> String {
