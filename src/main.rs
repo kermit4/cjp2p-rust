@@ -1,4 +1,4 @@
-use igd::{search_gateway, SearchOptions, PortMappingProtocol};
+use igd::{search_gateway, PortMappingProtocol, SearchOptions};
 use socket2::SockRef;
 use std::net::{Ipv4Addr, SocketAddrV4};
 //use std::thread;
@@ -160,7 +160,7 @@ struct PeerState {
     list_time: Instant,
     p: PersistentState,
     next_maintenance: Instant,
-    next_upnp: std::time::SystemTime,
+    last_upnp: std::time::SystemTime,
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
     ws_vec: Vec<WebSocket<TcpStream>>,
@@ -225,7 +225,7 @@ impl PeerState {
             list_time: Instant::now(),
             p: PersistentState::load(),
             next_maintenance: Instant::now() - Duration::from_secs(99999),
-            next_upnp: std::time::SystemTime::now() + Duration::from_secs(1200),
+            last_upnp: std::time::SystemTime::now(),
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
             ws_vec: Vec::new(),
@@ -542,8 +542,10 @@ impl PeerState {
         let lease_duration: u32 = 3600; // 0 = permanent
         let protocol = PortMappingProtocol::UDP;
         let description = "cjp2p";
-        info!("UPNP started (is this section of code hanging??)");
-        if let Ok(gateway) = search_gateway(SearchOptions { timeout: Some(Duration::from_millis(100)), ..Default::default() }) {
+        if let Ok(gateway) = search_gateway(SearchOptions {
+            timeout: Some(Duration::from_millis(100)),
+            ..Default::default()
+        }) {
             info!("UPNP Found gateway: {}", gateway.addr);
             let local_ip = get_local_ip_for_gateway(gateway.addr.ip().clone());
             let local_addr = SocketAddrV4::new(local_ip, local_port);
@@ -596,7 +598,13 @@ impl PeerState {
         } else {
             info!("UPNP no gateway found");
         }
-        info!("UPNP() done (is this section of code hanging??)");
+        if let Ok(dur) = self.last_upnp.elapsed() {
+            if dur > Duration::from_millis(200) {
+                warn!("UPNP() blocked node for {:?}",self.last_upnp.elapsed()  );
+            } else {
+                info!("UPNP() blocked node for {:?}",self.last_upnp.elapsed()  );
+            }
+        }
     }
 }
 
@@ -1914,10 +1922,10 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         ps.recent_peer_timer = Instant::now();
         ps.recent_peers = HashSet::new();
     }
-    if let Ok(dur) = ps.next_upnp.elapsed() {
-        if dur > Duration::ZERO {
+    if let Ok(dur) = ps.last_upnp.elapsed() {
+        if dur > Duration::from_secs(1200) {
+            ps.last_upnp = std::time::SystemTime::now();
             ps.upnp();
-            ps.next_upnp = std::time::SystemTime::now() + Duration::from_secs(1200);
         }
     }
     debug!("maintenance");
