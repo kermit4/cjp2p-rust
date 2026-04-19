@@ -308,6 +308,7 @@ impl PeerState {
                     Some(addr) => {
                         let mut sa = SocketAddr::from(*addr);
                         sa.set_port(24254);
+                        trace!("broadcastingto {}",sa);
                         to_probe.insert(sa);
                         ()
                     }
@@ -317,6 +318,7 @@ impl PeerState {
             }
         }
         to_probe.insert("224.0.0.1:24254".parse().unwrap());
+        to_probe.insert("[ff02::1]:24254".parse().unwrap());
         for sa in to_probe.iter() {
             let message_out_bytes: Vec<u8> =
                 serde_json::to_vec(&vec![Message::PleaseSendPeers(PleaseSendPeers {})]).unwrap();
@@ -758,7 +760,9 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             ps.save_peers();
             ps.p.save();
         } else if sscanf!(line.as_str(), "/addpeer {}",arg).is_ok() {
-            ps.peer_map.insert(arg.parse().unwrap(), PeerInfo::new());
+            let mut pi = PeerInfo::new();
+            pi.delay = Duration::ZERO;
+            ps.peer_map.insert(arg.parse().unwrap(), pi);
         } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
             let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
             if let Message::EncryptedMessages(_) = message_out[0] {
