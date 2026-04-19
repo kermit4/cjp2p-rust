@@ -184,16 +184,17 @@ canvas.addEventListener('click', e => {
 // -- serve ---------------------------------------------------------------------
 function doServe() {
     if (!their_ed25519.value || !my_ed25519) return;
-    const angle = (Math.random() * 60 - 30) * Math.PI / 180;
-    // serve toward self (left), ball starts just outside my paddle's hit zone
-    ballVX = -Math.cos(angle) * BASE_SPEED;
-    ballVY =  Math.sin(angle) * BASE_SPEED;
-    ballX = PADDLE_W * 2 + BALL_R + 2;
+    // straight shot from my paddle face toward opponent, vy=0
+    // mirrored on receipt: opponent sees it coming from the right at BASE_SPEED
+    // with centered paddles the ball bounces back and forth forever
+    ballVX = BASE_SPEED;
+    ballVY = 0;
+    ballX = PADDLE_W + PADDLE_W/2 + BALL_R + 1;  // just past my paddle face
     ballY = myPaddleY;
     gameActive = true;
     myMoveNum++;
     send_pong_move(myMoveNum, ballX, ballY, ballVX, ballVY);
-    log_always('sent serve', myMoveNum, 'x', ballX.toFixed(0), 'y', ballY.toFixed(0), 'vx', ballVX.toFixed(2), 'vy', ballVY.toFixed(2));
+    log_always('sent serve', myMoveNum, 'x', ballX.toFixed(0), 'y', ballY.toFixed(0));
 }
 
 function send_pong_move(move_number, bx, by, vx, vy) {
