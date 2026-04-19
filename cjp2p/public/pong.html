@@ -276,6 +276,7 @@ function handle_pong_move(msg) {
     ballVX = -m.vx;
     ballVY =  m.vy;
     gameActive = true;
+    snd_paddle();
     log_always('recv move', m.move_number, 'x', ballX.toFixed(0), 'y', ballY.toFixed(0), 'vx', ballVX.toFixed(2), 'vy', ballVY.toFixed(2));
 }
 
@@ -327,7 +328,6 @@ function tick(dt) {
 }
 
 // -- render --------------------------------------------------------------------
-let servePulse = 0;
 function draw() {
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = '#fff';
@@ -354,19 +354,12 @@ function draw() {
     ctx.fillStyle = '#666';
     ctx.fillRect(W - PADDLE_W - PADDLE_W/2, theirPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
 
-    if (!gameActive) {
-        servePulse = (servePulse + 0.07) % (Math.PI * 2);
-        const ring = BALL_R + 6 + Math.sin(servePulse) * 4;
-        ctx.strokeStyle = `rgba(0,0,0,${0.5 + 0.5 * Math.sin(servePulse)})`;
-        ctx.lineWidth = 2;
+    if (gameActive) {
+        ctx.fillStyle = '#111';
         ctx.beginPath();
-        ctx.arc(ballX, ballY, ring, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.arc(ballX, ballY, BALL_R, 0, Math.PI*2);
+        ctx.fill();
     }
-    ctx.fillStyle = '#111';
-    ctx.beginPath();
-    ctx.arc(ballX, ballY, BALL_R, 0, Math.PI*2);
-    ctx.fill();
 }
 
 function update_scoreboard() {
