@@ -14,7 +14,7 @@ use memmap2::MmapMut;
 //use std::net::IpAddr;
 //use nix::NixPath;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use serde_with::{base64::Base64, serde_as, InspectError, VecSkipError};
 use sha2::{Digest, Sha256};
 use snow::Builder;
@@ -354,7 +354,7 @@ impl PeerState {
                 Err(e) => {
                     if e.raw_os_error() != Some(11) {
                         // EWOULDBLOCK
-// upnp can hang for 10 seconds so dont make faster.                        self.next_upnp = std::time::SystemTime::now();
+                        // upnp can hang for 10 seconds so dont make faster.                        self.next_upnp = std::time::SystemTime::now();
                         debug!("failed to send to {sa} {0} bytes: {e} ", message_out_bytes.len());
                     } else {
                         warn!("EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", message_out_bytes.len());
@@ -764,7 +764,17 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             pi.delay = Duration::ZERO;
             ps.peer_map.insert(arg.parse().unwrap(), pi);
         } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
-            let message_out = ChatMessage::new(&ps, arg.parse().unwrap(), arg2.clone());
+            let mut message_out = ChatMessage::new(&ps, arg2.clone());
+            let dst = arg.parse().unwrap();
+            message_out.append(&mut ps.always_returned(dst));
+            // encrypt if we know the key
+            if let Some(pi) = &ps.peer_map.get(&dst) {
+                if let Some(their_pub) = &pi.ed25519 {
+                    message_out = vec![
+                EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
+                ];
+                }
+            }
             if let Message::EncryptedMessages(_) = message_out[0] {
                 let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                 trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
@@ -873,7 +883,9 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                 ");
         } else {
             for sa in ps.best_peers(100, 5) {
-                let message_out = ChatMessage::new(&ps, sa, line.clone());
+                let mut message_out = ChatMessage::new(&ps, line.clone());
+                message_out.append(&mut ps.always_returned(sa));
+                // no point in encrypting spam
                 let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                 trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
                 ps.socket.send_to(&message_out_bytes, sa).ok();
@@ -1820,7 +1832,7 @@ impl InboundState {
 
         let peers: &mut HashSet<SocketAddr> = &mut HashSet::new();
         if file.metadata().unwrap().len() > 0 {
-            let json: serde_json::Value = serde_json::from_reader(BufReader::new(&file)).unwrap();
+            let json: Value = serde_json::from_reader(BufReader::new(&file)).unwrap();
             let loaded_peers: HashSet<SocketAddr> =
                 serde_json::from_value(json["Peers"].clone()).unwrap();
             peers.extend(loaded_peers);
@@ -2072,13 +2084,14 @@ impl Receive for GetPubByEth {
                         let maybe_ed25519 = None;
 
                         let messages = serde_json::to_string(&message_out).unwrap();
-                        info!("sending {:?} ed25519 {} for eth addr {}",src,from_ed25519.clone().unwrap(),signer);
+                        info!("sending {:?} ed25519 {} for eth addr {} to ",src,from_ed25519.clone().unwrap(),signer);
                         let src = *k;
                         return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
                     }
                 }
             }
         }
+        warn!("failed to find ed25519 of requested eth addr {}",self.eth_addr);
         return vec![];
     }
 }
@@ -2129,7 +2142,7 @@ impl Receive for Forwarded {
 #[derive(Serialize, Deserialize, Debug)]
 struct Forward {
     to_ed25519: String,
-    messages: Vec<serde_json::Value>,
+    messages: Vec<Value>,
 }
 impl Receive for Forward {
     fn receive(
@@ -2232,19 +2245,12 @@ struct ChatMessage {
     message: String,
 }
 impl ChatMessage {
-    fn new(ps: &PeerState, dst: SocketAddr, message: String) -> Vec<Message> {
-        debug!("new chatmessage {message} to {dst}");
-        let mut message_out = vec![
+    fn new(ps: &PeerState, message: String) -> Vec<Message> {
+        let message_out = vec![
             PleaseReturnThisMessage::new(ps),
             MyPublicKey::new(ps),
             Message::ChatMessage(Self { message: message }),
         ];
-        message_out.append(&mut ps.always_returned(dst));
-        if let Some(their_pub) = &ps.peer_map[&dst].ed25519 {
-            message_out = vec![
-                EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
-                ];
-        }
         return message_out;
     }
 }
@@ -2284,10 +2290,10 @@ impl Receive for ChatMessage {
                 }
             }
             if self.message.starts_with("/version") {
-                return Self::new(ps, src, format!("VERSION {}\n",env!("BUILD_VERSION")));
+                return Self::new(ps, format!("VERSION {}\n",env!("BUILD_VERSION")));
             }
             if self.message.starts_with("/ping") {
-                return Self::new(ps, src, "PONG".to_string());
+                return Self::new(ps, "PONG".to_string());
             }
         }
         return vec![];
@@ -2510,11 +2516,7 @@ trait Receive {
     ) -> Vec<Message>;
 }
 
-fn msgs_to_pub(
-    ps: &mut PeerState,
-    their_pub_hex_: &String,
-    messages: &Vec<serde_json::Value>,
-) -> () {
+fn msgs_to_pub(ps: &mut PeerState, their_pub_hex_: &String, messages: &Vec<Value>) -> () {
     let their_pub_hex = their_pub_hex_.strip_prefix("0x").unwrap_or(their_pub_hex_);
     if let Ok(to__) = hex::decode(their_pub_hex) {
         let to_: Result<[u8; 32], _> = to__.try_into();
@@ -2523,7 +2525,7 @@ fn msgs_to_pub(
                 if let Some(pi) = ps.peer_map.get(&sa) {
                     if let Some(key) = &pi.ed25519 {
                         if *key == to {
-                            let mut message_out: Vec<serde_json::Value> = vec![];
+                            let mut message_out: Vec<Value> = vec![];
                             //        message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
                             message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
                             for m in messages {
@@ -2554,28 +2556,9 @@ fn msgs_to_pub(
 }
 
 fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {
-    let to: [u8; 32] = hex::decode(&their_pub_hex).unwrap().try_into().unwrap();
-    let mut who: HashSet<SocketAddr> = HashSet::new();
-    for k in &ps.peer_vec {
-        let v = &ps.peer_map[k];
-        trace!("looing for {} trying {} at {:?} ",their_pub_hex,k,v.delay);
-        if v.delay < Duration::from_millis(3000 / (who.len() + 1) as u64) {
-            if let Some(key) = &v.ed25519 {
-                trace!("looing for {} trying {} at {:?} for {}",their_pub_hex,k,v.delay, hex::encode(key));
-                if *key == to {
-                    who.insert(*k);
-                }
-            }
-        }
+    let mut message_out: Vec<Value> = Vec::new();
+    for m in ChatMessage::new(&ps, msg.clone()) {
+        message_out.push(serde_json::to_value(m).unwrap());
     }
-    if who.len() == 0 {
-        warn!("user {} not found",their_pub_hex);
-        return;
-    }
-    for sa in who {
-        let message_out = ChatMessage::new(&ps, sa, msg.clone());
-        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-        trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
-        ps.socket.send_to(&message_out_bytes, sa).ok();
-    }
+    msgs_to_pub(ps, their_pub_hex, &message_out);
 }
