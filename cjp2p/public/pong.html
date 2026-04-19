@@ -119,7 +119,7 @@ let myPaddleY = H/2;
 let theirPaddleY = H/2;
 let myScore = 0, theirScore = 0;
 let lastTheirMove = -1;
-let myMoveNum = 0;
+let myMoveNum = Date.now(); // start high so post-reload moves aren't rejected as stale
 let gameActive = false;
 let amLeft = false;
 
