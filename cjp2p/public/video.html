@@ -18,7 +18,7 @@ video, canvas { display:block; background:#000; }
 .rx-led.on { background:#0d0; box-shadow:0 0 5px #0d0; }
 #vuMeter { display:inline-flex; gap:2px; align-items:center; width:90px; flex-shrink:0; }
 .vu-seg { width:5px; height:14px; background:#ddd; border-radius:1px; flex-shrink:0; }
-#logDiv { display:none; font-family:monospace; font-size:11px; white-space:pre-wrap;
+#logDiv { font-family:monospace; font-size:11px; white-space:pre-wrap;
           word-break:break-all; max-height:30vh; overflow:auto; border:1px solid #ccc; padding:4px; }
 </style>
 </head>
@@ -85,7 +85,7 @@ function setLed(el, on) { el.classList.toggle('on', on); }
 
 // -- logging ------------------------------------------------------------------
 let logging = false;
-debugBtn.onclick = () => { logging = !logging; logDiv.style.display = logging ? 'block' : 'none'; };
+debugBtn.onclick = () => { logging = !logging; };
 function log_always(...a) {
     const d = document.createElement('div');
     d.textContent = `[${new Date().toLocaleTimeString()}] ${a.join(' ')}`;
@@ -217,8 +217,7 @@ async function ensureAudioCtx() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
     await audioCtx.resume();
     const hwLatency = (audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0);
-    videoDelayMs = Math.max(80, Math.round((hwLatency + 0.071) * 1000));
-    log_always('audio hw latency:', Math.round(hwLatency*1000)+'ms  video delay:', videoDelayMs+'ms');
+    log_always('audio hw latency reported:', Math.round(hwLatency*1000)+'ms  (browser APIs unreliable; using fixed video delay:', videoDelayMs+'ms)');
     playProc = audioCtx.createScriptProcessor(1024, 1, 1);
     playProc.onaudioprocess = e => {
         const out = e.outputBuffer.getChannelData(0);
