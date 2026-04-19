@@ -4,7 +4,6 @@
 <p>Share this link with your opponent: <a id=link href=""></a>
 <p><a href=/>return to network status page</a>
 <p>
-<span id=serve_hint style="display:none;font-family:monospace;font-size:14px;">&#x25ba; Click/tap anywhere to serve</span>
 <span id=status_msg>Waiting for opponent...</span>
 &nbsp;<button id=fs_btn>&#x26F6; Fullscreen</button>
 <p>
@@ -46,7 +45,6 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const their_ed25519 = document.getElementById('their_ed25519');
 const link = document.getElementById('link');
-const serve_hint = document.getElementById('serve_hint');
 const status_msg = document.getElementById('status_msg');
 const scoreboard = document.getElementById('scoreboard');
 const logbox = document.getElementById('logbox');
@@ -123,7 +121,6 @@ let myScore = 0, theirScore = 0;
 let lastTheirMove = -1;
 let myMoveNum = 0;
 let gameActive = false;
-let canServe = false;
 let amLeft = false;
 
 // -- coordinate helpers --------------------------------------------------------
@@ -156,10 +153,12 @@ canvas.addEventListener('mousemove', e => {
 });
 
 let touchStartPos = null;
+let touchStartTime = 0;
 canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     const t = e.touches[0];
     touchStartPos = canvasToGame(t.clientX, t.clientY);
+    touchStartTime = Date.now();
 }, {passive:false});
 canvas.addEventListener('touchmove', e => {
     e.preventDefault();
@@ -168,7 +167,13 @@ canvas.addEventListener('touchmove', e => {
 }, {passive:false});
 canvas.addEventListener('touchend', e => {
     e.preventDefault();
-    if (!gameActive) doServe();
+    if (!gameActive) {
+        const duration = Date.now() - touchStartTime;
+        const t = e.changedTouches[0];
+        const end = canvasToGame(t.clientX, t.clientY);
+        const dist = touchStartPos ? Math.hypot(end.x - touchStartPos.x, end.y - touchStartPos.y) : 999;
+        if (duration < 300 && dist < 20) doServe();
+    }
     touchStartPos = null;
 }, {passive:false});
 
@@ -180,21 +185,16 @@ canvas.addEventListener('click', e => {
 function myPaddleX()    { return amLeft ? PADDLE_W     : W - PADDLE_W; }
 function theirPaddleX() { return amLeft ? W - PADDLE_W : PADDLE_W; }
 
-// -- serve ---------------------------------------------------------------------
-function set_can_serve(v) {
-    canServe = v;
-    serve_hint.style.display = v ? 'inline' : 'none';
-}
 
 function doServe() {
     if (!their_ed25519.value || !my_ed25519) return;
     const angle = (Math.random() * 60 - 30) * Math.PI / 180;
-    const vx = amLeft ? -Math.cos(angle) * BASE_SPEED : Math.cos(angle) * BASE_SPEED;
+    // serve toward opponent: amLeft shoots right (+x), amRight shoots left (-x)
+    const vx = amLeft ? Math.cos(angle) * BASE_SPEED : -Math.cos(angle) * BASE_SPEED;
     const vy = Math.sin(angle) * BASE_SPEED;
     ballX = W/2; ballY = H/2;
     ballVX = vx; ballVY = vy;
     gameActive = true;
-    set_can_serve(false);
     myMoveNum++;
     send_pong_move(myMoveNum, ballX, ballY, ballVX, ballVY);
     log('served move', myMoveNum, 'vx', vx.toFixed(2), 'vy', vy.toFixed(2));
@@ -223,28 +223,23 @@ function handle_pong_move(msg) {
         log('discarding stale move', m.move_number, '(last:', lastTheirMove+')');
         return;
     }
-    // If we just scored (canServe=true) and the game is inactive, this move is
-    // from the rally that just ended -- ignore it so it can't claw back our point.
-    if (!gameActive && canServe) {
-        log('ignoring post-score stale move', m.move_number);
-        return;
-    }
     lastTheirMove = m.move_number;
     ballX = m.ball_x; ballY = m.ball_y;
     ballVX = m.vx;    ballVY = m.vy;
     gameActive = true;
-    set_can_serve(false);
     log('recv move', m.move_number, 'vx', m.vx.toFixed(2), 'vy', m.vy.toFixed(2));
 }
 
 // -- physics -------------------------------------------------------------------
 let prevBallY = H/2;
 
-function tick() {
+function tick(dt) {
     if (!gameActive) return;
+    // Normalize to 60 fps so frame rate doesn't affect ball speed.
+    const s = dt / 16.667;
     prevBallY = ballY;
-    ballX += ballVX;
-    ballY += ballVY;
+    ballX += ballVX * s;
+    ballY += ballVY * s;
 
     if (ballY - BALL_R < 0)  { ballY = BALL_R;      ballVY = Math.abs(ballVY);  snd_wall(); }
     if (ballY + BALL_R > H)  { ballY = H - BALL_R;  ballVY = -Math.abs(ballVY); snd_wall(); }
@@ -275,7 +270,6 @@ function tick() {
         update_scoreboard();
         gameActive = false;
         ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
-        set_can_serve(false);
         snd_lose();
         status_msg.textContent = 'You lost the point. Opponent to serve.';
         log('lost point. scores my:', myScore, 'theirs:', theirScore);
@@ -287,7 +281,6 @@ function tick() {
         update_scoreboard();
         gameActive = false;
         ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
-        set_can_serve(true);
         snd_score();
         status_msg.textContent = 'You scored!';
         log('scored. scores my:', myScore, 'theirs:', theirScore);
@@ -316,7 +309,7 @@ function draw() {
 
     // ball -- pulse ring when waiting to serve
     const dbx = displayX(ballX);
-    if (canServe && !gameActive) {
+    if (!gameActive) {
         servePulse = (servePulse + 0.07) % (Math.PI * 2);
         const ring = BALL_R + 6 + Math.sin(servePulse) * 4;
         ctx.strokeStyle = `rgba(0,0,0,${0.5 + 0.5 * Math.sin(servePulse)})`;
@@ -335,8 +328,11 @@ function update_scoreboard() {
     scoreboard.textContent = `You ${myScore}  :  ${theirScore} Opponent`;
 }
 
-function loop() {
-    tick();
+let lastFrameTime = null;
+function loop(ts) {
+    const dt = lastFrameTime === null ? 16.667 : Math.min(ts - lastFrameTime, 50);
+    lastFrameTime = ts;
+    tick(dt);
     draw();
     requestAnimationFrame(loop);
 }
@@ -373,7 +369,6 @@ function check_ready() {
     if (my_ed25519 && their_ed25519.value) {
         amLeft = my_ed25519 < their_ed25519.value;
         status_msg.textContent = 'Click or tap anywhere to serve -- first one goes first!';
-        set_can_serve(true);
     }
 }
 
