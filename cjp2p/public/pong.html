@@ -189,8 +189,8 @@ function theirPaddleX() { return amLeft ? W - PADDLE_W : PADDLE_W; }
 function doServe() {
     if (!their_ed25519.value || !my_ed25519) return;
     const angle = (Math.random() * 60 - 30) * Math.PI / 180;
-    // serve toward opponent: amLeft shoots right (+x), amRight shoots left (-x)
-    const vx = amLeft ? Math.cos(angle) * BASE_SPEED : -Math.cos(angle) * BASE_SPEED;
+    // serve toward self: ball comes at the server so they can time their return
+    const vx = amLeft ? -Math.cos(angle) * BASE_SPEED : Math.cos(angle) * BASE_SPEED;
     const vy = Math.sin(angle) * BASE_SPEED;
     ballX = W/2; ballY = H/2;
     ballVX = vx; ballVY = vy;
