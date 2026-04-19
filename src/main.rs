@@ -772,8 +772,8 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             if let Some(pi) = &ps.peer_map.get(&dst) {
                 if let Some(their_pub) = &pi.ed25519 {
                     message_out = vec![
-                EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
-                ];
+                        EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
+                        ];
                 }
             }
             if let Message::EncryptedMessages(_) = message_out[0] {
@@ -2291,10 +2291,29 @@ impl Receive for ChatMessage {
                 }
             }
             if self.message.starts_with("/version") {
-                return Self::new(ps, format!("VERSION {}\n",env!("BUILD_VERSION")));
+                // encrypt if we know the key
+                let mut message_out = Self::new(ps, format!("VERSION {}\n",env!("BUILD_VERSION")));
+                if let Some(pi) = &ps.peer_map.get(&src) {
+                    if let Some(their_pub) = &pi.ed25519 {
+                        message_out = vec![
+                EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
+                ];
+                    }
+                }
+                return message_out;
             }
             if self.message.starts_with("/ping") {
-                return Self::new(ps, "PONG".to_string());
+                let mut message_out = Self::new(ps, "PONG".to_string());
+                // encrypt if we know the key
+                if let Some(pi) = &ps.peer_map.get(&src) {
+                    if let Some(their_pub) = &pi.ed25519 {
+                        message_out = vec![
+                EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
+                ];
+                    }
+                }
+
+                return message_out;
             }
         }
         return vec![];
