@@ -6,6 +6,7 @@
 <p>
 <span id=status_msg>Waiting for opponent...</span>
 &nbsp;<button id=fs_btn>&#x26F6; Fullscreen</button>
+&nbsp;<button id=debug_btn>debug log</button>
 <p>
 <div id=canvas_wrap style="display:inline-block;">
 <canvas id=canvas width=800 height=500 style="border:2px solid #333; background:#fff; cursor:none; display:block;"></canvas>
@@ -33,13 +34,15 @@ canvas { display:block; margin:0 auto; }
 }
 </style>
 
-<div id=logbox style="font-family:monospace;font-size:11px;color:#333;background:#e8e8e8;padding:4px;white-space:pre-wrap;word-break:break-all;max-height:20vh;overflow:auto;margin-top:8px;"></div>
+<div id=logbox style="display:none;font-family:monospace;font-size:11px;color:#333;background:#e8e8e8;padding:4px;white-space:pre-wrap;word-break:break-all;max-height:20vh;overflow:auto;margin-top:8px;"></div>
 
 <script>
 const W = 800, H = 500;
 const PADDLE_W = 12, PADDLE_H = 80;
 const BALL_R = 8;
 const BASE_SPEED = 5;
+// You are always the left player. Opponent is always on the right.
+// On network receive: mirror ballX = W - x, ballVX = -vx.
 
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
@@ -49,20 +52,26 @@ const status_msg = document.getElementById('status_msg');
 const scoreboard = document.getElementById('scoreboard');
 const logbox = document.getElementById('logbox');
 const fs_btn = document.getElementById('fs_btn');
+const debug_btn = document.getElementById('debug_btn');
 const canvas_wrap = document.getElementById('canvas_wrap');
 
 let my_ed25519 = null;
 let socket;
+let logging = false;
 
-function log(...args) {
+debug_btn.onclick = () => { logging = !logging; logbox.style.display = logging ? 'block' : 'none'; };
+
+function log_always(...args) {
     const line = document.createElement('div');
     line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
     logbox.appendChild(line);
-    while (logbox.children.length > 200) logbox.removeChild(logbox.firstChild);
+    while (logbox.children.length > 500) logbox.removeChild(logbox.firstChild);
+    if (logging) logbox.scrollTop = logbox.scrollHeight;
 }
+function log(...args) { if (logging) log_always(...args); }
 
-window.onerror = (msg, url, line, col, err) => { log('ERROR:', msg, 'at', url+':'+line); return false; };
-window.onunhandledrejection = e => log('UNHANDLED:', e.reason?.stack || e.reason || e);
+window.onerror = (msg, url, line, col, err) => { log_always('ERROR:', msg, 'at', url+':'+line); return false; };
+window.onunhandledrejection = e => log_always('UNHANDLED:', e.reason?.stack || e.reason || e);
 
 function update_links() {
     if (!my_ed25519) return;
@@ -103,12 +112,10 @@ function beep(freq, duration, type = 'square', gain = 0.3) {
 function snd_paddle() { beep(480, 0.04, 'square', 0.25); }
 function snd_wall()   { beep(300, 0.04, 'square', 0.18); }
 function snd_score()  {
-    // rising two-tone fanfare
     beep(523, 0.12, 'sine', 0.35);
     setTimeout(() => beep(784, 0.18, 'sine', 0.35), 120);
 }
 function snd_lose()   {
-    // falling two-tone
     beep(330, 0.12, 'sine', 0.3);
     setTimeout(() => beep(220, 0.2, 'sine', 0.3), 120);
 }
@@ -121,12 +128,17 @@ let myScore = 0, theirScore = 0;
 let lastTheirMove = -1;
 let myMoveNum = Date.now(); // start high so post-reload moves aren't rejected as stale
 let gameActive = false;
-let amLeft = false;
 
-// -- coordinate helpers --------------------------------------------------------
-// Each player always sees themselves on the left. For the "right" player
-// in game coordinates, we mirror X for display and for input hit-testing.
-function displayX(gameX) { return amLeft ? gameX : W - gameX; }
+// -- paddle controls -----------------------------------------------------------
+let lastPaddleSend = 0;
+function movePaddle(y) {
+    myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, y));
+    const now = Date.now();
+    if (now - lastPaddleSend >= 8) {
+        lastPaddleSend = now;
+        send_pong_paddle(myPaddleY);
+    }
+}
 
 function canvasToGame(clientX, clientY) {
     const r = canvas.getBoundingClientRect();
@@ -136,20 +148,8 @@ function canvasToGame(clientX, clientY) {
     };
 }
 
-// -- paddle controls -----------------------------------------------------------
-let lastPaddleSend = 0;
-function movePaddle(y) {
-    myPaddleY = Math.max(PADDLE_H/2, Math.min(H - PADDLE_H/2, y));
-    const now = Date.now();
-    if (now - lastPaddleSend >= 8) { 
-        lastPaddleSend = now;
-        send_pong_paddle(myPaddleY);
-    }
-}
-
 canvas.addEventListener('mousemove', e => {
-    const pos = canvasToGame(e.clientX, e.clientY);
-    movePaddle(pos.y);
+    movePaddle(canvasToGame(e.clientX, e.clientY).y);
 });
 
 let touchStartPos = null;
@@ -162,8 +162,7 @@ canvas.addEventListener('touchstart', e => {
 }, {passive:false});
 canvas.addEventListener('touchmove', e => {
     e.preventDefault();
-    const pos = canvasToGame(e.touches[0].clientX, e.touches[0].clientY);
-    movePaddle(pos.y);
+    movePaddle(canvasToGame(e.touches[0].clientX, e.touches[0].clientY).y);
 }, {passive:false});
 canvas.addEventListener('touchend', e => {
     e.preventDefault();
@@ -182,22 +181,19 @@ canvas.addEventListener('click', e => {
     doServe();
 });
 
-function myPaddleX()    { return amLeft ? PADDLE_W     : W - PADDLE_W; }
-function theirPaddleX() { return amLeft ? W - PADDLE_W : PADDLE_W; }
-
-
+// -- serve ---------------------------------------------------------------------
 function doServe() {
     if (!their_ed25519.value || !my_ed25519) return;
     const angle = (Math.random() * 60 - 30) * Math.PI / 180;
-    // serve toward self: ball comes at the server so they can time their return
-    const vx = amLeft ? -Math.cos(angle) * BASE_SPEED : Math.cos(angle) * BASE_SPEED;
-    const vy = Math.sin(angle) * BASE_SPEED;
-    ballX = W/2; ballY = H/2;
-    ballVX = vx; ballVY = vy;
+    // serve toward self (left), ball starts just outside my paddle's hit zone
+    ballVX = -Math.cos(angle) * BASE_SPEED;
+    ballVY =  Math.sin(angle) * BASE_SPEED;
+    ballX = PADDLE_W * 2 + BALL_R + 2;
+    ballY = myPaddleY;
     gameActive = true;
     myMoveNum++;
     send_pong_move(myMoveNum, ballX, ballY, ballVX, ballVY);
-    log('served move', myMoveNum, 'vx', vx.toFixed(2), 'vy', vy.toFixed(2));
+    log_always('sent serve', myMoveNum, 'x', ballX.toFixed(0), 'y', ballY.toFixed(0), 'vx', ballVX.toFixed(2), 'vy', ballVY.toFixed(2));
 }
 
 function send_pong_move(move_number, bx, by, vx, vy) {
@@ -217,73 +213,66 @@ function send_pong_paddle(y) {
 }
 
 // -- receive PongMove ----------------------------------------------------------
+// Mirror x on receipt: their left is our right.
 function handle_pong_move(msg) {
     const m = msg.PongMove;
     if (m.move_number <= lastTheirMove) {
-        log('discarding stale move', m.move_number, '(last:', lastTheirMove+')');
+        log_always('discarding stale move', m.move_number, '(last:', lastTheirMove+')');
         return;
     }
     lastTheirMove = m.move_number;
-    ballX = m.ball_x; ballY = m.ball_y;
-    ballVX = m.vx;    ballVY = m.vy;
+    ballX  =  W - m.ball_x;
+    ballY  =  m.ball_y;
+    ballVX = -m.vx;
+    ballVY =  m.vy;
     gameActive = true;
-    log('recv move', m.move_number, 'vx', m.vx.toFixed(2), 'vy', m.vy.toFixed(2));
+    log_always('recv move', m.move_number, 'x', ballX.toFixed(0), 'y', ballY.toFixed(0), 'vx', ballVX.toFixed(2), 'vy', ballVY.toFixed(2));
 }
 
 // -- physics -------------------------------------------------------------------
-let prevBallY = H/2;
-
 function tick(dt) {
     if (!gameActive) return;
-    // Normalize to 60 fps so frame rate doesn't affect ball speed.
     const s = dt / 16.667;
-    prevBallY = ballY;
     ballX += ballVX * s;
     ballY += ballVY * s;
 
-    if (ballY - BALL_R < 0)  { ballY = BALL_R;      ballVY = Math.abs(ballVY);  snd_wall(); }
-    if (ballY + BALL_R > H)  { ballY = H - BALL_R;  ballVY = -Math.abs(ballVY); snd_wall(); }
+    if (ballY - BALL_R < 0) { ballY = BALL_R;      ballVY =  Math.abs(ballVY); snd_wall(); }
+    if (ballY + BALL_R > H) { ballY = H - BALL_R;  ballVY = -Math.abs(ballVY); snd_wall(); }
 
-    const mpx = myPaddleX();
-    const movingTowardMe = amLeft ? ballVX < 0 : ballVX > 0;
-    if (movingTowardMe) {
-        const nearMyPaddle = amLeft ? ballX - BALL_R <= mpx + PADDLE_W/2
-                                    : ballX + BALL_R >= mpx - PADDLE_W/2;
-        if (nearMyPaddle && Math.abs(ballY - myPaddleY) < PADDLE_H/2 + BALL_R) {
+    // ball approaching my paddle (left side)
+    if (ballVX < 0 && ballX - BALL_R <= PADDLE_W + PADDLE_W/2) {
+        if (Math.abs(ballY - myPaddleY) < PADDLE_H/2 + BALL_R) {
             const rel = (ballY - myPaddleY) / (PADDLE_H/2);
             const speed = Math.hypot(ballVX, ballVY);
             const angle = rel * 60 * Math.PI / 180;
-            ballVX = amLeft ?  Math.cos(angle) * speed : -Math.cos(angle) * speed;
-            ballVY =           Math.sin(angle) * speed;
-            ballX = amLeft ? mpx + PADDLE_W/2 + BALL_R + 1
-                           : mpx - PADDLE_W/2 - BALL_R - 1;
+            ballVX =  Math.cos(angle) * speed;  // positive = toward opponent (right)
+            ballVY =  Math.sin(angle) * speed;
+            ballX  =  PADDLE_W + PADDLE_W/2 + BALL_R + 1;
             myMoveNum++;
             send_pong_move(myMoveNum, ballX, ballY, ballVX, ballVY);
             snd_paddle();
-            log('reflected move', myMoveNum);
+            log_always('sent reflect', myMoveNum, 'x', ballX.toFixed(0), 'y', ballY.toFixed(0), 'vx', ballVX.toFixed(2), 'vy', ballVY.toFixed(2));
         }
     }
 
-    const pastMe = amLeft ? ballX - BALL_R < 0 : ballX + BALL_R > W;
-    if (pastMe) {
+    if (ballX - BALL_R < 0) {
         theirScore++;
         update_scoreboard();
         gameActive = false;
         ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
         snd_lose();
         status_msg.textContent = 'You lost the point. Opponent to serve.';
-        log('lost point. scores my:', myScore, 'theirs:', theirScore);
+        log_always('lost point. score', myScore, ':', theirScore);
     }
 
-    const pastThem = amLeft ? ballX + BALL_R > W : ballX - BALL_R < 0;
-    if (pastThem) {
+    if (ballX + BALL_R > W) {
         myScore++;
         update_scoreboard();
         gameActive = false;
         ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
         snd_score();
         status_msg.textContent = 'You scored!';
-        log('scored. scores my:', myScore, 'theirs:', theirScore);
+        log_always('scored. score', myScore, ':', theirScore);
     }
 }
 
@@ -300,27 +289,24 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
     ctx.setLineDash([]);
 
-    // My paddle always appears on the left; theirs on the right.
     ctx.fillStyle = '#111';
-    ctx.fillRect(displayX(myPaddleX()) - PADDLE_W/2, myPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
+    ctx.fillRect(PADDLE_W - PADDLE_W/2, myPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
 
     ctx.fillStyle = '#666';
-    ctx.fillRect(displayX(theirPaddleX()) - PADDLE_W/2, theirPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
+    ctx.fillRect(W - PADDLE_W - PADDLE_W/2, theirPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
 
-    // ball -- pulse ring when waiting to serve
-    const dbx = displayX(ballX);
     if (!gameActive) {
         servePulse = (servePulse + 0.07) % (Math.PI * 2);
         const ring = BALL_R + 6 + Math.sin(servePulse) * 4;
         ctx.strokeStyle = `rgba(0,0,0,${0.5 + 0.5 * Math.sin(servePulse)})`;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(dbx, ballY, ring, 0, Math.PI * 2);
+        ctx.arc(ballX, ballY, ring, 0, Math.PI * 2);
         ctx.stroke();
     }
     ctx.fillStyle = '#111';
     ctx.beginPath();
-    ctx.arc(dbx, ballY, BALL_R, 0, Math.PI*2);
+    ctx.arc(ballX, ballY, BALL_R, 0, Math.PI*2);
     ctx.fill();
 }
 
@@ -358,7 +344,7 @@ document.addEventListener('webkitfullscreenchange', resizeCanvas);
 fs_btn.onclick = () => {
     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
         const req = canvas_wrap.requestFullscreen || canvas_wrap.webkitRequestFullscreen;
-        req.call(canvas_wrap).catch(e => log('fullscreen err', e));
+        req.call(canvas_wrap).catch(e => log_always('fullscreen err', e));
     } else {
         const ex = document.exitFullscreen || document.webkitExitFullscreen;
         ex.call(document);
@@ -367,26 +353,25 @@ fs_btn.onclick = () => {
 
 function check_ready() {
     if (my_ed25519 && their_ed25519.value) {
-        amLeft = my_ed25519 < their_ed25519.value;
         status_msg.textContent = 'Click or tap anywhere to serve -- first one goes first!';
     }
 }
 
 function connect() {
     socket = new WebSocket('ws://localhost:24255/wt');
-    socket.onclose = () => { log('ws closed, reconnecting'); setTimeout(connect, 200); };
+    socket.onclose = () => { log_always('ws closed, reconnecting'); setTimeout(connect, 200); };
     socket.onopen = () => {
         log('ws open');
         let work = Promise.resolve();
         socket.onmessage = async (event) => {
             work = work.then(async () => {
                 let messages_;
-                try { messages_ = JSON.parse(event.data); } catch(e) { log('parse err', e); return; }
+                try { messages_ = JSON.parse(event.data); } catch(e) { log_always('parse err', e); return; }
                 let messages, forwarded = false;
                 if ('Forwarded' in messages_[0]) {
                     forwarded = true;
                     try { messages = JSON.parse(messages_[0].Forwarded.messages); }
-                    catch(e) { log('inner parse err', e); return; }
+                    catch(e) { log_always('inner parse err', e); return; }
                 } else {
                     messages = messages_;
                 }
