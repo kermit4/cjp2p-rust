@@ -89,3 +89,4 @@ lcdp crate now? send to ed25519 as the base theme with the big hash getter shoul
 if i add a Forwward..need two encrypted not encrypted really, maake both actual json, do it before everyone is using it
 pong logic should be able to play self, i dont see why not??
 aggressive search for pubs and eth addrs for chriss app
+save peers only with an ed25519 and only one per

@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use serde_with::{base64::Base64, serde_as, InspectError, VecSkipError};
 use sha2::{Digest, Sha256};
 use snow::Builder;
-use std::cmp;
+//use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 //use std::convert::TryInto;
@@ -393,8 +393,10 @@ impl PeerState {
         debug!("saving peers");
         // not really sure how many, if any, of these peers or fields should be saved, or just a PleaseListContent of host:ips, but for the few users (1) of this so far, might as well save it all
         let mut peers_to_save: Vec<(SocketAddr, PeerInfo)> = Vec::new();
-        for i in 0..cmp::min(self.peer_vec.len(), 99) {
-            peers_to_save.push((self.peer_vec[i], self.peer_map[&self.peer_vec[i]].clone()))
+        for (_, src) in &self.peer_map_by_pub {
+            if let Source::S(ssrc) = src {
+                peers_to_save.push((ssrc.clone(), self.peer_map[ssrc].clone()))
+            }
         }
 
         OpenOptions::new()
