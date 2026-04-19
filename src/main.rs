@@ -354,8 +354,8 @@ impl PeerState {
                 Err(e) => {
                     if e.raw_os_error() != Some(11) {
                         // EWOULDBLOCK
-                        self.next_upnp = std::time::SystemTime::now();
-                        warn!("failed to send {0} {e}", message_out_bytes.len());
+// upnp can hang for 10 seconds so dont make faster.                        self.next_upnp = std::time::SystemTime::now();
+                        warn!("failed to send to {sa} {0} bytes: {e} ", message_out_bytes.len());
                     } else {
                         warn!("EWOULDBLOCK failed to send {0} {e}", message_out_bytes.len());
                     }
