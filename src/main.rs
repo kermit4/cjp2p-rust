@@ -804,13 +804,14 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             }
             println!("{} total peers",ps.peer_map.len());
             let mut unique_ips = HashSet::new();
-            println!("========== all IPs");
+            //            println!("========== all IPs");
             for (k, _) in &ps.peer_map {
                 if unique_ips.insert(k.ip()) {
-                    println!("{:21} {}",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
+                    // this will hang everything doing rev dns
+                    //                    println!("{:21} {}",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
                 }
             }
-            println!("{} total unique IP peers",unique_ips.len());
+            println!("{} total unique IP peers.  ",unique_ips.len());
         } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
             ps.p.you_should_see_this = Some(YouSouldSeeThis {
                 id: arg.to_owned(),
@@ -904,6 +905,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
     }
 }
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
+    let status_timer = Instant::now();
     let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>cjp2p status {}</title></head><body>\n\
         {}\n\n\
         <p>
@@ -979,17 +981,21 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
                     page += &format!("{:21} <a href=/chat/{} target=_blank>0x{}</a> {}\n",k.ip(),
             their_pub_hex,
             their_pub_hex,
-            if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()},
+            // dns hangs everything
+            //if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()},
+            k.ip().to_string(),
 );
                 }
             }
         }
     }
-    page += &format!("--- all IPs: <table>\n");
+    //    page += &format!("--- all IPs: <table>\n");
     let mut unique_ips = HashSet::new();
     for (k, _) in &ps.peer_map {
         if unique_ips.insert(k.ip()) {
-            page+=&format!("<tr><td align=right>{:21}</td><td width=30px></td><td>{}</td></tr>\n",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
+            // this rev dns hangs the whole thing, which if you're doing audio, video, or pong, is
+            // a long time
+            //page+=&format!("<tr><td align=right>{:21}</td><td width=30px></td><td>{}</td></tr>\n",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
         }
     }
     page += &format!("</table>{} total unique IP peers\n--- active peers: \n",unique_ips.len());
@@ -1002,6 +1008,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
         }
     }
     page += &format!("</pre><body></html>");
+    info!("status page thought {:?}", status_timer.elapsed());
     return page;
 }
 fn handle_web_request(
