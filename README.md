@@ -72,7 +72,7 @@ or HTML pages with many page components, individually downloaded from the networ
 ## unnsorted
 - make it do what i actually do each day, check for news basically, from friends or weigthed by importance/distance. like /trending but scoped/weighted.  user defined algorithm. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
 - need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming)
-- reputation, ip-time? web of trust? what would i actually use this for
+- reputation, ip-time? web of trust (people approve other people)? 
 - polls, approval voting style..which need some kind of scarcity
 - drop in socket() replacement that takes public keys intead of ips(), in Rust crate?
 - group chat 
@@ -81,3 +81,7 @@ or HTML pages with many page components, individually downloaded from the networ
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 - put this as a git bundle in cjp2p/public
 - putting git files in cjp2p/public is breaking a git pull if the directory is beyond is a symlink
+oh just give people latest urls that always pull from me not by hash..and dont error in the app about it
+chat input should be disabel until ed25519.. i thought it was
+audio frames are 5:1 .. we dont need the publilc key CONSTANTLY
+audio frames are 5:1 .. we dont need the publilc key CONSTANTLY ..and if its an encrypted frame, get the info out of that, it need not be included ever anyway.

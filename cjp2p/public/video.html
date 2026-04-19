@@ -1,423 +1,460 @@
-<html><head><title>video+audio chat over CJP2P</title></head>
-<body>
-their ed25519 addr<input id=their_ed25519 size=80>
-<p>Give this URL to the other person:
-<p><a id=link href=""></a>
-<br>
-<p><a href=/>return to network status page</a>
-<div id="led" class="led off"></div>
+<!DOCTYPE html>
+<html><head><title>CJP2P video chat</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-.led { width:16px; height:16px; border-radius:50%; border:1px solid #222; background:#040; box-shadow:inset 0 0 4px #000; transition:background 0.1s,box-shadow 0.1s; display:inline-block; }
-.led.on { background:#0f0; box-shadow:0 0 8px #0f0,inset 0 0 4px #fff8; }
+#videos { display:flex; gap:8px; flex-wrap:wrap; }
+@media(orientation:portrait) { #videos { flex-direction:column; } }
+video, canvas { display:block; background:#000; }
+.vid-wrap { display:inline-block; position:relative; vertical-align:top; }
+.vid-label { font-size:11px; color:#888; }
+.fs-btn { position:absolute; top:18px; right:2px; opacity:0.75;
+          padding:1px 5px; font-size:15px; line-height:1; cursor:pointer; }
+.fs-btn:hover { opacity:1; }
+#controls { display:flex; align-items:center; gap:8px; margin:6px 0; }
+.led { width:12px; height:12px; border-radius:50%; border:1px solid #888;
+       background:#600; display:inline-block; flex-shrink:0; }
+.led.on { background:#e00; box-shadow:0 0 5px #e00; }
+.rx-led { background:#040; }
+.rx-led.on { background:#0d0; box-shadow:0 0 5px #0d0; }
+#vuMeter { display:inline-flex; gap:2px; align-items:center; width:90px; flex-shrink:0; }
+.vu-seg { width:5px; height:14px; background:#ddd; border-radius:1px; flex-shrink:0; }
+#logDiv { display:none; font-family:monospace; font-size:11px; white-space:pre-wrap;
+          word-break:break-all; max-height:30vh; overflow:auto; border:1px solid #ccc; padding:4px; }
 </style>
-<br>
-<div style="display:flex;gap:16px;margin:8px 0;">
-  <div><div>Local</div><video id=localVideo autoplay muted playsinline style="width:320px;height:240px;background:#111;display:block;"></video></div>
-  <div><div>Remote</div><canvas id=remoteCanvas width=320 height=240 style="background:#111;display:block;"></canvas></div>
+</head>
+<body>
+their ed25519: <input id=their_ed25519 size=80>
+<br>share: <a id=link href=""></a>
+<br><a href=/>status page</a>
+<p>
+<div id=videos>
+  <div class=vid-wrap>
+    <div class=vid-label>Local</div>
+    <video id=localVideo autoplay muted playsinline></video>
+    <button class=fs-btn id=fsLocal>&#x26F6;</button>
+  </div>
+  <div class=vid-wrap>
+    <div class=vid-label>Remote</div>
+    <canvas id=remoteCanvas width=320 height=240></canvas>
+    <button class=fs-btn id=fsRemote>&#x26F6;</button>
+  </div>
 </div>
-<br>
-<button id="start">Start</button>
-<button id="stop" disabled>Stop</button>
-<button id="muteVideo" disabled>Mute Video</button>
-<br>debugging:
-<button onclick="logging=true">enable</button>
-<button onclick="logging=false">disable</button>
+<div id=controls>
+  <span class=led id=recLed title="mic recording"></span>
+  <div id=vuMeter></div>
+  <button id=muteAudioBtn>Unmute Mic</button>
+  <button id=muteVideoBtn disabled>Mute Video</button>
+  <span class="led rx-led" id=rxLed title="rx audio"></span>
+  <button id=debugBtn>debug log</button>
+</div>
+<div id=logDiv></div>
 
 <script>
-const startBtn     = document.getElementById('start');
-const stopBtn      = document.getElementById('stop');
-const muteVideoBtn = document.getElementById('muteVideo');
-const led          = document.getElementById('led');
-const localVideo   = document.getElementById('localVideo');
-const remoteCanvas = document.getElementById('remoteCanvas');
+const their_ed25519 = document.getElementById('their_ed25519');
+const link          = document.getElementById('link');
+const localVideo    = document.getElementById('localVideo');
+const remoteCanvas  = document.getElementById('remoteCanvas');
+const recLed        = document.getElementById('recLed');
+const rxLed         = document.getElementById('rxLed');
+const muteAudioBtn  = document.getElementById('muteAudioBtn');
+const muteVideoBtn  = document.getElementById('muteVideoBtn');
+const debugBtn      = document.getElementById('debugBtn');
+const logDiv        = document.getElementById('logDiv');
 
-// -- logging ------------------------------------------------------------------
-const logBox = document.createElement('div');
-logBox.style.cssText = 'font-family:monospace;font-size:12px;padding:8px;white-space:pre-wrap;word-break:break-all;';
-document.body.appendChild(logBox);
-const logDiv = document.createElement('div');
-logDiv.style.cssText = 'position:fixed;bottom:0;left:0;right:0;max-height:30vh;overflow:auto;background:#111;color:#0f0;font-family:monospace;font-size:12px;padding:4px;z-index:9999;';
-document.body.appendChild(logDiv);
-
-let logging = false;
-let logQueue = Promise.resolve();
-function log_always(...args) {
-    const line = document.createElement('div');
-    logQueue = logQueue.then(() => {
-        line.textContent = `[${new Date().toLocaleTimeString()}] ${args.join(' ')}`;
-        logBox.appendChild(line);
-        while (logBox.children.length > 2000) logBox.removeChild(logBox.firstChild);
+// -- VU meter (12 fixed-width segments, never reflows) ------------------------
+const VU_N = 12;
+const vuSegs = Array.from({length: VU_N}, () => {
+    const s = document.createElement('div');
+    s.className = 'vu-seg';
+    document.getElementById('vuMeter').appendChild(s);
+    return s;
+});
+function setVU(v) {
+    const lit = Math.round(v * VU_N);
+    vuSegs.forEach((s, i) => {
+        s.style.background = i >= lit ? '#ddd'
+            : i < VU_N * 0.6 ? '#0a0'
+            : i < VU_N * 0.85 ? '#aa0' : '#d00';
     });
 }
-function log(...args) { if (logging) log_always(...args); }
+setVU(0);
 
-['log','warn','error','info'].forEach(k => {
-    const orig = console[k].bind(console);
-    console[k] = (...args) => { orig(...args); log_always(k.toUpperCase()+':',...args); };
-});
-window.onerror = (msg, url, line, col, err) => {
-    log_always('ERROR:', msg, 'at', url+':'+line+':'+col);
-    if (err?.stack) log_always(err.stack);
-    return false;
-};
-window.onunhandledrejection = e => log_always('UNHANDLED PROMISE:', e.reason?.stack || e.reason || e);
+// -- LEDs ---------------------------------------------------------------------
+function setLed(el, on) { el.classList.toggle('on', on); }
 
-// -- base64 helpers ------------------------------------------------------------
+// -- logging ------------------------------------------------------------------
+let logging = false;
+debugBtn.onclick = () => { logging = !logging; logDiv.style.display = logging ? 'block' : 'none'; };
+function log_always(...a) {
+    const d = document.createElement('div');
+    d.textContent = `[${new Date().toLocaleTimeString()}] ${a.join(' ')}`;
+    logDiv.appendChild(d);
+    while (logDiv.children.length > 500) logDiv.removeChild(logDiv.firstChild);
+    if (logging) logDiv.scrollTop = logDiv.scrollHeight;
+}
+function log(...a) { if (logging) log_always(...a); }
+window.onerror = (m, u, l, c, e) => { log_always('ERROR:', m, '@', l+':'+c); if (e?.stack) log_always(e.stack); return false; };
+window.onunhandledrejection = e => log_always('UNHANDLED:', e.reason?.stack || e.reason || e);
+
+// -- base64 -------------------------------------------------------------------
 function u8toB64(u8) {
-    let bin = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < u8.length; i += chunk)
-        bin += String.fromCharCode.apply(null, u8.subarray(i, i + chunk));
-    return btoa(bin);
+    let s = ''; const C = 0x8000;
+    for (let i = 0; i < u8.length; i += C) s += String.fromCharCode.apply(null, u8.subarray(i, i+C));
+    return btoa(s);
 }
 function b64ToU8(b64) {
-    const bin = atob(b64);
-    const u8 = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    const s = atob(b64), u8 = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
     return u8;
 }
 
-// -- identity / links ----------------------------------------------------------
+// -- identity -----------------------------------------------------------------
 let my_ed25519 = null;
-const their_ed25519 = document.getElementById('their_ed25519');
-const link = document.getElementById('link');
-
 function update_links() {
+    if (!my_ed25519) return;
     const url = location.origin + location.pathname + '?ed25519=' + my_ed25519;
-    link.href = url;
-    link.textContent = url;
+    link.href = url; link.textContent = url;
 }
-function set_their_ed25519(v) { their_ed25519.value = v; update_links(); }
 their_ed25519.addEventListener('input', update_links);
 
-// -- session state -------------------------------------------------------------
-let camStream       = null;
-let encoder         = null;
-let decoder         = null;
-let frameReader     = null;
-let needKeyframe    = true;
-let frameCount      = 0;
-let videoMuted      = false;
+// -- fullscreen ---------------------------------------------------------------
+function goFullscreen(el) {
+    (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el);
+}
+document.getElementById('fsLocal').onclick  = () => goFullscreen(localVideo);
+document.getElementById('fsRemote').onclick = () => goFullscreen(remoteCanvas);
 
-// -- audio state ---------------------------------------------------------------
+// -- fit element to w×h, longest side = 320px --------------------------------
+const MAX_DIM = 320;
+function fitEl(el, w, h) {
+    const scale = Math.min(MAX_DIM / w, MAX_DIM / h, 1);
+    el.style.width  = Math.round(w * scale) + 'px';
+    el.style.height = Math.round(h * scale) + 'px';
+}
+// local video: let camera aspect ratio come through naturally
+fitEl(localVideo, 320, 240); // placeholder until camera starts
+
+// -- state --------------------------------------------------------------------
+let camStream    = null;
+let encoder      = null;
+let decoder      = null;
+let frameReader  = null;
+let needKeyframe = true;
+let frameCount   = 0;
+let videoMuted   = false;
+let micActive    = false;
+let videoSeqSent = Date.now(); // start high so post-reload seqs aren't rejected as stale
+let videoSeqRecv = 0;
+
+// -- audio state --------------------------------------------------------------
 let audioCtx        = null;
-let recordProcessor = null;
-let playProcessor   = null;
+let recordProc      = null;
+let playProc        = null;
 let audioEncoder    = null;
 let audioDecoder    = null;
-let audioTsOut      = 0;   // microsecond timestamp for AudioData (WebCodecs internal only)
-let offset_sent     = 0;
+let audioTsCounter  = 0;  // monotonic counter for WebCodecs internal use; never on wire
+let offset_sent     = Date.now(); // start high so post-reload seqs aren't rejected as stale
 let offset_received = 0;
 let lastSample      = 0;
 
 const RING_SIZE = 4096;
-const ring      = new Float32Array(RING_SIZE);
-let writeIdx = 0;
-let readIdx  = 0;
+const ring = new Float32Array(RING_SIZE);
+let writeIdx = 0, readIdx = 0;
 
-// -- VP8 decoder ---------------------------------------------------------------
-function makeDecoder() {
+// -- audio receive decoder (no user gesture needed) ---------------------------
+if ('AudioDecoder' in window) {
+    audioDecoder = new AudioDecoder({
+        output: audioData => {
+            const pcm = new Float32Array(audioData.numberOfFrames);
+            audioData.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
+            audioData.close();
+            setLed(rxLed, true);
+            for (let i = 0; i < pcm.length; i++) {
+                ring[writeIdx] = pcm[i];
+                writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
+                if (writeIdx === readIdx) readIdx = (readIdx + 48*20) & (RING_SIZE - 1);
+            }
+        },
+        error: e => log_always('audio decoder err:', e.message || e)
+    });
+    try { audioDecoder.configure({ codec:'opus', sampleRate:48000, numberOfChannels:1 }); }
+    catch(e) { log_always('AudioDecoder configure failed:', e.message); audioDecoder = null; }
+}
+
+// -- video decoder ------------------------------------------------------------
+function makeDecoder(w, h) {
     const d = new VideoDecoder({
         output: frame => {
-            const ctx = remoteCanvas.getContext('2d');
-            ctx.drawImage(frame, 0, 0, remoteCanvas.width, remoteCanvas.height);
-            frame.close();
-            led.classList.add('on');
-            needKeyframe = false;
+            if (remoteCanvas.width !== frame.displayWidth || remoteCanvas.height !== frame.displayHeight) {
+                remoteCanvas.width  = frame.displayWidth;
+                remoteCanvas.height = frame.displayHeight;
+                fitEl(remoteCanvas, frame.displayWidth, frame.displayHeight);
+            }
+            remoteCanvas.getContext('2d').drawImage(frame, 0, 0);
+            frame.close(); needKeyframe = false;
         },
-        error: e => {
-            log_always('decoder error:', e.message || e);
-            needKeyframe = true;
-        }
+        error: e => { log_always('video decoder err:', e.message || e); needKeyframe = true; }
     });
-    d.configure({ codec: 'vp8' });
+    const cfg = { codec: 'vp8' };
+    if (w && h) { cfg.codedWidth = w; cfg.codedHeight = h; }
+    d.configure(cfg);
     return d;
 }
 
-// -- WebSocket -----------------------------------------------------------------
+// -- audio context + playback (requires user gesture) -------------------------
+async function ensureAudioCtx() {
+    if (audioCtx) { await audioCtx.resume(); return; }
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+    await audioCtx.resume();
+    playProc = audioCtx.createScriptProcessor(1024, 1, 1);
+    playProc.onaudioprocess = e => {
+        const out = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < out.length; i++) {
+            if (readIdx !== writeIdx) {
+                lastSample = ring[readIdx];
+                out[i] = lastSample;
+                readIdx = (readIdx + 1) & (RING_SIZE - 1);
+            } else {
+                lastSample *= 0.997; // fade to silence on underrun
+                out[i] = lastSample;
+                setLed(rxLed, false);
+            }
+        }
+    };
+    playProc.connect(audioCtx.destination);
+    log_always('audio playback ready');
+}
+// auto-start playback on any first user interaction
+document.addEventListener('click', () => ensureAudioCtx().catch(() => {}), { once: true });
+
+// -- start camera + mic (called on first Unmute Mic) --------------------------
+async function startCameraAndMic() {
+    await ensureAudioCtx();
+    if (!camStream) {
+        try {
+            camStream = await navigator.mediaDevices.getUserMedia({
+                video: { width:{ max:640 }, height:{ max:640 }, frameRate:{ ideal:24, max:30 } },
+                audio: { channelCount:1, sampleRate:48000,
+                         echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+            });
+        } catch(e) { log_always('getUserMedia failed:', e.message || e); return false; }
+
+        localVideo.srcObject = camStream;
+        const vt = camStream.getVideoTracks()[0];
+        const s  = vt.getSettings();
+        let encW = s.width  || 320;
+        let encH = s.height || 240;
+        const FPS = s.frameRate || 24;
+        const KEYFRAME_EVERY = Math.max(1, Math.round(FPS / 3));
+        log_always('camera:', encW, 'x', encH, '@', FPS, 'fps  keyframe every', KEYFRAME_EVERY);
+        fitEl(localVideo, encW, encH);
+
+        function configureEncoder(w, h) {
+            encoder.configure({ codec:'vp8', width:w, height:h, bitrate:200_000, framerate:FPS });
+            encW = w; encH = h; frameCount = 0;
+        }
+
+        // video encoder
+        if ('VideoEncoder' in window) {
+            encoder = new VideoEncoder({
+                output: chunk => {
+                    if (videoMuted || socket.readyState !== WebSocket.OPEN || !their_ed25519.value) return;
+                    const data = new Uint8Array(chunk.byteLength);
+                    chunk.copyTo(data);
+                    videoSeqSent++;
+                    log('video', chunk.type, chunk.byteLength+'B seq'+videoSeqSent);
+                    socket.send(JSON.stringify([{Forward:{
+                        to_ed25519: their_ed25519.value,
+                        messages: [{VideoFrame:{ codec:'vp8', keyframe: chunk.type==='key',
+                                                 seq: videoSeqSent, w: encW, h: encH,
+                                                 data: u8toB64(data) }}]
+                    }}]));
+                },
+                error: e => log_always('video encoder err:', e.message || e)
+            });
+            try { configureEncoder(encW, encH); }
+            catch(e) { log_always('VideoEncoder configure failed:', e.message || e); encoder = null; }
+        }
+
+        if (encoder) {
+            const proc = new MediaStreamTrackProcessor({ track: vt });
+            frameReader = proc.readable.getReader();
+            (async () => {
+                while (true) {
+                    let r;
+                    try { r = await frameReader.read(); } catch { break; }
+                    if (r.done) break;
+                    const frame = r.value;
+                    if (videoMuted) { frame.close(); continue; }
+                    // reconfigure if phone rotated
+                    if (frame.codedWidth !== encW || frame.codedHeight !== encH) {
+                        log_always('rotation:', frame.codedWidth, 'x', frame.codedHeight);
+                        try { await encoder.flush(); } catch {}
+                        configureEncoder(frame.codedWidth, frame.codedHeight);
+                        fitEl(localVideo, frame.codedWidth, frame.codedHeight);
+                    }
+                    if (encoder.encodeQueueSize > 2) { frame.close(); continue; }
+                    const keyFrame = (frameCount % KEYFRAME_EVERY === 0);
+                    try { encoder.encode(frame, { keyFrame }); } catch(e) { log_always('encode err:', e); }
+                    frame.close();
+                    frameCount++;
+                }
+            })();
+        }
+
+        decoder = makeDecoder();
+        needKeyframe = true;
+        muteVideoBtn.disabled = false;
+    }
+
+    // audio encoder
+    if (!audioEncoder) {
+        audioEncoder = new AudioEncoder({
+            output: chunk => {
+                if (!micActive || socket.readyState !== WebSocket.OPEN || !their_ed25519.value) return;
+                const data = new Uint8Array(chunk.byteLength);
+                chunk.copyTo(data);
+                offset_sent++;
+                socket.send(JSON.stringify([{Forward:{
+                    to_ed25519: their_ed25519.value,
+                    messages: [{AudioFrame:{ sampleRate:48000, channels:1, format:'opus',
+                                             data: u8toB64(data), offset: offset_sent }}]
+                }}]));
+            },
+            error: e => log_always('audio encoder err:', e.message || e)
+        });
+        audioEncoder.configure({ codec:'opus', sampleRate:48000, numberOfChannels:1, bitrate:32000 });
+        log_always('audio: Opus 32kbps');
+    }
+
+    // mic -> processor
+    if (!recordProc) {
+        const micSrc = audioCtx.createMediaStreamSource(camStream);
+        recordProc = audioCtx.createScriptProcessor(1024, 1, 1);
+        recordProc.onaudioprocess = e => {
+            const input = e.inputBuffer.getChannelData(0);
+            // VU meter runs even when muted
+            let rms = 0;
+            for (let i = 0; i < input.length; i++) rms += input[i] * input[i];
+            setVU(Math.min(1, Math.sqrt(rms / input.length) * 6));
+
+            if (!micActive || socket.readyState !== WebSocket.OPEN || !their_ed25519.value) return;
+            audioTsCounter += input.length;
+            const ad = new AudioData({
+                format: 'f32-planar', sampleRate: 48000,
+                numberOfFrames: input.length, numberOfChannels: 1,
+                timestamp: audioTsCounter,
+                data: new Float32Array(input)
+            });
+            audioEncoder.encode(ad);
+            ad.close();
+        };
+        micSrc.connect(recordProc);
+        recordProc.connect(audioCtx.destination);
+    }
+    return true;
+}
+
+// -- mic mute button ----------------------------------------------------------
+muteAudioBtn.onclick = async () => {
+    if (!micActive) {
+        const ok = await startCameraAndMic();
+        if (!ok) return;
+        micActive = true;
+        setLed(recLed, true);
+        muteAudioBtn.textContent = 'Mute Mic';
+    } else {
+        micActive = false;
+        setLed(recLed, false);
+        muteAudioBtn.textContent = 'Unmute Mic';
+        setVU(0);
+    }
+};
+
+// -- video mute button --------------------------------------------------------
+muteVideoBtn.onclick = () => {
+    videoMuted = !videoMuted;
+    muteVideoBtn.textContent = videoMuted ? 'Unmute Video' : 'Mute Video';
+    if (!videoMuted) frameCount = 0; // force keyframe on unmute
+};
+
+// -- WebSocket + receive (always on from page load) ---------------------------
 let socket;
 function connect() {
-    log_always('websocket connecting');
+    log_always('ws connecting');
     socket = new WebSocket('ws://localhost:24255/wt');
-    socket.onclose = () => { log_always('socket closed, reconnecting...'); setTimeout(connect, 200); };
+    socket.onclose = () => { log_always('ws closed, reconnecting'); setTimeout(connect, 200); };
     socket.onopen = () => {
         let work = Promise.resolve();
         socket.onmessage = event => {
             work = work.then(() => {
-                let messages_, messages, src, forwarded = false;
-                try { messages_ = JSON.parse(event.data); } catch(e) { log_always('parse error', e); return; }
-                if ('Forwarded' in messages_[0]) {
-                    src = messages_[0].Forwarded.from_ed25519;
+                let outer, messages, src, forwarded = false;
+                try { outer = JSON.parse(event.data); } catch(e) { log_always('parse err', e); return; }
+                if ('Forwarded' in outer[0]) {
+                    src = outer[0].Forwarded.from_ed25519;
                     forwarded = true;
-                    try { messages = JSON.parse(messages_[0].Forwarded.messages); }
-                    catch(e) { log_always('inner parse error', e); return; }
+                    // E: only accept frames from the peer we're calling
+                    if (their_ed25519.value && src !== their_ed25519.value) return;
+                    try { messages = JSON.parse(outer[0].Forwarded.messages); }
+                    catch(e) { log_always('inner parse err', e); return; }
                 } else {
-                    messages = messages_;
+                    messages = outer;
                 }
                 for (const msg of messages) {
                     log(JSON.stringify(msg));
                     if (!forwarded && 'YourEd25519' in msg) {
-                        my_ed25519 = msg.YourEd25519.ed25519;
-                        update_links();
+                        my_ed25519 = msg.YourEd25519.ed25519; update_links();
                     }
                     if (!forwarded && 'PleaseSignYourPub' in msg) {
-                        my_ed25519 = msg.PleaseSignYourPub.ed25519;
-                        update_links();
+                        my_ed25519 = msg.PleaseSignYourPub.ed25519; update_links();
                     }
-                    if (forwarded && 'VideoFrame' in msg && startBtn.disabled) {
+                    if (forwarded && 'VideoFrame' in msg) {
                         const vf = msg.VideoFrame;
                         if (vf.codec !== 'vp8') continue;
+                        if (vf.seq !== undefined && vf.seq <= videoSeqRecv) continue;
+                        if (vf.seq !== undefined) videoSeqRecv = vf.seq;
                         if (needKeyframe && !vf.keyframe) continue;
-
-                        const frameData = b64ToU8(vf.data);
-                        if (decoder == null || decoder.state === 'closed') decoder = makeDecoder();
+                        // reconfigure decoder if sender dimensions changed (e.g. phone rotated)
+                        if (vf.w && vf.h && (vf.w !== remoteCanvas.width || vf.h !== remoteCanvas.height)) {
+                            if (decoder && decoder.state !== 'closed') { try { decoder.close(); } catch {} }
+                            decoder = makeDecoder(vf.w, vf.h);
+                            remoteCanvas.width  = vf.w;
+                            remoteCanvas.height = vf.h;
+                            fitEl(remoteCanvas, vf.w, vf.h);
+                            needKeyframe = true;
+                            if (!vf.keyframe) continue;
+                        }
+                        if (!decoder || decoder.state === 'closed') decoder = makeDecoder(vf.w, vf.h);
                         try {
                             decoder.decode(new EncodedVideoChunk({
                                 type: vf.keyframe ? 'key' : 'delta',
-                                timestamp: vf.timestamp,
-                                data: frameData
+                                timestamp: videoSeqRecv,
+                                data: b64ToU8(vf.data)
                             }));
-                        } catch(e) {
-                            log_always('decode err:', e.message || e);
-                            needKeyframe = true;
-                        }
+                        } catch(e) { log_always('video decode err:', e.message || e); needKeyframe = true; }
                     }
-                    if (forwarded && 'AudioFrame' in msg && startBtn.disabled) {
+                    if (forwarded && 'AudioFrame' in msg) {
                         const af = msg.AudioFrame;
-                        if (audioCtx && af.sampleRate === 48000 && af.channels === 1 && af.offset > offset_received) {
+                        if (af.format === 'opus' && af.sampleRate === 48000 && af.channels === 1
+                                && af.offset > offset_received
+                                && audioDecoder && audioDecoder.state === 'configured') {
                             offset_received = af.offset;
-                            if (af.format === 'opus' && audioDecoder && audioDecoder.state === 'configured') {
-                                try {
-                                    audioDecoder.decode(new EncodedAudioChunk({
-                                        type: 'key', timestamp: af.offset * 21333, data: b64ToU8(af.data)
-                                    }));
-                                } catch(e) { log_always('audio decode err:', e.message || e); }
-                            } else if (af.format === 'f32') {
-                                const u8  = b64ToU8(af.data);
-                                const f32 = new Float32Array(u8.buffer, u8.byteOffset, u8.byteLength / 4);
-                                led.classList.add('on');
-                                for (let i = 0; i < f32.length; i++) {
-                                    ring[writeIdx] = f32[i];
-                                    writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
-                                    if (writeIdx === readIdx) readIdx = (readIdx + 48 * 20) & (RING_SIZE - 1);
-                                }
-                            }
+                            try {
+                                audioDecoder.decode(new EncodedAudioChunk({
+                                    type: 'key', timestamp: offset_received,
+                                    data: b64ToU8(af.data)
+                                }));
+                            } catch(e) { log_always('audio decode err:', e.message || e); }
                         }
                     }
                 }
             });
         };
         new URLSearchParams(window.location.search).forEach((v, k) => {
-            log_always('url param:', k, '=', v);
-            if (k === 'ed25519') set_their_ed25519(v);
+            if (k === 'ed25519') { their_ed25519.value = v; update_links(); }
         });
     };
 }
 connect();
-
-// -- mute video button ---------------------------------------------------------
-muteVideoBtn.onclick = () => {
-    videoMuted = !videoMuted;
-    muteVideoBtn.textContent = videoMuted ? 'Unmute Video' : 'Mute Video';
-    if (!videoMuted) frameCount = 0; // force keyframe on unmute so remote can recover
-};
-
-// -- start / stop --------------------------------------------------------------
-startBtn.onclick = async () => {
-    if (!('VideoEncoder' in window)) {
-        log_always('WebCodecs not supported in this browser');
-        return;
-    }
-    try {
-        camStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 320, height: 240, frameRate: 15 },
-            audio: { channelCount: 1, sampleRate: 48000, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-        });
-        localVideo.srcObject = camStream;
-
-        const videoTrack = camStream.getVideoTracks()[0];
-        const settings   = videoTrack.getSettings();
-        const W = settings.width  || 320;
-        const H = settings.height || 240;
-        log_always('camera:', W, 'x', H, '@', settings.frameRate, 'fps');
-
-        // -- audio setup -------------------------------------------------------
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-        await audioCtx.resume();
-
-        playProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
-        playProcessor.onaudioprocess = e => {
-            const out = e.outputBuffer.getChannelData(0);
-            for (let i = 0; i < out.length; i++) {
-                if (readIdx !== writeIdx) {
-                    lastSample = ring[readIdx];
-                    out[i] = lastSample;
-                    readIdx = (readIdx + 1) & (RING_SIZE - 1);
-                } else {
-                    lastSample *= 0.997;
-                    out[i] = lastSample;
-                    led.classList.remove('on');
-                }
-            }
-        };
-        playProcessor.connect(audioCtx.destination);
-
-        // -- audio encoder (Opus via WebCodecs, raw PCM fallback) -------------
-        if ('AudioEncoder' in window) {
-            audioEncoder = new AudioEncoder({
-                output: (chunk) => {
-                    if (socket.readyState !== WebSocket.OPEN || !their_ed25519.value) return;
-                    const data = new Uint8Array(chunk.byteLength);
-                    chunk.copyTo(data);
-                    offset_sent++;
-                    socket.send(JSON.stringify([{Forward:{
-                        to_ed25519: their_ed25519.value,
-                        messages: [{AudioFrame:{ sampleRate:48000, channels:1, format:'opus', data:u8toB64(data), offset:offset_sent }}]
-                    }}]));
-                },
-                error: e => log_always('audio encoder error:', e.message || e)
-            });
-            try {
-                audioEncoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 32000 });
-                log_always('audio: Opus 32kbps');
-            } catch(e) {
-                log_always('AudioEncoder configure failed:', e.message, '-- falling back to raw PCM');
-                audioEncoder = null;
-            }
-        } else {
-            log_always('audio: AudioEncoder unavailable, using raw PCM');
-        }
-
-        // -- audio decoder (Opus, created on first received packet) -----------
-        if ('AudioDecoder' in window) {
-            audioDecoder = new AudioDecoder({
-                output: audioData => {
-                    const pcm = new Float32Array(audioData.numberOfFrames);
-                    audioData.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
-                    audioData.close();
-                    led.classList.add('on');
-                    for (let i = 0; i < pcm.length; i++) {
-                        ring[writeIdx] = pcm[i];
-                        writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
-                        if (writeIdx === readIdx) readIdx = (readIdx + 48 * 20) & (RING_SIZE - 1);
-                    }
-                },
-                error: e => log_always('audio decoder error:', e.message || e)
-            });
-            try {
-                audioDecoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1 });
-            } catch(e) {
-                log_always('AudioDecoder configure failed:', e.message, '-- raw PCM receive only');
-                audioDecoder = null;
-            }
-        }
-
-        const micSource = audioCtx.createMediaStreamSource(camStream);
-        recordProcessor = audioCtx.createScriptProcessor(1024, 1, 1);
-
-        recordProcessor.onaudioprocess = e => {
-            if (socket.readyState !== WebSocket.OPEN || !their_ed25519.value) return;
-            const input = e.inputBuffer.getChannelData(0);
-            if (audioEncoder && audioEncoder.state === 'configured') {
-                const ad = new AudioData({
-                    format: 'f32-planar',
-                    sampleRate: 48000,
-                    numberOfFrames: input.length,
-                    numberOfChannels: 1,
-                    timestamp: audioTsOut,
-                    data: new Float32Array(input)
-                });
-                audioTsOut += Math.round(input.length / 48000 * 1e6);
-                audioEncoder.encode(ad);
-                ad.close();
-            } else {
-                // raw PCM fallback
-                const u8 = new Uint8Array(new Float32Array(input).buffer);
-                offset_sent += input.length;
-                socket.send(JSON.stringify([{Forward:{
-                    to_ed25519: their_ed25519.value,
-                    messages: [{AudioFrame:{ sampleRate:48000, channels:1, format:'f32', data:u8toB64(u8), offset:offset_sent }}]
-                }}]));
-            }
-        };
-        micSource.connect(recordProcessor);
-        recordProcessor.connect(audioCtx.destination);
-
-        // -- video encoder setup -----------------------------------------------
-        encoder = new VideoEncoder({
-            output: (chunk) => {
-                if (videoMuted) return;
-                if (socket.readyState !== WebSocket.OPEN) return;
-                if (!their_ed25519.value) return;
-                const data = new Uint8Array(chunk.byteLength);
-                chunk.copyTo(data);
-                log('video', chunk.type, chunk.byteLength + 'B');
-                socket.send(JSON.stringify([{Forward:{
-                    to_ed25519: their_ed25519.value,
-                    messages: [{VideoFrame:{
-                        codec: 'vp8',
-                        keyframe: chunk.type === 'key',
-                        timestamp: chunk.timestamp,
-                        data: u8toB64(data)
-                    }}]
-                }}]));
-            },
-            error: e => log_always('encoder error:', e.message || e)
-        });
-        encoder.configure({ codec: 'vp8', width: W, height: H, bitrate: 200_000, framerate: 15 });
-
-        const processor = new MediaStreamTrackProcessor({ track: videoTrack });
-        frameReader = processor.readable.getReader();
-        frameCount  = 0;
-        (async () => {
-            while (true) {
-                let result;
-                try { result = await frameReader.read(); } catch { break; }
-                if (result.done) break;
-                const frame = result.value;
-                if (videoMuted) { frame.close(); continue; }
-                if (encoder.encodeQueueSize > 2) { frame.close(); continue; }
-                const keyFrame = (frameCount % 30 === 0);
-                try { encoder.encode(frame, { keyFrame }); } catch(e) { log_always('encode err:', e); }
-                frame.close();
-                frameCount++;
-            }
-        })();
-
-        decoder = makeDecoder();
-        needKeyframe = true;
-
-        startBtn.disabled     = true;
-        stopBtn.disabled      = false;
-        muteVideoBtn.disabled = false;
-    } catch(e) {
-        log_always('start error:', e.message || e);
-    }
-};
-
-stopBtn.onclick = async () => {
-    if (frameReader) { try { frameReader.cancel(); } catch {} frameReader = null; }
-    if (encoder && encoder.state !== 'closed') { try { await encoder.flush(); encoder.close(); } catch {} encoder = null; }
-    if (decoder && decoder.state !== 'closed') { try { decoder.close(); } catch {} decoder = null; }
-    if (audioEncoder && audioEncoder.state !== 'closed') { try { await audioEncoder.flush(); audioEncoder.close(); } catch {} audioEncoder = null; }
-    if (audioDecoder && audioDecoder.state !== 'closed') { try { audioDecoder.close(); } catch {} audioDecoder = null; }
-    recordProcessor?.disconnect(); recordProcessor = null;
-    playProcessor?.disconnect();   playProcessor   = null;
-    audioCtx?.close();             audioCtx        = null;
-    audioTsOut = 0;
-    if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
-    localVideo.srcObject = null;
-    led.classList.remove('on');
-    videoMuted = false;
-    muteVideoBtn.textContent  = 'Mute Video';
-    startBtn.disabled         = false;
-    stopBtn.disabled          = true;
-    muteVideoBtn.disabled     = true;
-    needKeyframe              = true;
-    offset_sent               = 0;
-    offset_received           = 0;
-    writeIdx = 0; readIdx = 0;
-};
 </script>
-</body>
-</html>
+</body></html>
