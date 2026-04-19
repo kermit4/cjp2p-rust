@@ -47,6 +47,7 @@ their ed25519: <input id=their_ed25519 size=80>
   <span class="led rx-led" id=rxLed title="rx audio"></span>
   <button id=debugBtn>debug log</button>
 </div>
+<pre id=stats style="font-size:11px;margin:4px 0;"></pre>
 <div id=logDiv></div>
 
 <script>
@@ -124,7 +125,7 @@ function goFullscreen(el) {
 document.getElementById('fsLocal').onclick  = () => goFullscreen(localVideo);
 document.getElementById('fsRemote').onclick = () => goFullscreen(remoteCanvas);
 
-// -- fit element to w×h, longest side = 320px --------------------------------
+// -- fit element to wxh, longest side = 320px --------------------------------
 const MAX_DIM = 320;
 function fitEl(el, w, h) {
     const scale = Math.min(MAX_DIM / w, MAX_DIM / h, 1);
@@ -156,6 +157,12 @@ let audioTsCounter  = 0;  // monotonic counter for WebCodecs internal use; never
 let offset_sent     = Date.now(); // start high so post-reload seqs aren't rejected as stale
 let offset_received = 0;
 let lastSample      = 0;
+
+let videoDrops = 0, lastVideoDropMs = null, hasFirstVideo = false;
+let audioDrops = 0, lastAudioDropMs = null, hasFirstAudio = false;
+let videoDelayMs = 100;
+const videoQueue = [];
+let sendW = 0, sendH = 0;
 
 const RING_SIZE = 4096;
 const ring = new Float32Array(RING_SIZE);
@@ -190,8 +197,11 @@ function makeDecoder(w, h) {
                 remoteCanvas.height = frame.displayHeight;
                 fitEl(remoteCanvas, frame.displayWidth, frame.displayHeight);
             }
-            remoteCanvas.getContext('2d').drawImage(frame, 0, 0);
-            frame.close(); needKeyframe = false;
+            createImageBitmap(frame).then(bm => {
+                videoQueue.push({ bm, due: Date.now() + videoDelayMs });
+            });
+            frame.close();
+            needKeyframe = false;
         },
         error: e => { log_always('video decoder err:', e.message || e); needKeyframe = true; }
     });
@@ -206,6 +216,9 @@ async function ensureAudioCtx() {
     if (audioCtx) { await audioCtx.resume(); return; }
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
     await audioCtx.resume();
+    const hwLatency = (audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0);
+    videoDelayMs = Math.max(80, Math.round((hwLatency + 0.071) * 1000));
+    log_always('audio hw latency:', Math.round(hwLatency*1000)+'ms  video delay:', videoDelayMs+'ms');
     playProc = audioCtx.createScriptProcessor(1024, 1, 1);
     playProc.onaudioprocess = e => {
         const out = e.outputBuffer.getChannelData(0);
@@ -251,7 +264,7 @@ async function startCameraAndMic() {
 
         function configureEncoder(w, h) {
             encoder.configure({ codec:'vp8', width:w, height:h, bitrate:200_000, framerate:FPS });
-            encW = w; encH = h; frameCount = 0;
+            encW = w; encH = h; sendW = w; sendH = h; frameCount = 0;
         }
 
         // video encoder
@@ -412,7 +425,14 @@ function connect() {
                         const vf = msg.VideoFrame;
                         if (vf.codec !== 'vp8') continue;
                         if (vf.seq !== undefined && vf.seq <= videoSeqRecv) continue;
-                        if (vf.seq !== undefined) videoSeqRecv = vf.seq;
+                        if (vf.seq !== undefined) {
+                            if (hasFirstVideo && vf.seq > videoSeqRecv + 1) {
+                                videoDrops += vf.seq - videoSeqRecv - 1;
+                                lastVideoDropMs = Date.now();
+                            }
+                            videoSeqRecv = vf.seq;
+                            hasFirstVideo = true;
+                        }
                         if (needKeyframe && !vf.keyframe) continue;
                         // reconfigure decoder if sender dimensions changed (e.g. phone rotated)
                         if (vf.w && vf.h && (vf.w !== remoteCanvas.width || vf.h !== remoteCanvas.height)) {
@@ -438,7 +458,12 @@ function connect() {
                         if (af.format === 'opus' && af.sampleRate === 48000 && af.channels === 1
                                 && af.offset > offset_received
                                 && audioDecoder && audioDecoder.state === 'configured') {
+                            if (hasFirstAudio && af.offset > offset_received + 1) {
+                                audioDrops += af.offset - offset_received - 1;
+                                lastAudioDropMs = Date.now();
+                            }
                             offset_received = af.offset;
+                            hasFirstAudio = true;
                             try {
                                 audioDecoder.decode(new EncodedAudioChunk({
                                     type: 'key', timestamp: offset_received,
@@ -455,6 +480,29 @@ function connect() {
         });
     };
 }
+// -- video render loop (draws queued frames after videoDelayMs) ----------------
+const statsEl = document.getElementById('stats');
+(function renderLoop() {
+    const now = Date.now();
+    while (videoQueue.length && videoQueue[0].due <= now) {
+        const { bm } = videoQueue.shift();
+        remoteCanvas.getContext('2d').drawImage(bm, 0, 0);
+        bm.close();
+    }
+    requestAnimationFrame(renderLoop);
+})();
+
+setInterval(() => {
+    const now = Date.now();
+    const ago = ms => ms ? Math.round((now - ms)/1000)+'s ago' : 'never';
+    const sr = sendW && sendH ? sendW+'x'+sendH : '--';
+    const rr = remoteCanvas.width && remoteCanvas.height ? remoteCanvas.width+'x'+remoteCanvas.height : '--';
+    statsEl.textContent =
+        `send: ${sr}  recv: ${rr}  delay: ${videoDelayMs}ms\n` +
+        `video loss: ${videoDrops}  last: ${ago(lastVideoDropMs)}\n` +
+        `audio loss: ${audioDrops}  last: ${ago(lastAudioDropMs)}`;
+}, 1000);
+
 connect();
 </script>
 </body></html>
