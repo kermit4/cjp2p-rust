@@ -355,9 +355,9 @@ impl PeerState {
                     if e.raw_os_error() != Some(11) {
                         // EWOULDBLOCK
 // upnp can hang for 10 seconds so dont make faster.                        self.next_upnp = std::time::SystemTime::now();
-                        info!("failed to send to {sa} {0} bytes: {e} ", message_out_bytes.len());
+                        debug!("failed to send to {sa} {0} bytes: {e} ", message_out_bytes.len());
                     } else {
-                        info!("EWOULDBLOCK failed to send {0} {e}", message_out_bytes.len());
+                        warn!("EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", message_out_bytes.len());
                     }
                 }
             }
@@ -1206,7 +1206,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     } */
     match ps.socket.send_to(&message_out_bytes, src) {
         Ok(s) => trace!("sent {s}"),
-        Err(e) => warn!("failed to send {0} {e}", message_out_bytes.len()),
+        Err(e) => warn!("failed to reply to {0} {e}", message_out_bytes.len()),
     }
 }
 fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
