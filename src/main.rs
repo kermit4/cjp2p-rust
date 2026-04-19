@@ -232,6 +232,13 @@ impl PeerState {
             http_clients: Vec::new(),
             content_gateways: Vec::new(),
         };
+        for (k, v) in &ps.peer_map {
+            if let Some(ed25519) = v.ed25519 {
+                ps.peer_map_by_pub
+                    .insert(ed25519[..8].try_into().unwrap(), Source::S(k.to_owned()));
+            }
+        }
+
         ps.socket.set_broadcast(true).ok();
         ps.socket.set_nonblocking(true).unwrap();
         SockRef::from(&ps.socket)
@@ -375,6 +382,7 @@ impl PeerState {
                 serde_json::from_reader(&file.unwrap()).unwrap();
             map.extend(json);
         }
+
         return map;
     }
     fn save_peers(&self) -> () {
@@ -531,6 +539,7 @@ impl PeerState {
         let lease_duration: u32 = 3600; // 0 = permanent
         let protocol = PortMappingProtocol::UDP;
         let description = "cjp2p";
+        info!("UPNP started (is this section of code hanging??)");
         if let Ok(gateway) = search_gateway(Default::default()) {
             info!("UPNP Found gateway: {}", gateway.addr);
             let local_ip = get_local_ip_for_gateway(gateway.addr.ip().clone());
@@ -584,6 +593,7 @@ impl PeerState {
         } else {
             info!("UPNP no gateway found");
         }
+        info!("UPNP() done (is this section of code hanging??)");
     }
 }
 
@@ -1025,8 +1035,7 @@ fn handle_web_request(
                     try /ping or /version. \n\
                 If they can't find you through main page, the URL they need to get here (not the same as yours) is 
                 <a href=http://127.0.0.1:24255/chat/{}>http://127.0.0.1:24255/chat/{}</a>
-                    <br><a href=/phone.html?ed25519={}>click here</a> for high quality audio all (no echo surpression, use a headset)</a>\n
-                    <br><a href=/video.html?ed25519={}>click here</a> for high quality video all </a>\n
+                    <br><a href=/video.html?ed25519={}>click here</a> for high quality video call (just mute the video for audio only)</a>\n
                     <br><a href=/pong.html?ed25519={}>click here</a> to play pong</a>\n
                     send a message (type fast before the next page refresh) : <form><input name=line_chat_msg></form>\n\n\
                     <a href=/C5.html?{}>click here</a> to switch to character-by-character mode\n\
@@ -1035,7 +1044,6 @@ fn handle_web_request(
                     ,their_pub
                     ,hex::encode(&ps.keypair.public)
                     ,hex::encode(&ps.keypair.public)
-                    ,their_pub
                     ,their_pub
                     ,their_pub
                     ,their_pub
