@@ -963,14 +963,14 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
             }
         }
     }
-    page += &format!("--- all IPs: \n");
+    page += &format!("--- all IPs: <table>\n");
     let mut unique_ips = HashSet::new();
     for (k, _) in &ps.peer_map {
         if unique_ips.insert(k.ip()) {
-            page+=&format!("{:21} {}\n",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
+            page+=&format!("<tr><td align=right>{:21}</td><td width=30px></td><td>{}</td></tr>\n",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
         }
     }
-    page += &format!("{} total unique IP peers\n--- active peers: \n",unique_ips.len());
+    page += &format!("</table>{} total unique IP peers\n--- active peers: \n",unique_ips.len());
     for v in ps.peer_vec.iter() {
         let d = ps.peer_map[v].delay;
         if d < Duration::from_millis(119) {
