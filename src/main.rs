@@ -1,4 +1,4 @@
-use igd::{search_gateway, PortMappingProtocol};
+use igd::{search_gateway, SearchOptions, PortMappingProtocol};
 use socket2::SockRef;
 use std::net::{Ipv4Addr, SocketAddrV4};
 //use std::thread;
@@ -543,7 +543,7 @@ impl PeerState {
         let protocol = PortMappingProtocol::UDP;
         let description = "cjp2p";
         info!("UPNP started (is this section of code hanging??)");
-        if let Ok(gateway) = search_gateway(Default::default()) {
+        if let Ok(gateway) = search_gateway(SearchOptions { timeout: Some(Duration::from_millis(100)), ..Default::default() }) {
             info!("UPNP Found gateway: {}", gateway.addr);
             let local_ip = get_local_ip_for_gateway(gateway.addr.ip().clone());
             let local_addr = SocketAddrV4::new(local_ip, local_port);
