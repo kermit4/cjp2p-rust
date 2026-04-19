@@ -1,6 +1,6 @@
-This implements everything in spotted and listed in the https://github.com/kermit4/LCDP protocol repo, plus some other things.   The primary purpose of this repo, is to demonstrate sample use cases connectionless JSON (externally tagged) P2P aka the Least Common Denominator Protocol.
+This uses https://github.com/kermit4/LCDP .   The primary purpose of this repo, is to demonstrate sample use cases of connectionless JSON (externally tagged) P2P aka the Least Common Denominator Protocol messaging, however there are some users of it now, usually using web interfaces over the websocket that speaks the same protocol though is handled somewhat differently as it's intended only for the node operator's browser.
 
-It's functional for end users, but the current target audience is p2p devs, so the UI IS minimal and not clearly documented.
+The current target audience is devs, so the UI IS minimal and not clearly documented.   
 
 This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it.
 
@@ -83,5 +83,8 @@ or HTML pages with many page components, individually downloaded from the networ
 - putting git files in cjp2p/public is breaking a git pull if the directory is beyond is a symlink
 oh just give people latest urls that always pull from me not by hash..and dont error in the app about it
 chat input should be disabel until ed25519.. i thought it was
-audio frames are 5:1 .. we dont need the publilc key CONSTANTLY
 audio frames are 5:1 .. we dont need the publilc key CONSTANTLY ..and if its an encrypted frame, get the info out of that, it need not be included ever anyway.
+my putting plain names in public/ will go badly for anyone who doest have thetm and tries to get them ..just think of what i need to do for me and the fastest way to do it, htats how it will be done.. it doesnt have to be authenticated , as long as it CAN be later, just automate what i do, thats my specialtiy
+- find by eth faster for 1st time users of OnePlus, assuming the other side already has
+- document VidoFrame format in spec
+lcdp crate now? send to ed25519 as the base theme with the big hash getter should be core?
