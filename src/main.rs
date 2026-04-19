@@ -355,7 +355,8 @@ impl PeerState {
                 Err(e) => {
                     if e.raw_os_error() != Some(11) {
                         // EWOULDBLOCK
-                        // upnp can hang for 10 seconds so dont make faster.                        self.next_upnp = std::time::SystemTime::now();
+                        // upnp can hang for 10 seconds so dont make faster, also ipv6 now causes this to happen a lot
+                        // self.next_upnp = std::time::SystemTime::now();
                         debug!("failed to send to {sa} {0} bytes: {e} ", message_out_bytes.len());
                     } else {
                         warn!("EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", message_out_bytes.len());

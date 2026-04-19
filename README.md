@@ -82,9 +82,10 @@ or HTML pages with many page components, individually downloaded from the networ
 - put this as a git bundle in cjp2p/public
 - putting git files in cjp2p/public is breaking a git pull if the directory is beyond is a symlink
 oh just give people latest urls that always pull from me not by hash..and dont error in the app about it
-chat input should be disabel until ed25519.. i thought it was
-audio frames are 5:1 .. we dont need the publilc key CONSTANTLY ..and if its an encrypted frame, get the info out of that, it need not be included ever anyway.
 my putting plain names in public/ will go badly for anyone who doest have thetm and tries to get them ..just think of what i need to do for me and the fastest way to do it, htats how it will be done.. it doesnt have to be authenticated , as long as it CAN be later, just automate what i do, thats my specialtiy
 - find by eth faster for 1st time users of OnePlus, assuming the other side already has
 - document VidoFrame format in spec
 lcdp crate now? send to ed25519 as the base theme with the big hash getter should be core?
+if i add a Forwward..need two encrypted not encrypted really, maake both actual json, do it before everyone is using it
+pong logic should be able to play self, i dont see why not??
+aggressive search for pubs and eth addrs for chriss app
