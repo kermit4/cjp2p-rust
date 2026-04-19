@@ -2429,18 +2429,24 @@ impl Receive for EncryptedMessages {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: &Source,
+        src_: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        if let Source::S(src) = *src {
+        if let Source::S(src) = *src_ {
             let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
                 .local_private_key(&ps.keypair.private)
                 .build_responder()
                 .unwrap();
             let mut message_in_bytes = vec![0u8; 99999];
             if let Ok(len) = noise.read_message(&self.base64, &mut message_in_bytes) {
-                let their_pub_hex = hex::encode(noise.get_remote_static().unwrap());
+                let their_pub: [u8; 32] = noise.get_remote_static().unwrap().try_into().unwrap();
+                ps.peer_map_by_pub
+                    .insert(their_pub[..8].try_into().unwrap(), src_.clone());
+                let pi = ps.peer_map.get_mut(&src).unwrap();
+                pi.ed25519 = Some(their_pub);
+
+                let their_pub_hex = hex::encode(their_pub);
                 message_in_bytes.truncate(len);
                 trace!("handling decrypted message from {src} {their_pub_hex}: {}",
                      String::from_utf8_lossy(&message_in_bytes));
@@ -2456,9 +2462,11 @@ impl Receive for EncryptedMessages {
 
                 *might_be_ip_spoofing &= ps.check_key(&messages, src);
                 let message_out_string = serde_json::to_string(&json![
-                        [Message::Forwarded(Forwarded{src:src,from_ed25519:Some(their_pub_hex),
-        maybe_ed25519:None,
-                        messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]])
+                        [Message::Forwarded(Forwarded{
+                            src:src,
+                            from_ed25519:Some(their_pub_hex),
+                            maybe_ed25519:None,
+                            messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]])
                 .unwrap();
                 if ps.ws_vec.len() > 0 {
                     trace!( "sending decrypted message {} to {} websockets", message_out_string,ps.ws_vec.len());
@@ -2546,8 +2554,18 @@ fn msgs_to_pub(ps: &mut PeerState, their_pub_hex_: &String, messages: &Vec<Value
                     if let Some(key) = &pi.ed25519 {
                         if *key == to {
                             let mut message_out: Vec<Value> = vec![];
-                            //        message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
-                            message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
+                            if rand::rng().random::<u32>() % 37 == 0 {
+                                message_out.push(
+                                    serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap(),
+                                );
+                            } else if rand::rng().random::<u32>() % 5 == 0
+                                && ps.p.my_ed25519_signed_by_web_wallet.is_some()
+                            {
+                                message_out
+                                    .push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
+                            }
+                            // an optimization would be to skip serde once we know where
+                            // it should go and just copy the message bytes
                             for m in messages {
                                 message_out.push(serde_json::to_value(m).unwrap());
                             }
