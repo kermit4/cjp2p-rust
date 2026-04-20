@@ -143,7 +143,6 @@ let lastActivityAt = Date.now();
 function onActivity() { lastActivityAt = Date.now(); }
 document.addEventListener('touchstart', onActivity);
 document.addEventListener('click', onActivity);
-window.addEventListener('focus', onActivity);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) onActivity(); });
 
 function chartCol(t) { return Math.floor(t / CHART_MS_PER_COL) % W; }
@@ -163,7 +162,7 @@ function advanceChartCursor() {
 }
 
 function maybeSendPing() {
-    if (document.hidden || !document.hasFocus()) return;
+    if (document.hidden) return;
     if (!their_ed25519.value || !socket || socket.readyState !== WebSocket.OPEN) return;
     const now = Date.now();
     if (now - lastPingAt < pingInterval()) return;
