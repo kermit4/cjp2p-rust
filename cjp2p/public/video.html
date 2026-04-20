@@ -25,6 +25,7 @@ video, canvas { display:block; background:#000; }
 <body>
 their ed25519: <input id=their_ed25519 size=80>
 <br>share: <a id=link href=""></a>
+<br>ws url: <input id=ws_url size=50>
 <br><a href=/>status page</a>
 <p>
 <div id=videos>
@@ -61,6 +62,9 @@ const muteAudioBtn  = document.getElementById('muteAudioBtn');
 const muteVideoBtn  = document.getElementById('muteVideoBtn');
 const debugBtn      = document.getElementById('debugBtn');
 const logDiv        = document.getElementById('logDiv');
+const ws_url_input  = document.getElementById('ws_url');
+ws_url_input.value  = 'ws://localhost:24255/wt';
+ws_url_input.onchange = () => { if (socket) socket.close(); };
 
 // -- VU meter (12 fixed-width segments, never reflows) ------------------------
 const VU_N = 12;
@@ -394,7 +398,7 @@ muteVideoBtn.onclick = () => {
 let socket;
 function connect() {
     log_always('ws connecting');
-    socket = new WebSocket('ws://localhost:24255/wt');
+    socket = new WebSocket(ws_url_input.value);
     socket.onclose = () => { log_always('ws closed, reconnecting'); setTimeout(connect, 200); };
     socket.onopen = () => {
         let work = Promise.resolve();

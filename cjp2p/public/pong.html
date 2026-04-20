@@ -2,6 +2,7 @@
 <body>
 <p>Their ed25519 addr: <input id=their_ed25519 size=80>
 <p>Share this link with your opponent: <a id=link href=""></a>
+<p>WebSocket URL: <input id=ws_url size=60>
 <p><a href=/>return to network status page</a>
 <p>
 <span id=status_msg>Waiting for opponent...</span>
@@ -59,6 +60,9 @@ const canvas_wrap = document.getElementById('canvas_wrap');
 const speed_slider = document.getElementById('speed_slider');
 const speed_label = document.getElementById('speed_label');
 speed_slider.addEventListener('input', () => { speed_label.textContent = speed_slider.value; });
+const ws_url_input = document.getElementById('ws_url');
+ws_url_input.value  = 'ws://localhost:24255/wt';
+ws_url_input.onchange = () => { if (socket) socket.close(); };
 
 let my_ed25519 = null;
 let socket;
@@ -426,10 +430,7 @@ function check_ready() {
 }
 
 function connect() {
-    const url = new URL('/wt', window.location.href);
-    url.protocol = url.protocol.replace('http', 'ws');
-    //socket = new WebSocket('ws://localhost:24255/wt');
-    socket = new WebSocket(url);
+    socket = new WebSocket(ws_url_input.value);
     socket.onclose = () => { log_always('ws closed, reconnecting'); setTimeout(connect, 200); };
     socket.onopen = () => {
         log('ws open');
