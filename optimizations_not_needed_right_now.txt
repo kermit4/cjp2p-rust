@@ -1,0 +1,84 @@
+========  multicore message handling, the kernel is made for this:
+Yep, that’s the idea — but there’s a gotcha depending on how you do it.
+
+*Naive approach: 1 socket, N threads all calling `recv_from`:*
+let socket = UdpSocket::bind("0.0.0.0:9000")?;
+let socket = Arc::new(socket);
+
+for _ in 0..num_cpus::get() {
+    let s = socket.clone();
+    thread::spawn(move || loop {
+        let mut buf = [0; 1500];
+        let (len, addr) = s.recv_from(&mut buf).unwrap(); // all block here
+    });
+}
+*What happens:* All threads block in the kernel on the same socket. When a packet arrives, the kernel wakes _one_ of them at random. This works, but you get lock contention inside the kernel. It’s called the “thundering herd” problem — all threads wake, all fight for the lock, only one wins.
+
+Still faster than 1 thread, but not linear scaling.
+
+*Turbo mode: `SO_REUSEPORT` — 1 socket per thread:*
+use socket2::{Socket, Domain, Type};
+
+for _ in 0..num_cpus::get() {
+    thread::spawn(move || {
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None)?;
+        socket.set_reuse_port(true)?;  // key line
+        socket.bind(&"0.0.0.0:9000".parse()?)?;
+        let socket: UdpSocket = socket.into();
+        loop {
+            let mut buf = [0; 1500];
+            let (len, addr) = socket.recv_from(&mut buf)?;
+            // handle packet
+        }
+    });
+}
+*Now:* The kernel does load balancing in the network stack. It hashes `src_ip:port + dst_ip:port` and sends the packet to exactly one socket. No thundering herd, no user-space locks. Scales to line rate on 40GbE.
+
+*Rules for `SO_REUSEPORT`:*
+1. Every socket must set it before `bind`
+2. All must bind same IP:port
+3. Kernel distributes based on 4-tuple hash. Same peer always hits same thread
+
+*For CJP2P:* If you expect >100k pps, use `SO_REUSEPORT` with 1 thread per core. If it’s <10k pps, `Arc<UdpSocket>` + N threads is fine and simpler.
+
+*Bonus turbo:* Set `SO_RCVBUF` to 4-8MB per socket so you don’t drop packets during GC pauses. Pin threads to cores with `core_affinity` crate.
+
+So yeah — thread per core works, but “whoever is first” depends on whether the kernel or your mutex picks the winner. `SO_REUSEPORT` lets the kernel pick and it’s way faster.
+
+Wanna see a full `socket2` example that actually compiles?
+Not guaranteed unless you use `SO_REUSEPORT`.
+
+*Without `SO_REUSEPORT`:*
+let socket = Arc::new(UdpSocket::bind("0.0.0.0:9000")?);
+// 8 threads all call recv_from on same socket
+Kernel has 1 socket queue. It wakes 1 random thread. No affinity. Same source IP:port could hit thread 0, then thread 7, then thread 2. You get packet reordering and cache misses because peer state bounces between CPU cores.
+
+*With `SO_REUSEPORT`:*
+socket.set_reuse_port(true)?;
+Kernel creates N separate sockets, N separate queues. On packet arrival it does:
+hash = toeplitz(src_ip, src_port, dst_ip, dst_port) % num_sockets
+deliver_to = sockets[hash]
+*Guarantees:*
+1. Same 4-tuple always hashes to same socket → same thread → same core if you pin it
+2. Distribution is stable as long as you don’t add/remove sockets
+3. Roughly even if you have lots of peers
+
+*Not guaranteed if:*
+1. You add/remove a socket — hash bucket count changes, flows reshuffle
+2. Kernel version < 3.9 — `SO_REUSEPORT` for UDP didn’t exist
+3. You use `SO_REUSEPORT` + `SO_INCOMING_CPU` — that overrides the hash and pins by IRQ CPU
+
+*Gotcha for P2P:* NAT can change a peer’s source port. If it changes, the hash changes, and the peer’s packets jump to a different core. Your per-thread state machine for that peer breaks unless you use shared state or migrate it.
+
+*Linux reality check:* Run `ss -luptn` and you’ll see multiple sockets on `:9000`. Run `bpftrace -e 'tracepoint:net:netif_receive_skb { @[cpu] = count(); }'` to watch which cores get packets.
+
+So with `SO_REUSEPORT` it’s guaranteed stable per 4-tuple. Without it, it’s random.
+
+For CJP2P you probably want `SO_REUSEPORT` + shared `DashMap<SocketAddr, PeerState>` so any thread can handle any peer if NAT moves them.
+
+Want the `socket2` setup + core pinning code?
+
+
+
+===========  JSON Forwarding, just copy raw bytes once you know the destinstead of parsing it as JSON.
+=========== change encryption to one that isnt making ephemeral keys for each packet, i.e. not Noise
