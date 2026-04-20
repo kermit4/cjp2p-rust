@@ -545,25 +545,25 @@ impl PeerState {
         let lease_duration: u32 = 3600; // 0 = permanent
         let protocol = PortMappingProtocol::UDP;
         let description = "cjp2p";
-        if let Ok(gateway) = search_gateway(SearchOptions {
-            timeout: Some(Duration::from_millis(100)),
-            ..Default::default()
-        }) {
-            info!("UPNP Found gateway: {}", gateway.addr);
-            let local_ip = get_local_ip_for_gateway(gateway.addr.ip().clone());
-            let local_addr = SocketAddrV4::new(local_ip, local_port);
-            info!("UPNP Local addr: {local_addr}");
-            info!("UPNP exterrnal port requested base based on your public key: {}",external_port);
-            match gateway.add_port(
-                protocol,
-                external_port,
-                local_addr,
-                lease_duration,
-                description,
-            ) {
-                Ok(()) =>
-                    for index in 0..99 {
-                        match gateway.get_generic_port_mapping_entry(index) {
+        thread::spawn(move || {
+            if let Ok(gateway) = search_gateway(SearchOptions {
+                ..Default::default()
+            }) {
+                info!("UPNP Found gateway: {}", gateway.addr);
+                let local_ip = get_local_ip_for_gateway(gateway.addr.ip().clone());
+                let local_addr = SocketAddrV4::new(local_ip, local_port);
+                info!("UPNP Local addr: {local_addr}");
+                info!("UPNP exterrnal port requested base based on your public key: {}",external_port);
+                match gateway.add_port(
+                    protocol,
+                    external_port,
+                    local_addr,
+                    lease_duration,
+                    description,
+                ) {
+                    Ok(()) =>
+                        for index in 0..99 {
+                            match gateway.get_generic_port_mapping_entry(index) {
                             Ok(entry) => {
                                 if entry.external_port == external_port
                                     && entry.protocol == protocol
@@ -589,25 +589,19 @@ impl PeerState {
                                 break;
                             }
                         }
-                    },
-                Err(e) => {
-                    warn!("UPNP add_port failed: {e}");
+                        },
+                    Err(e) => {
+                        warn!("UPNP add_port failed: {e}");
+                    }
                 }
-            }
 
-            if let Ok(ip) = gateway.get_external_ip() {
-                info!("Your gateway's IP: {ip}");
-            }
-        } else {
-            info!("UPNP no gateway found");
-        }
-        if let Ok(dur) = self.last_upnp.elapsed() {
-            if dur > Duration::from_millis(200) {
-                warn!("UPNP() blocked node for {:?}",self.last_upnp.elapsed()  );
+                if let Ok(ip) = gateway.get_external_ip() {
+                    info!("Your gateway's IP: {ip}");
+                }
             } else {
-                info!("UPNP() blocked node for {:?}",self.last_upnp.elapsed()  );
+                info!("UPNP no gateway found");
             }
-        }
+        });
     }
 }
 
