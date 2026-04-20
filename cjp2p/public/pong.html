@@ -203,6 +203,7 @@ canvas.addEventListener('mousemove', e => {
 
 let touchStartPos = null;
 let touchStartTime = 0;
+let touchGraceUntil = 0;
 canvas.addEventListener('touchstart', e => {
     e.preventDefault();
     const t = e.touches[0];
@@ -211,6 +212,7 @@ canvas.addEventListener('touchstart', e => {
 }, {passive:false});
 canvas.addEventListener('touchmove', e => {
     e.preventDefault();
+    if (Date.now() < touchGraceUntil) return;
     movePaddle(canvasToGame(e.touches[0].clientX, e.touches[0].clientY).y);
 }, {passive:false});
 canvas.addEventListener('touchend', e => {
@@ -241,6 +243,7 @@ function doServe() {
     ballX = PADDLE_W + PADDLE_W/2 + BALL_R + 1;  // just past my paddle face
     ballY = myPaddleY;
     gameActive = true;
+    touchGraceUntil = Date.now() + 600;
     myMoveNum++;
     send_pong_move(myMoveNum, ballX, ballY, ballVX, ballVY);
     log_always('sent serve', myMoveNum, 'x', ballX.toFixed(0), 'y', ballY.toFixed(0));
@@ -342,11 +345,14 @@ function draw() {
         }
     }
 
-    ctx.setLineDash([10, 10]);
-    ctx.strokeStyle = '#bbb';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+    // 100ms grid lines on latency chart
+    ctx.strokeStyle = 'rgba(0,0,0,0.07)';
+    ctx.lineWidth = 1;
     ctx.setLineDash([]);
+    for (let i = 1; i <= 10; i++) {
+        const y = H - (i * H / 10);
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
 
     ctx.fillStyle = '#111';
     ctx.fillRect(PADDLE_W - PADDLE_W/2, myPaddleY - PADDLE_H/2, PADDLE_W, PADDLE_H);
