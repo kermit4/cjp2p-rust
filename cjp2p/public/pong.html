@@ -7,6 +7,8 @@
 <span id=status_msg>Waiting for opponent...</span>
 &nbsp;<button id=fs_btn>&#x26F6; Fullscreen</button>
 &nbsp;<button id=debug_btn>debug log</button>
+&nbsp; Serve speed: <input id=speed_slider type=range min=1 max=5 step=1 value=3 style="vertical-align:middle;">
+<span id=speed_label>3</span>
 <p>
 <div id=canvas_wrap style="display:inline-block;">
 <canvas id=canvas width=800 height=500 style="border:2px solid #333; background:#fff; cursor:none; display:block;"></canvas>
@@ -54,6 +56,9 @@ const logbox = document.getElementById('logbox');
 const fs_btn = document.getElementById('fs_btn');
 const debug_btn = document.getElementById('debug_btn');
 const canvas_wrap = document.getElementById('canvas_wrap');
+const speed_slider = document.getElementById('speed_slider');
+const speed_label = document.getElementById('speed_label');
+speed_slider.addEventListener('input', () => { speed_label.textContent = speed_slider.value; });
 
 let my_ed25519 = null;
 let socket;
@@ -238,7 +243,7 @@ function doServe() {
     // mirrored on receipt: opponent sees it coming from the right at BASE_SPEED
     // with centered paddles the ball bounces back and forth forever
     myPaddleY = H/2;
-    ballVX = BASE_SPEED;
+    ballVX = parseInt(speed_slider.value) * BASE_SPEED / 3;
     ballVY = 0;
     ballX = PADDLE_W + PADDLE_W/2 + BALL_R + 1;  // just past my paddle face
     ballY = myPaddleY;
