@@ -15,6 +15,8 @@
 <canvas id=canvas width=800 height=500 style="border:2px solid #333; background:#fff; cursor:none; display:block;"></canvas>
 </div>
 <p>
+<div id=ping_stats style="font-family:monospace;font-size:13px;color:#444;">PongPing RTT -- min: --&nbsp; max: --&nbsp; avg: --</div>
+<p>
 
 
 <style>
@@ -129,11 +131,11 @@ let gameActive = false;
 // -- latency chart -------------------------------------------------------------
 // Each x-column = 200ms real time. Full height = 1000ms RTT. Looping.
 const CHART_MS_PER_COL = 200;
-const IDLE_THRESHOLD_MS = 3600 * 1000; // 1 hour without activity → 1 ping/sec
+const IDLE_THRESHOLD_MS = 3600 * 1000; // 1 hour without activity -> 1 ping/sec
 const chartData = new Array(W).fill(null); // null = gap, number = RTT ms
 let chartCursor = Math.floor(Date.now() / CHART_MS_PER_COL) % W;
 let pingSeq = 0;
-const pendingPings = new Map(); // seq → sent_at
+const pendingPings = new Map(); // seq -> sent_at
 let lastPingAt = 0;
 let lastActivityAt = Date.now();
 
@@ -352,6 +354,16 @@ function draw() {
         ctx.beginPath();
         ctx.arc(ballX, ballY, BALL_R, 0, Math.PI*2);
         ctx.fill();
+    }
+
+    const samples = chartData.filter(v => v !== null);
+    const ping_stats = document.getElementById('ping_stats');
+    if (samples.length === 0) {
+        ping_stats.textContent = 'PongPing RTT -- min: --  max: --  avg: --';
+    } else {
+        const mn = Math.min(...samples), mx = Math.max(...samples);
+        const av = samples.reduce((a, b) => a + b, 0) / samples.length;
+        ping_stats.textContent = `PongPing RTT -- min: ${mn}ms  max: ${mx}ms  avg: ${av.toFixed(1)}ms`;
     }
 }
 
