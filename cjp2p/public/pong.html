@@ -75,7 +75,7 @@ window.onunhandledrejection = e => log_always('UNHANDLED:', e.reason?.stack || e
 
 function update_links() {
     if (!my_ed25519) return;
-    let url = location.origin + location.pathname + '?ed25519=' + my_ed25519;
+    let url = "http://localhost:24255" + location.pathname + '?ed25519=' + my_ed25519;
     link.href = url;
     link.textContent = url;
 }
@@ -412,7 +412,10 @@ function check_ready() {
 }
 
 function connect() {
-    socket = new WebSocket('ws://localhost:24255/wt');
+    const url = new URL('/wt', window.location.href);
+    url.protocol = url.protocol.replace('http', 'ws');
+    //socket = new WebSocket('ws://localhost:24255/wt');
+    socket = new WebSocket(url);
     socket.onclose = () => { log_always('ws closed, reconnecting'); setTimeout(connect, 200); };
     socket.onopen = () => {
         log('ws open');
