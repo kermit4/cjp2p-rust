@@ -1,7 +1,7 @@
 use igd::{search_gateway, PortMappingProtocol, SearchOptions};
 use socket2::SockRef;
 use std::net::{Ipv4Addr, SocketAddrV4};
-//use std::thread;
+use std::thread;
 use tungstenite::{accept, WebSocket};
 //use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
@@ -11,7 +11,7 @@ use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
 use memmap2::MmapMut;
-//use std::net::IpAddr;
+use std::net::IpAddr;
 //use nix::NixPath;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -906,32 +906,15 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
         }
     }
 }
-fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -> String {
-    let status_timer = Instant::now();
-    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>cjp2p status {}</title></head><body>\n\
-        {}\n\n\
-        <p>
-        <p> your public key {}
-        <p>
-        <div style='height: 200px; overflow: auto; border: 1px solid #ccc;'>",
-        env!("BUILD_VERSION"),
-        env!("BUILD_VERSION"),
-        hex::encode(ps.keypair.public.clone()));
+fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, stream: TcpStream) {
+    let public_key_hex = hex::encode(ps.keypair.public);
+    let all_chats = ps.all_chats.clone();
+    let current_dir = std::env::current_dir().unwrap().display().to_string();
 
-    for (their_pub_hex, msg) in (&ps.all_chats).into_iter().rev() {
-        page += &format!("<p><a href=/C5.html?{} target=_blank>0x{}</a> {}</p>\n",
-            their_pub_hex,
-            their_pub_hex,
-            msg);
-    }
-
-    page += &format!("</div>");
-    page += &format!("<a href=/C5.html>chat interface</a>");
-    page += &format!("
-          <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n",std::env::current_dir().unwrap().display());
-    for (_, i) in inbound_states {
-        page += &format!("{} {}/{}\n",i.id,i.bytes_complete,i.eof);
-    }
+    let inbound_info: Vec<(String, usize, usize)> = inbound_states
+        .values()
+        .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
+        .collect();
 
     let mut highly_recommended_content: HashMap<String, (i32, u64)> = HashMap::new();
     for (_, v) in &ps.peer_map {
@@ -944,12 +927,6 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
                 }
             }
         }
-    }
-    let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
-    sorted_list_results.sort_by_key(|&(_, b)| b.0);
-    page += &format!("most recommended content (results of '/recommend sha256' in the CLI):\n");
-    for (k, v) in &sorted_list_results {
-        page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
     }
 
     let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
@@ -964,54 +941,102 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState) -
             }
         }
     }
-    let mut sorted_list_results: Vec<_> = trending.iter().collect();
-    sorted_list_results.sort_by_key(|&(_, b)| b.0);
-    page += &format!("most recently downloaded content:\n");
-    for (k, v) in sorted_list_results.into_iter().rev() {
-        page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
-    }
 
-    page += &format!("\n{} total peers\n",ps.peer_map.len());
-    let mut unique_pubs = HashSet::new();
-    page += &format!("--- active public keys (recently responding in under than 250ms).  Click on one to open an encrypted 2-way chat.\n\
-        Note that unless they have a tab open with you, they'll only see it in the console or status page: \n");
+    let total_peers = ps.peer_map.len();
+
+    let mut seen_pubs: HashSet<[u8; 32]> = HashSet::new();
+    let mut active_peers: Vec<(SocketAddr, [u8; 32])> = Vec::new();
     for (k, v) in &ps.peer_map {
         if v.delay < Duration::from_millis(250) {
-            if let Some(their_pub) = &v.ed25519 {
-                let their_pub_hex = hex::encode(v.ed25519.clone().unwrap_or_default());
-                if unique_pubs.insert(their_pub) {
-                    page += &format!("{:21} <a href=/chat/{} target=_blank>0x{}</a> {}\n",k.ip(),
-            their_pub_hex,
-            their_pub_hex,
-            // dns hangs everything
-            //if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()},
-            k.ip().to_string(),
-);
+            if let Some(pub_) = v.ed25519 {
+                if seen_pubs.insert(pub_) {
+                    active_peers.push((*k, pub_));
                 }
             }
         }
     }
-    //    page += &format!("--- all IPs: <table>\n");
-    let mut unique_ips = HashSet::new();
+
+    let mut seen_ips: HashSet<IpAddr> = HashSet::new();
+    let mut all_ips: Vec<IpAddr> = Vec::new();
     for (k, _) in &ps.peer_map {
-        if unique_ips.insert(k.ip()) {
-            // this rev dns hangs the whole thing, which if you're doing audio, video, or pong, is
-            // a long time
-            //page+=&format!("<tr><td align=right>{:21}</td><td width=30px></td><td>{}</td></tr>\n",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
+        if seen_ips.insert(k.ip()) {
+            all_ips.push(k.ip());
         }
     }
-    page += &format!("</table>{} total unique IP peers\n--- active peers: \n",unique_ips.len());
-    for v in ps.peer_vec.iter() {
-        let d = ps.peer_map[v].delay;
-        if d < Duration::from_millis(119) {
-            page += &format!("{:21?} {:21}\n",
-                    d,
-                    v);
+    let unique_ips_count = all_ips.len();
+
+    let fast_peers: Vec<(Duration, SocketAddr)> = ps
+        .peer_vec
+        .iter()
+        .map(|v| (ps.peer_map[v].delay, *v))
+        .filter(|(d, _)| *d < Duration::from_millis(119))
+        .collect();
+
+    thread::spawn(move || {
+        let mut stream = stream;
+        let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>cjp2p status {}</title></head><body>\n\
+            {}\n\n\
+            <p>
+            <p> your public key {}
+            <p>
+            <div style='height: 200px; overflow: auto; border: 1px solid #ccc;'>",
+            env!("BUILD_VERSION"),
+            env!("BUILD_VERSION"),
+            public_key_hex);
+
+        for (their_pub_hex, msg) in all_chats.iter().rev() {
+            page += &format!("<p><a href=/C5.html?{} target=_blank>0x{}</a> {}</p>\n",
+                their_pub_hex,
+                their_pub_hex,
+                msg);
         }
-    }
-    page += &format!("</pre><body></html>");
-    info!("status page thought {:?}", status_timer.elapsed());
-    return page;
+
+        page += &format!("</div>");
+        page += &format!("<a href=/C5.html>chat interface</a>");
+        page += &format!("
+          <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
+        for (id, bytes_complete, eof) in &inbound_info {
+            page += &format!("{} {}/{}\n", id, bytes_complete, eof);
+        }
+
+        let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
+        sorted_list_results.sort_by_key(|&(_, b)| b.0);
+        page += &format!("most recommended content (results of '/recommend sha256' in the CLI):\n");
+        for (k, v) in &sorted_list_results {
+            page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
+        }
+
+        let mut sorted_list_results: Vec<_> = trending.iter().collect();
+        sorted_list_results.sort_by_key(|&(_, b)| b.0);
+        page += &format!("most recently downloaded content:\n");
+        for (k, v) in sorted_list_results.into_iter().rev() {
+            page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
+        }
+
+        page += &format!("\n{} total peers\n", total_peers);
+        page += &format!("--- active public keys (recently responding in under than 250ms).  Click on one to open an encrypted 2-way chat.\n\
+            Note that unless they have a tab open with you, they'll only see it in the console or status page: \n");
+        for (sa, pub_) in &active_peers {
+            let their_pub_hex = hex::encode(pub_);
+            page += &format!("{:21} <a href=/chat/{} target=_blank>0x{}</a> {}\n", sa.ip(),
+                their_pub_hex,
+                their_pub_hex,
+                if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
+            );
+        }
+        page += &format!("--- all IPs: <table>\n");
+        for ip in &all_ips {
+            page += &format!("<tr><td align=right>{:21}</td><td width=30px></td><td>{}</td></tr>\n", ip,
+                if let Ok(hn) = dns_lookup::lookup_addr(ip) { hn } else { ip.to_string() });
+        }
+        page +=
+            &format!("</table>{} total unique IP peers\n--- active peers: \n", unique_ips_count);
+        for (d, v) in &fast_peers {
+            page += &format!("{:21?} {:21}\n", d, v);
+        }
+        page += &format!("</pre><body></html>");
+        stream.write_all(page.as_bytes()).ok();
+    });
 }
 fn handle_web_request(
     index: usize,
@@ -1048,9 +1073,7 @@ fn handle_web_request(
             let mut start: usize = 0;
             let mut end: usize = 0;
             if req.path == "/" {
-                stream
-                    .write_all(status_page(inbound_states, ps).as_bytes())
-                    .ok();
+                status_page(inbound_states, ps, stream);
                 return;
             }
             info!("got http request for {}",req.path);
