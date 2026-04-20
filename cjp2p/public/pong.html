@@ -441,8 +441,9 @@ function connect() {
                 try { messages_ = JSON.parse(event.data); } catch(e) { log_always('parse err', e); return; }
                 let messages, forwarded = false, src = null;
                 if ('Forwarded' in messages_[0]) {
-                    forwarded = true;
                     src = messages_[0].Forwarded.from_ed25519;
+                    forwarded = true;
+                    if (their_ed25519.value && src !== their_ed25519.value) return;
                     try { messages = JSON.parse(messages_[0].Forwarded.messages); }
                     catch(e) { log_always('inner parse err', e); return; }
                 } else {
