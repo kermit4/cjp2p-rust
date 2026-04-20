@@ -15,13 +15,12 @@
 <canvas id=canvas width=800 height=500 style="border:2px solid #333; background:#fff; cursor:none; display:block;"></canvas>
 </div>
 <p>
-<span id=scoreboard style="font-family:monospace;font-size:20px;"></span>
+
 
 <style>
 body { background:#f5f5f5; color:#111; font-family:monospace; }
 #canvas_wrap { display:block; margin:0 auto; text-align:center; }
 canvas { display:block; margin:0 auto; }
-#scoreboard { display:block; text-align:center; }
 
 #canvas_wrap:fullscreen {
     display:flex; align-items:center; justify-content:center;
@@ -52,7 +51,6 @@ const ctx = canvas.getContext('2d');
 const their_ed25519 = document.getElementById('their_ed25519');
 const link = document.getElementById('link');
 const status_msg = document.getElementById('status_msg');
-const scoreboard = document.getElementById('scoreboard');
 const logbox = document.getElementById('logbox');
 const fs_btn = document.getElementById('fs_btn');
 const debug_btn = document.getElementById('debug_btn');
@@ -120,20 +118,10 @@ function beep(freq, duration, type = 'square', gain = 0.3) {
 
 function snd_paddle() { beep(480, 0.04, 'square', 0.25); }
 function snd_wall()   { beep(300, 0.04, 'square', 0.18); }
-function snd_score()  {
-    beep(523, 0.12, 'sine', 0.35);
-    setTimeout(() => beep(784, 0.18, 'sine', 0.35), 120);
-}
-function snd_lose()   {
-    beep(330, 0.12, 'sine', 0.3);
-    setTimeout(() => beep(220, 0.2, 'sine', 0.3), 120);
-}
-
 // -- game state ----------------------------------------------------------------
 let ballX = W/2, ballY = H/2, ballVX = 0, ballVY = 0;
 let myPaddleY = H/2;
 let theirPaddleY = H/2;
-let myScore = 0, theirScore = 0;
 let lastTheirMove = -1;
 let myMoveNum = Date.now(); // start high so post-reload moves aren't rejected as stale
 let gameActive = false;
@@ -321,24 +309,11 @@ function tick(dt) {
         }
     }
 
-    if (ballX - BALL_R < 0) {
-        theirScore++;
-        update_scoreboard();
+    if (ballX - BALL_R < 0 || ballX + BALL_R > W) {
         gameActive = false;
         ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
-        snd_lose();
-        status_msg.textContent = 'You lost the point. Opponent to serve.';
-        log_always('lost point. score', myScore, ':', theirScore);
-    }
-
-    if (ballX + BALL_R > W) {
-        myScore++;
-        update_scoreboard();
-        gameActive = false;
-        ballX = W/2; ballY = H/2; ballVX = 0; ballVY = 0;
-        snd_score();
-        status_msg.textContent = 'You scored!';
-        log_always('scored. score', myScore, ':', theirScore);
+        status_msg.textContent = 'Click or tap to serve.';
+        log_always('ball out');
     }
 }
 
@@ -380,10 +355,6 @@ function draw() {
     }
 }
 
-function update_scoreboard() {
-    scoreboard.textContent = `You ${myScore}  :  ${theirScore} Opponent`;
-}
-
 let lastFrameTime = null;
 function loop(ts) {
     const dt = lastFrameTime === null ? 16.667 : Math.min(ts - lastFrameTime, 50);
@@ -395,7 +366,6 @@ function loop(ts) {
     requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
-update_scoreboard();
 
 // -- fullscreen ----------------------------------------------------------------
 function resizeCanvas() {
