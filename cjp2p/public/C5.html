@@ -373,6 +373,8 @@ debuging :
 	connect();
     their_eth_addr.addEventListener('input', () => {
         request_ed25519_from_eth_addr();
+        their_ed25519.value = "";
+        their_ed25519.disabled = true;
     });
     their_ed25519.addEventListener('input', () => {
         input.readOnly = false;
