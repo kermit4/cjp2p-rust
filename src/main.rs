@@ -2147,11 +2147,11 @@ impl Receive for ReturnedMessage {
 //        socket.send(JSON.stringify([{GetPubByEth:{eth_addr:their_eth_addr}}]));
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct GetPub {
+struct WhereAreThey {
     #[serde_as(as = "Hex")]
     ed25519h: [u8; 32],
 }
-impl Receive for GetPub {
+impl Receive for WhereAreThey {
     fn receive(
         self,
         ps: &mut PeerState,
@@ -2659,7 +2659,7 @@ enum Message {
     Forwarded(Forwarded),
     SignedPub(SignedPub),
     GetPubByEth(GetPubByEth),
-    GetPub(GetPub),
+    WhereAreThey(WhereAreThey),
 }
 
 // this struct only exists to be able to get that VecSkipError in there.
@@ -2724,7 +2724,7 @@ fn msgs_to_pub(ps: &mut PeerState, their_pub_hex_: &String, messages: &Vec<Value
             let peers = ps.best_peers(250, 6);
             info!("searching {} peers for ed25519 addr",peers.len());
             for sa in peers {
-                let mut message_out = vec![Message::GetPub(GetPub{ed25519h:to})];
+                let mut message_out = vec![Message::WhereAreThey(WhereAreThey{ed25519h:to})];
                 message_out.append(&mut ps.always_returned(sa));
                 let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                 ps.socket.send_to(&message_out_bytes, sa).ok();
