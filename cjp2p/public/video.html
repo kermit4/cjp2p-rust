@@ -164,11 +164,16 @@ let lastSample      = 0;
 
 let videoDrops = 0, lastVideoDropMs = null, hasFirstVideo = false;
 let audioDrops = 0, lastAudioDropMs = null, hasFirstAudio = false;
-let videoDelayMs = 100;
+let videoDelayMs = 0;
 const videoQueue = [];
 let sendW = 0, sendH = 0;
 
-const RING_SIZE = 4096;
+const RING_SIZE  = 4096;              // 85ms capacity at 48kHz
+const AUDIO_RATE = 48000;
+const SP_FRAMES  = 512;              // ~10.7ms per ScriptProcessor callback
+const MIN_BUF    = SP_FRAMES;        // ~10.7ms minimum target
+const MAX_BUF    = 2880;             // ~60ms maximum target
+let   audioBufTarget = MIN_BUF;      // adaptive; drives videoDelayMs
 const ring = new Float32Array(RING_SIZE);
 let writeIdx = 0, readIdx = 0;
 
@@ -183,7 +188,12 @@ if ('AudioDecoder' in window) {
             for (let i = 0; i < pcm.length; i++) {
                 ring[writeIdx] = pcm[i];
                 writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
-                if (writeIdx === readIdx) readIdx = (readIdx + 48*20) & (RING_SIZE - 1);
+                if (writeIdx === readIdx) readIdx = (readIdx + SP_FRAMES) & (RING_SIZE - 1); // ring full safety
+            }
+            // trim excess: if buffer depth exceeds target + 2 callbacks, skip to target
+            const depth = (writeIdx - readIdx + RING_SIZE) & (RING_SIZE - 1);
+            if (depth > audioBufTarget + SP_FRAMES * 2) {
+                readIdx = (writeIdx - audioBufTarget) & (RING_SIZE - 1);
             }
         },
         error: e => log_always('audio decoder err:', e.message || e)
@@ -221,10 +231,11 @@ async function ensureAudioCtx() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
     await audioCtx.resume();
     const hwLatency = (audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0);
-    log_always('audio hw latency reported:', Math.round(hwLatency*1000)+'ms  (browser APIs unreliable; using fixed video delay:', videoDelayMs+'ms)');
-    playProc = audioCtx.createScriptProcessor(1024, 1, 1);
+    log_always('audio hw latency reported:', Math.round(hwLatency*1000)+'ms  adaptive buffer starts at:', Math.round(MIN_BUF/AUDIO_RATE*1000)+'ms');
+    playProc = audioCtx.createScriptProcessor(SP_FRAMES, 1, 1);
     playProc.onaudioprocess = e => {
         const out = e.outputBuffer.getChannelData(0);
+        let underrun = false;
         for (let i = 0; i < out.length; i++) {
             if (readIdx !== writeIdx) {
                 lastSample = ring[readIdx];
@@ -233,9 +244,17 @@ async function ensureAudioCtx() {
             } else {
                 lastSample *= 0.997; // fade to silence on underrun
                 out[i] = lastSample;
-                setLed(rxLed, false);
+                underrun = true;
             }
         }
+        if (underrun) {
+            setLed(rxLed, false);
+            // increase buffer target on underrun; clamp to max
+            audioBufTarget = Math.min(MAX_BUF, audioBufTarget + SP_FRAMES * 2);
+        }
+        // slow decay back toward minimum (~25s from max to min at 93 callbacks/s)
+        audioBufTarget = Math.max(MIN_BUF, audioBufTarget - 1);
+        videoDelayMs = Math.round(audioBufTarget / AUDIO_RATE * 1000);
     };
     playProc.connect(audioCtx.destination);
     log_always('audio playback ready');
@@ -346,7 +365,7 @@ async function startCameraAndMic() {
     // mic -> processor
     if (!recordProc) {
         const micSrc = audioCtx.createMediaStreamSource(camStream);
-        recordProc = audioCtx.createScriptProcessor(1024, 1, 1);
+        recordProc = audioCtx.createScriptProcessor(SP_FRAMES, 1, 1);
         recordProc.onaudioprocess = e => {
             const input = e.inputBuffer.getChannelData(0);
             // VU meter runs even when muted
@@ -500,8 +519,9 @@ setInterval(() => {
     const ago = ms => ms ? Math.round((now - ms)/1000)+'s ago' : 'never';
     const sr = sendW && sendH ? sendW+'x'+sendH : '--';
     const rr = remoteCanvas.width && remoteCanvas.height ? remoteCanvas.width+'x'+remoteCanvas.height : '--';
+    const ringDepth = (writeIdx - readIdx + RING_SIZE) & (RING_SIZE - 1);
     statsEl.textContent =
-        `send: ${sr}  recv: ${rr}  delay: ${videoDelayMs}ms\n` +
+        `send: ${sr}  recv: ${rr}  buf target: ${videoDelayMs}ms  ring: ${Math.round(ringDepth/AUDIO_RATE*1000)}ms\n` +
         `video loss: ${videoDrops}  last: ${ago(lastVideoDropMs)}\n` +
         `audio loss: ${audioDrops}  last: ${ago(lastAudioDropMs)}`;
 }, 1000);
