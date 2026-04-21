@@ -2128,13 +2128,15 @@ impl Receive for GetPubByEth {
         }
         warn!("failed to find ed25519 of requested eth addr {}, searching..",self.eth_addr);
         ps.socket.set_nonblocking(false).unwrap();
-        for sa in ps.best_peers(250, 6) {
-            let mut message_out = vec![Message::GetPubByEth(self.clone())];
-            message_out.push(ps.please_always_return(sa.clone()));
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            ps.socket.send_to(&message_out_bytes, sa).ok();
+        if let Source::None = src {
+            for sa in ps.best_peers(250, 6) {
+                let mut message_out = vec![Message::GetPubByEth(self.clone())];
+                message_out.push(ps.please_always_return(sa.clone()));
+                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                ps.socket.send_to(&message_out_bytes, sa).ok();
+            }
+            ps.socket.set_nonblocking(true).unwrap();
         }
-        ps.socket.set_nonblocking(true).unwrap();
         return vec![];
     }
 }
