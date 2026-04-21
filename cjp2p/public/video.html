@@ -44,7 +44,7 @@ their ed25519: <input id=their_ed25519 size=80>
   <span class=led id=recLed title="mic recording"></span>
   <div id=vuMeter></div>
   <button id=muteAudioBtn>Unmute Mic</button>
-  <button id=muteVideoBtn disabled>Mute Video</button>
+  <button id=muteVideoBtn>Unmute Video</button>
   <span class="led rx-led" id=rxLed title="rx audio"></span>
   <button id=debugBtn>debug log</button>
 </div>
@@ -146,7 +146,7 @@ let decoder      = null;
 let frameReader  = null;
 let needKeyframe = true;
 let frameCount   = 0;
-let videoMuted   = false;
+let videoMuted   = true;
 let micActive    = false;
 let videoSeqSent = Date.now(); // start high so post-reload seqs aren't rejected as stale
 let videoSeqRecv = 0;
@@ -407,7 +407,11 @@ muteAudioBtn.onclick = async () => {
 };
 
 // -- video mute button --------------------------------------------------------
-muteVideoBtn.onclick = () => {
+muteVideoBtn.onclick = async () => {
+    if (!camStream) {
+        const ok = await startCameraAndMic();
+        if (!ok) return;
+    }
     videoMuted = !videoMuted;
     muteVideoBtn.textContent = videoMuted ? 'Unmute Video' : 'Mute Video';
     if (!videoMuted) frameCount = 0; // force keyframe on unmute
