@@ -761,6 +761,51 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             ps.save_peers();
             ps.p.save();
             std::process::exit(0);
+        } else if sscanf!(line.as_str(), "/test {} {}",arg,arg2).is_ok() {
+            println!("this command is undocummmented because it will hang the node, your internet connection, and might piss off your ISP, don't use this");
+            // the issue is that, i have found, many cheap home "routers" top out at 1Mbps when talking to various IPs due to some sort of "Connection" tracking, even if you are the DMZ, or even if you use ipv6 to avoid NAT.
+            // it's structural censorship, or "protocol discrimination"
+            let rate: u64 = arg2.parse().unwrap();
+            ps.socket.set_nonblocking(false).unwrap();
+            if arg == "4" {
+                std::process::Command::new("ping")
+                    .arg("-c50")
+                    .arg("-i.2")
+                    .arg("8.8.8.8")
+                    .spawn()
+                    .ok();
+            } else {
+                std::process::Command::new("ping6")
+                    .arg("-c50")
+                    .arg("-i.2")
+                    .arg("2001:4860:4860::8888")
+                    .spawn()
+                    .ok();
+            };
+            for c in 0..255u64 {
+                for d in 0..255u64 {
+                    let s = if arg == "4" {
+                        // 100.64/10 reserved for CGNAT so wont piss off anyone but your ISP at most, not ideal really, port 6881 is bitttorent
+                        SocketAddr::from(([100, 100, c as u8, d as u8], 6881))
+                    } else {
+                        // 2001:db8::${i} 2001:db8::/31 supposedly black hole route
+                        SocketAddr::from((
+                            [0x2001, 0xdb8, 0, ((c as u16) << 8) + (d as u16), 0, 0, 0, 1],
+                            6881,
+                        ))
+                    };
+                    ps.socket.send_to(&[], s).ok();
+                    if ((c << 8) + d) % (rate / 500) == 0 {
+                        std::thread::sleep(Duration::from_millis(2));
+                        let sent = (c << 8) + d;
+                        print!("sent {}\r",sent);
+                        if sent > rate * 4 {
+                            return;
+                        }
+                    }
+                    ps.socket.set_nonblocking(true).unwrap();
+                }
+            }
         } else if line == "/save\n" {
             ps.save_peers();
             ps.p.save();
