@@ -196,6 +196,7 @@ function canvasToGame(clientX, clientY) {
 }
 
 canvas.addEventListener('mousemove', e => {
+    if (Date.now() < touchGraceUntil) return;
     movePaddle(canvasToGame(e.clientX, e.clientY).y);
 });
 
@@ -242,7 +243,7 @@ function doServe() {
     ballX = PADDLE_W + PADDLE_W/2 + BALL_R + 1;  // just past my paddle face
     ballY = myPaddleY;
     gameActive = true;
-    touchGraceUntil = Date.now() + 600;
+    touchGraceUntil = Date.now() + 400;
     myMoveNum++;
     send_pong_move(myMoveNum, ballX, ballY, ballVX, ballVY);
     log_always('sent serve', myMoveNum, 'x', ballX.toFixed(0), 'y', ballY.toFixed(0));
