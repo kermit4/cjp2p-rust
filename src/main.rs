@@ -2126,9 +2126,9 @@ impl Receive for GetPubByEth {
                 }
             }
         }
-        warn!("failed to find ed25519 of requested eth addr {}, searching..",self.eth_addr);
         ps.socket.set_nonblocking(false).unwrap();
         if let Source::None = src {
+            warn!("failed to find ed25519 of requested eth addr {}, searching..",self.eth_addr);
             for sa in ps.best_peers(250, 6) {
                 let mut message_out = vec![Message::GetPubByEth(self.clone())];
                 message_out.push(ps.please_always_return(sa.clone()));
