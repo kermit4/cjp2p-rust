@@ -327,7 +327,9 @@ impl PeerState {
         }
     }
     fn probe(&mut self) -> () {
-        for sa in self.best_peers(10, 3) {
+        let peers = self.best_peers(10, 3);
+        debug!("probing {} peers",peers.len());
+        for sa in peers {
             let peer_info = self.peer_map.get_mut(&sa).unwrap();
             peer_info.delay = peer_info
                 .delay
@@ -476,7 +478,9 @@ impl PeerState {
                 for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
                     new_i.request_blocks(self, new_i.peers.clone()); // resume (un-stall)
                 }
-                new_i.request_blocks(self, self.best_peers(250, 6));
+                let peers = self.best_peers(250, 6);
+                info!("searchng  {} peers",peers.len());
+                new_i.request_blocks(self, peers);
                 inbound_states.insert(id.to_string(), new_i);
                 inbound_states.get_mut(&id).unwrap()
             }
@@ -932,7 +936,9 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                         - /help
                 ");
         } else {
-            for sa in ps.best_peers(100, 5) {
+            let peers = ps.best_peers(100, 5);
+            info!("spamming  {} peers",peers.len());
+            for sa in peers {
                 let mut message_out = ChatMessage::new(&ps, line.clone());
                 message_out.append(&mut ps.always_returned(sa));
                 // no point in encrypting spam
@@ -2044,7 +2050,9 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         for _ in 0..(1 + try_harder / (1 + i.peers.len())) {
             i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
         }
-        i.request_blocks(ps, ps.best_peers(50 * try_harder as i32, 6));
+        let peers = ps.best_peers(50 * try_harder as i32, 6);
+        info!("searching  {} peers",peers.len());
+        i.request_blocks(ps, peers);
         // TODO the longer its been stuck, the more it should be ignored to try others, instead of
         // this pure random
         if rand::rng().random::<u32>() % 2 == 0 {
@@ -2206,7 +2214,9 @@ impl Receive for GetPubByEth {
         ps.socket.set_nonblocking(false).unwrap();
         if let Source::None = src {
             warn!("failed to find ed25519 of requested eth addr {}, searching..",self.eth_addr);
-            for sa in ps.best_peers(250, 6) {
+            let peers = ps.best_peers(250, 6);
+            info!("searching {} peers for eth addr",peers.len());
+            for sa in peers {
                 let mut message_out = vec![Message::GetPubByEth(self.clone())];
                 message_out.push(ps.please_always_return(sa.clone()));
                 let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
@@ -2711,7 +2721,9 @@ fn msgs_to_pub(ps: &mut PeerState, their_pub_hex_: &String, messages: &Vec<Value
             }
             ps.socket.set_nonblocking(false).unwrap();
             warn!("failed to find ed25519 requested {}, searching..",their_pub_hex);
-            for sa in ps.best_peers(250, 6) {
+            let peers = ps.best_peers(250, 6);
+            info!("searching {} peers for ed25519 addr",peers.len());
+            for sa in peers {
                 let mut message_out = vec![Message::GetPub(GetPub{ed25519h:to})];
                 message_out.append(&mut ps.always_returned(sa));
                 let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
