@@ -782,7 +782,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                     .spawn()
                     .ok();
             };
-            for c in 0..255u64 {
+            'outer: for c in 0..255u64 {
                 for d in 0..255u64 {
                     let s = if arg == "4" {
                         // 100.64/10 reserved for CGNAT so wont piss off anyone but your ISP at most, not ideal really, port 6881 is bitttorent
@@ -800,12 +800,12 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                         let sent = (c << 8) + d;
                         print!("sent {}\r",sent);
                         if sent > rate * 4 {
-                            return;
+                            break 'outer;
                         }
                     }
-                    ps.socket.set_nonblocking(true).unwrap();
                 }
             }
+            ps.socket.set_nonblocking(true).unwrap();
         } else if line == "/save\n" {
             ps.save_peers();
             ps.p.save();
