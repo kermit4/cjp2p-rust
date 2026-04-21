@@ -2095,7 +2095,7 @@ impl Receive for ReturnedMessage {
 }
 //        socket.send(JSON.stringify([{GetPubByEth:{eth_addr:their_eth_addr}}]));
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct GetPubByEth {
     eth_addr: String,
 }
@@ -2127,7 +2127,15 @@ impl Receive for GetPubByEth {
                 }
             }
         }
-        warn!("failed to find ed25519 of requested eth addr {}",self.eth_addr);
+        warn!("failed to find ed25519 of requested eth addr {}, searching..",self.eth_addr);
+        for k in 0..1000 {
+            if let Some(v) = ps.peer_vec.get(k) {
+                let mut message_out = vec![Message::GetPubByEth(self.clone())];
+                message_out.push(ps.please_always_return(v.clone()));
+                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                ps.socket.send_to(&message_out_bytes, v).ok();
+            }
+        }
         return vec![];
     }
 }
