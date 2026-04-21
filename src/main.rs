@@ -147,7 +147,7 @@ impl Keypair {
 
 struct PeerState {
     peer_map: HashMap<SocketAddr, PeerInfo>,
-    peer_map_by_pub: HashMap<[u8; 8], Source>,
+    peer_map_by_pub: HashMap<[u8; 32], Source>,
     peer_vec: Vec<SocketAddr>,
     recent_peers: HashSet<SocketAddr>,
     recent_peer_timer: Instant,
@@ -234,8 +234,7 @@ impl PeerState {
         };
         for (k, v) in &ps.peer_map {
             if let Some(ed25519) = v.ed25519 {
-                ps.peer_map_by_pub
-                    .insert(ed25519[..8].try_into().unwrap(), Source::S(k.to_owned()));
+                ps.peer_map_by_pub.insert(ed25519, Source::S(k.to_owned()));
             }
         }
 
@@ -265,7 +264,7 @@ impl PeerState {
     }
     fn hash_ip(&self, src: SocketAddr) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(&self.keypair.private[..8]);
+        hasher.update(&self.keypair.private);
         hasher.update(src.ip().to_string());
         return format!("{:x}", hasher.finalize())[..8].to_string();
     }
@@ -1239,9 +1238,9 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     if ps.ws_vec.len() > 0 {
         let message_out_string = serde_json::to_string(&json![
             [Message::Forwarded(Forwarded{src:src,from_ed25519:None,
-        maybe_ed25519: if let Some(their_pub) = &ps.peer_map[&src].ed25519 { Some(hex::encode(their_pub))} else { None }
-            ,
-                messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]]).unwrap();
+        maybe_ed25519: ps.peer_map[&src].ed25519,
+                messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]])
+        .unwrap();
         trace!( "sending raw message {} to {} websocket(s)", message_out_string,ps.ws_vec.len());
         for ws in &mut ps.ws_vec {
             if ws
@@ -2140,6 +2139,38 @@ impl Receive for ReturnedMessage {
 //        socket.send(JSON.stringify([{GetPubByEth:{eth_addr:their_eth_addr}}]));
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]
+struct GetPub {
+    #[serde_as(as = "Hex")]
+    ed25519h: [u8; 32],
+}
+impl Receive for GetPub {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: &Source,
+        _: &mut bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&self.ed25519h) {
+            if let Some(p) = ps.peer_map.get(&sa) {
+                let mpk = MyPublicKey {
+                    ed25519h: self.ed25519h,
+                    ed25519_eth_signed: p.ed25519_eth_signed.clone(),
+                };
+                let message_out = vec![Message::MyPublicKey(mpk)];
+                let from_ed25519 = Some(self.ed25519h);
+                let maybe_ed25519 = None;
+                let messages = serde_json::to_string(&message_out).unwrap();
+                trace!("sending {:?} ed25519 {} from  {}",src,hex::encode(self.ed25519h),sa);
+                let src = *sa;
+                return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
+            }
+        }
+        return vec![];
+    }
+}
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct GetPubByEth {
     eth_addr: String,
 }
@@ -2160,11 +2191,12 @@ impl Receive for GetPubByEth {
                             ed25519_eth_signed: p.ed25519_eth_signed.clone(),
                         };
                         let message_out = vec![Message::MyPublicKey(mpk)];
-                        let from_ed25519 = Some(hex::encode(ed25519));
+                        let from_ed25519 = Some(ed25519.clone());
                         let maybe_ed25519 = None;
 
                         let messages = serde_json::to_string(&message_out).unwrap();
-                        info!("sending {:?} ed25519 {} for eth addr {} to ",src,from_ed25519.clone().unwrap(),signer);
+                        trace!("sending {:?} ed25519 {} to ",src,hex::encode(ed25519));
+                        info!("sending {:?} ed25519 {} for eth addr {} to ",src,hex::encode(ed25519),signer);
                         let src = *k;
                         return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
                     }
@@ -2212,20 +2244,32 @@ impl Receive for SignedPub {
 #[derive(Serialize, Deserialize, Debug)]
 struct Forwarded {
     src: SocketAddr,
-    from_ed25519: Option<String>,
+    #[serde_as(as = "Option<Hex>")]
+    from_ed25519: Option<[u8; 32]>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    maybe_ed25519: Option<String>,
+    #[serde_as(as = "Option<Hex>")]
+    maybe_ed25519: Option<[u8; 32]>,
     messages: String,
 }
 impl Receive for Forwarded {
     fn receive(
         self,
-        _: &mut PeerState,
-        _: &Source,
+        ps: &mut PeerState,
+        src: &Source,
         _: &mut bool,
-        _: &mut HashMap<String, InboundState>,
+        inbound_states: &mut HashMap<String, InboundState>,
     ) -> Vec<Message> {
-        return vec![];
+        let messages: Messages = match serde_json::from_str(&self.messages) {
+            Ok(r) => r,
+            Err(e) => {
+                debug!( "could not deserialize incoming messages forwarded from {} by {:?} {e}  :  {}",self.src,src,
+                    self.messages);
+                return vec![];
+            }
+        };
+        let messages = messages.0;
+
+        return ps.handle_messages(messages, &Source::S(self.src), &mut true, inbound_states);
     }
 }
 #[serde_as]
@@ -2286,8 +2330,7 @@ impl Receive for MyPublicKey {
         use std::str::FromStr;
         let mut recovered_address: Option<String> = None;
         let ed25519h_hex = hex::encode(&self.ed25519h);
-        ps.peer_map_by_pub
-            .insert(self.ed25519h[..8].try_into().unwrap(), src.to_owned());
+        ps.peer_map_by_pub.insert(self.ed25519h, src.to_owned());
         if let Some(sig) = &self.ed25519_eth_signed {
             if let Ok(sig) = Signature::from_str(sig.as_str()) {
                 // takes 0.0003s so do this in advance
@@ -2530,8 +2573,7 @@ impl Receive for EncryptedMessages {
             let mut message_in_bytes = vec![0u8; 99999];
             if let Ok(len) = noise.read_message(&self.base64, &mut message_in_bytes) {
                 let their_pub: [u8; 32] = noise.get_remote_static().unwrap().try_into().unwrap();
-                ps.peer_map_by_pub
-                    .insert(their_pub[..8].try_into().unwrap(), src_.clone());
+                ps.peer_map_by_pub.insert(their_pub, src_.clone());
                 let pi = ps.peer_map.get_mut(&src).unwrap();
                 pi.ed25519 = Some(their_pub);
 
@@ -2553,7 +2595,7 @@ impl Receive for EncryptedMessages {
                 let message_out_string = serde_json::to_string(&json![
                         [Message::Forwarded(Forwarded{
                             src:src,
-                            from_ed25519:Some(their_pub_hex),
+                            from_ed25519:Some(their_pub),
                             maybe_ed25519:None,
                             messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]])
                 .unwrap();
@@ -2607,6 +2649,7 @@ enum Message {
     Forwarded(Forwarded),
     SignedPub(SignedPub),
     GetPubByEth(GetPubByEth),
+    GetPub(GetPub),
 }
 
 // this struct only exists to be able to get that VecSkipError in there.
@@ -2638,44 +2681,43 @@ fn msgs_to_pub(ps: &mut PeerState, their_pub_hex_: &String, messages: &Vec<Value
     if let Ok(to__) = hex::decode(their_pub_hex) {
         let to_: Result<[u8; 32], _> = to__.try_into();
         if let Ok(to) = to_ {
-            if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&to[..8]) {
-                if let Some(pi) = ps.peer_map.get(&sa) {
-                    if let Some(key) = &pi.ed25519 {
-                        if *key == to {
-                            let mut message_out: Vec<Value> = vec![];
-                            if rand::rng().random::<u32>() % 37 == 0 {
-                                message_out.push(
-                                    serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap(),
-                                );
-                            } else if rand::rng().random::<u32>() % 5 == 0
-                                && ps.p.my_ed25519_signed_by_web_wallet.is_some()
-                            {
-                                message_out
-                                    .push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
-                            }
-                            // an optimization would be to skip serde once we know where
-                            // it should go and just copy the message bytes
-                            for m in messages {
-                                message_out.push(serde_json::to_value(m).unwrap());
-                            }
-                            message_out = vec![
+            if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&to) {
+                let mut message_out: Vec<Value> = vec![];
+                if rand::rng().random::<u32>() % 37 == 0 {
+                    message_out
+                        .push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
+                } else if rand::rng().random::<u32>() % 5 == 0
+                    && ps.p.my_ed25519_signed_by_web_wallet.is_some()
+                {
+                    message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
+                }
+                // an optimization would be to skip serde once we know where
+                // it should go and just copy the message bytes
+                for m in messages {
+                    message_out.push(serde_json::to_value(m).unwrap());
+                }
+                message_out = vec![
                                 serde_json::to_value(&EncryptedMessages::new(ps,&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
                             ];
-                            let c = ps.always_returned(*sa);
-                            if c.len() > 0 {
-                                message_out.push(serde_json::to_value(&c[0]).unwrap());
-                            }
-                            let message_out_bytes: Vec<u8> =
-                                serde_json::to_vec(&message_out).unwrap();
-                            message_out.pop();
-                            trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
-                            ps.socket.send_to(&message_out_bytes, sa).ok();
-                            return;
-                        }
-                    }
+                let c = ps.always_returned(*sa);
+                if c.len() > 0 {
+                    message_out.push(serde_json::to_value(&c[0]).unwrap());
                 }
+                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                message_out.pop();
+                trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
+                ps.socket.send_to(&message_out_bytes, sa).ok();
+                return;
             }
-            error!("user {} not found",their_pub_hex);
+            ps.socket.set_nonblocking(false).unwrap();
+            warn!("failed to find ed25519 requested {}, searching..",their_pub_hex);
+            for sa in ps.best_peers(250, 6) {
+                let mut message_out = vec![Message::GetPub(GetPub{ed25519h:to})];
+                message_out.append(&mut ps.always_returned(sa));
+                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                ps.socket.send_to(&message_out_bytes, sa).ok();
+            }
+            ps.socket.set_nonblocking(true).unwrap();
         }
     } else {
         error!("failed to decode hex {} ",their_pub_hex_);
