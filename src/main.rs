@@ -1028,14 +1028,14 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
             public_key_hex);
 
         for (their_pub_hex, msg) in all_chats.iter().rev() {
-            page += &format!("<p><a href=/C5.html?{} target=_blank>0x{}</a> {}</p>\n",
+            page += &format!("<p><a href=/chat5.html?{} target=_blank>0x{}</a> {}</p>\n",
                 their_pub_hex,
                 their_pub_hex,
                 msg);
         }
 
         page += &format!("</div>");
-        page += &format!("<a href=/C5.html>chat interface</a>");
+        page += &format!("<a href=/chat5.html>chat interface</a>");
         page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
         for (id, bytes_complete, eof) in &inbound_info {
@@ -1139,7 +1139,7 @@ fn handle_web_request(
                     <br><a href=/video.html?ed25519={}>click here</a> for high quality video call (just mute the video for audio only)</a>\n
                     <br><a href=/pong.html?ed25519={}>click here</a> to play pong</a>\n
                     send a message (type fast before the next page refresh) : <form><input name=line_chat_msg></form>\n\n\
-                    <a href=/C5.html?{}>click here</a> to switch to character-by-character mode\n\
+                    <a href=/chat5.html?{}>click here</a> to switch to character-by-character mode\n\
                     "
                     ,their_pub
                     ,their_pub

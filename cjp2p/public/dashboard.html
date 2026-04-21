@@ -138,7 +138,7 @@ button.danger:hover { background: #ffe0e0; }
 
 <nav>
   <a href="/">Status (old)</a>
-  <a href="/C5.html">Chat</a>
+  <a href="/chat5.html">Chat</a>
   <a href="/phone.html">Audio</a>
   <a href="/video.html">Video</a>
   <a href="/pong.html">Pong</a>
@@ -317,7 +317,7 @@ function renderPeers() {
   if (!entries.length) { el.innerHTML='<span class="none">none yet</span>'; return; }
   el.innerHTML = entries.slice(0,30).map(([k,p])=>`
     <div class="peer">
-      <div class="pk"><a href="/C5.html?${k}" target="_blank">${shortKey(k)}</a></div>
+      <div class="pk"><a href="/chat5.html?${k}" target="_blank">${shortKey(k)}</a></div>
       <div class="meta">${p.ips.slice(0,3).join(', ')||'--'} ? ${p.msgCount} msg(s)</div>
       <div class="meta">first: ${new Date(p.firstSeen).toLocaleTimeString()} ? last: ${fmtAge(p.lastSeen)}</div>
     </div>`).join('');
@@ -358,13 +358,13 @@ function renderChatLog() {
 }
 
 function openChat(pubkey) {
-  // Pre-populate C5.html's localStorage with messages we've seen from this peer
+  // Pre-populate chat5.html's localStorage with messages we've seen from this peer
   const msgs = chatHistory.filter(c => c.from === pubkey);
   if (msgs.length) {
     const text = msgs.map(c => `[${c.time}] ${c.text}`).join('\n');
     try { localStorage.setItem('cjp2p_' + pubkey + '_output', text); } catch(e) {}
   }
-  window.open('/C5.html?' + pubkey, '_blank');
+  window.open('/chat5.html?' + pubkey, '_blank');
 }
 
 function broadcastChat(text) {
@@ -461,7 +461,7 @@ function onMessage(rawStr) {
     const display = '0x'+key+(unsigned?' (unsigned)':'');
     document.getElementById('my-pubkey').textContent = display;
     document.getElementById('s-pubkey').textContent  = display;
-    document.getElementById('s-chatlink').textContent = location.origin+'/C5.html?'+key;
+    document.getElementById('s-chatlink').textContent = location.origin+'/chat5.html?'+key;
     // UPnP port estimate: first 2 bytes of pubkey | 0x401
     const b0=parseInt(key.slice(0,2),16), b1=parseInt(key.slice(2,4),16);
     document.getElementById('s-upnp').textContent = (((b0<<8)+b1)|0x401).toString();
@@ -642,7 +642,7 @@ document.getElementById('open-chat-btn').addEventListener('click', () => {
   const key = prompt('Their ed25519 public key (with or without 0x):');
   if (!key) return;
   const k = key.startsWith('0x') ? key.slice(2) : key;
-  window.open('/C5.html?'+k, '_blank');
+  window.open('/chat5.html?'+k, '_blank');
 });
 
 document.getElementById('dl-link').addEventListener('click', () => {
