@@ -1,4 +1,5 @@
 #!/bin/bash
+echo this works quite badly, use SingleFile browser plugin
 if ! [[ $1 ]];then
     echo usage $0 URL
     exit -1
