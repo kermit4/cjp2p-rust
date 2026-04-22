@@ -45,6 +45,7 @@ use std::path::Path;
 //use std::convert::TryInto;
 //use std::fmt;
 //use std::io::copy;
+use ed25519_dalek::{SigningKey, Signer as Ed25519Signer, Verifier as Ed25519Verifier, VerifyingKey};
 
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -184,6 +185,7 @@ struct PeerState {
     ws_vec: Vec<WebSocket<TcpStream>>,
     http_clients: Vec<TcpStream>,
     content_gateways: Vec<ContentGateway>,
+    stream_states: HashMap<String, StreamState>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
@@ -258,6 +260,7 @@ impl PeerState {
             ws_vec: Vec::new(),
             http_clients: Vec::new(),
             content_gateways: Vec::new(),
+            stream_states: HashMap::new(),
         };
         for (k, v) in &ps.peer_map {
             if let Some(ed25519) = v.ed25519 {
@@ -2015,6 +2018,43 @@ impl InboundState {
     }
 }
 
+// Ordered-unique peer list: most-recent source first; no disk persistence; no bitmap; loss OK.
+struct StreamState {
+    stream_id: String,
+    peers: Vec<SocketAddr>,
+    last_frame: Option<LiveStream>,
+    last_activity: Instant,
+    last_search: Instant,
+}
+
+impl StreamState {
+    fn new(stream_id: &str) -> Self {
+        StreamState {
+            stream_id: stream_id.to_string(),
+            peers: Vec::new(),
+            last_frame: None,
+            last_activity: Instant::now() - Duration::from_secs(99999),
+            last_search: Instant::now() - Duration::from_secs(99999),
+        }
+    }
+    fn add_peer(&mut self, sa: SocketAddr) {
+        if let Some(pos) = self.peers.iter().position(|&p| p == sa) {
+            self.peers.remove(pos);
+        }
+        self.peers.insert(0, sa);
+    }
+    // How long to wait between outgoing Subscribe searches based on stream silence.
+    fn search_interval_ms(&self) -> u64 {
+        match self.last_activity.elapsed().as_secs() {
+            0..=1   => 40,
+            2..=5   => 200,
+            6..=30  => 1_000,
+            31..=300 => 5_000,
+            _       => 30_000,
+        }
+    }
+}
+
 fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
     if ps.next_maintenance.elapsed() <= Duration::ZERO {
         return;
@@ -2091,6 +2131,9 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
             break;
         }
     }
+    // Drop stream states that have been silent for more than 10 minutes.
+    ps.stream_states.retain(|_, s| s.last_activity.elapsed() < Duration::from_secs(600));
+
     if ps.list_time + Duration::from_secs(1) < Instant::now() {
         let mut sorted_list_results: Vec<_> = ps.list_results.iter().collect();
         sorted_list_results.sort_by_key(|&(_, b)| b.0);
@@ -2814,6 +2857,197 @@ impl Receive for EncryptedMessages {
     }
 }
 
+// ---------------------------------------------------------------------------
+// LiveStream / Subscribe — live audio-video broadcast
+// ---------------------------------------------------------------------------
+
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct LiveStream {
+    stream_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    videoframe: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    audioframe: Option<Value>,
+    // ed25519 signature over stream_id + serialised frame fields (base64)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<Base64>")]
+    sig: Option<Vec<u8>>,
+    // hex verifying key of the signing node
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub_key: Option<String>,
+}
+
+impl LiveStream {
+    fn sign(&mut self, keypair: &Keypair) {
+        let signing_key = SigningKey::from_bytes(&keypair.private);
+        let verifying_key = signing_key.verifying_key();
+        let to_sign = self.signable_bytes();
+        let sig = signing_key.sign(&to_sign);
+        self.sig = Some(sig.to_bytes().to_vec());
+        self.pub_key = Some(hex::encode(verifying_key.as_bytes()));
+    }
+
+    fn verify(&self) -> bool {
+        let (sig_bytes, pub_hex) = match (self.sig.as_ref(), self.pub_key.as_ref()) {
+            (Some(s), Some(p)) => (s, p),
+            _ => return false,
+        };
+        let pub_bytes: [u8; 32] = match hex::decode(pub_hex).ok().and_then(|b| b.try_into().ok()) {
+            Some(b) => b,
+            None => return false,
+        };
+        let sig_arr: [u8; 64] = match sig_bytes.as_slice().try_into() {
+            Ok(a) => a,
+            Err(_) => return false,
+        };
+        let vk = match VerifyingKey::from_bytes(&pub_bytes) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        let sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
+        vk.verify(&self.signable_bytes(), &sig).is_ok()
+    }
+
+    fn signable_bytes(&self) -> Vec<u8> {
+        let obj = serde_json::json!({
+            "stream_id": self.stream_id,
+            "videoframe": self.videoframe,
+            "audioframe": self.audioframe,
+        });
+        serde_json::to_vec(&obj).unwrap_or_default()
+    }
+}
+
+impl Receive for LiveStream {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: &Source,
+        _: &mut bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        match src {
+            Source::None => {
+                // Broadcaster's browser sent this — sign it and store as latest.
+                let mut frame = self;
+                frame.sign(&ps.keypair);
+                let stream_id = frame.stream_id.clone();
+                let state = ps.stream_states.entry(stream_id)
+                    .or_insert_with(|| StreamState::new(&frame.stream_id));
+                state.last_frame = Some(frame);
+                state.last_activity = Instant::now();
+                vec![]
+            }
+            Source::S(sa) => {
+                // Peer sent this — verify signature, store, push to all WS clients.
+                if self.sig.is_some() && !self.verify() {
+                    warn!("LiveStream bad signature from {sa} stream {}", self.stream_id);
+                    return vec![];
+                }
+                let stream_id = self.stream_id.clone();
+                {
+                    let state = ps.stream_states.entry(stream_id)
+                        .or_insert_with(|| StreamState::new(&self.stream_id));
+                    state.last_frame = Some(self.clone());
+                    state.last_activity = Instant::now();
+                    state.add_peer(*sa);
+                }
+                // Push directly to all WS viewers (in addition to the Forwarded
+                // that handle_network already sends for all raw UDP packets).
+                let msg_str = match serde_json::to_string(&vec![Message::LiveStream(self)]) {
+                    Ok(s) => s,
+                    Err(_) => return vec![],
+                };
+                let mut to_remove: Vec<usize> = vec![];
+                for (i, ws) in ps.ws_vec.iter_mut().enumerate() {
+                    if ws.write(tungstenite::Message::Text(msg_str.clone().into())).is_err() {
+                        to_remove.push(i);
+                    } else {
+                        ws.flush().ok();
+                    }
+                }
+                for i in to_remove.iter().rev() { ps.ws_vec.remove(*i); }
+                vec![]
+            }
+        }
+    }
+}
+
+// Subscribe — viewer requests latest frame for a stream from its local node.
+// The node replies with the cached last frame and fans out Subscribe to peers.
+#[derive(Serialize, Deserialize, Debug)]
+struct Subscribe {
+    stream_id: String,
+    // ms since viewer last received a frame (0 = just starting). Drives search aggression.
+    #[serde(default)]
+    gap_ms: u64,
+}
+
+impl Receive for Subscribe {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: &Source,
+        _: &mut bool,
+        _: &mut HashMap<String, InboundState>,
+    ) -> Vec<Message> {
+        let stream_id = self.stream_id.clone();
+
+        // UDP peer asking us for the stream — reply with last frame if we have it.
+        if let Source::S(_) = src {
+            return ps.stream_states.get(&stream_id)
+                .and_then(|s| s.last_frame.clone())
+                .map(|f| vec![Message::LiveStream(f)])
+                .unwrap_or_default();
+        }
+
+        // WebSocket (local browser) asking — return cached frame and search for fresh.
+        // Collect what we need from stream_states in a block so the mutable borrow ends
+        // before we call ps.socket or ps.best_peers.
+        let (last_frame, head_peer, gap_ms, do_search) = {
+            let state = ps.stream_states.entry(stream_id.clone())
+                .or_insert_with(|| StreamState::new(&stream_id));
+            let last_frame = state.last_frame.clone();
+            let head_peer  = state.peers.first().copied();
+            let gap_ms     = self.gap_ms;
+            let interval   = state.search_interval_ms();
+            let do_search  = state.last_search.elapsed().as_millis() as u64 >= interval || gap_ms > 0;
+            if do_search { state.last_search = Instant::now(); }
+            (last_frame, head_peer, gap_ms, do_search)
+        };
+
+        if do_search {
+            // Outgoing Subscribe to network peers carries gap_ms=0 (we want latest frame).
+            let sub_bytes = serde_json::to_vec(&vec![Message::Subscribe(Subscribe {
+                stream_id: stream_id.clone(),
+                gap_ms: 0,
+            })]).unwrap_or_default();
+
+            if let Some(head) = head_peer {
+                ps.socket.send_to(&sub_bytes, head).ok();
+            }
+            // How many random peers to flood based on how stale our view is.
+            let random_count: i32 = match gap_ms {
+                0             => 0,
+                1..=199       => 5,
+                200..=999     => 20,
+                1000..=9999   => 60,
+                10000..=29999 => 150,
+                _             => 300,
+            };
+            if random_count > 0 {
+                let peers = ps.best_peers(random_count, 5);
+                for sa in peers {
+                    ps.socket.send_to(&sub_bytes, sa).ok();
+                }
+            }
+        }
+
+        last_frame.map(|f| vec![Message::LiveStream(f)]).unwrap_or_default()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[enum_dispatch]
 enum Message {
@@ -2839,6 +3073,8 @@ enum Message {
     GetPubByEth(GetPubByEth),
     WhereAreThey(WhereAreThey),
     GetPubByAddr(GetPubByAddr),
+    LiveStream(LiveStream),
+    Subscribe(Subscribe),
 }
 
 // this struct only exists to be able to get that VecSkipError in there.
