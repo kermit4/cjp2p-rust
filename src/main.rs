@@ -2021,7 +2021,8 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     }
     if ps.recent_peer_timer.elapsed() > Duration::from_secs(5 * 60) {
         if ps.recent_peers.len() < ps.recent_peer_counter_max * 4 / 5 {
-            error!("apocalypse? only {} peers in 5 minutes, vs max of {}",ps.recent_peers.len(),ps.recent_peer_counter_max);
+            error!("only {} peers in 5 minutes, vs max of {}",ps.recent_peers.len(),ps.recent_peer_counter_max);
+            ps.recent_peer_counter_max=ps.recent_peers.len(); // only alert once
         }
         if ps.recent_peers.len() > ps.recent_peer_counter_max * 4 / 5 {
             ps.recent_peer_counter_max = ps.recent_peers.len()
