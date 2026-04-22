@@ -95,5 +95,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - browser light node, its easy, just treat non-localhost as network..easy, right? hows routing work
 - have Claude make a .apk of the node and one of those built in webbrowsers that dont look like it is a web browser exactly so it can just reuse the same html thats already used for node+browser setups.  lets see what this bot can do!
 - maybe with clauds new multi ID support, manage your signatures page separately fro the chat that's not working
-- audio on video.html is 85% overhead..i thought i fixed that
 - if streaming video is a signed list of hashes, just sign the video itself, then i can multisource per packet, the encryption does hashing already i think?
