@@ -2930,25 +2930,44 @@ impl Receive for LiveStream {
         match src {
             Source::None => {
                 // Broadcaster's browser sent this — sign it and store as latest.
+                let has_video = self.videoframe.is_some();
+                let has_audio = self.audioframe.is_some();
+                debug!("LiveStream from browser: stream={} video={} audio={}", self.stream_id, has_video, has_audio);
                 let mut frame = self;
                 frame.sign(&ps.keypair);
                 let stream_id = frame.stream_id.clone();
-                let state = ps.stream_states.entry(stream_id)
-                    .or_insert_with(|| StreamState::new(&frame.stream_id));
+                let state = ps.stream_states.entry(stream_id.clone())
+                    .or_insert_with(|| {
+                        info!("LiveStream new stream from broadcaster: {}", stream_id);
+                        StreamState::new(&stream_id)
+                    });
+                let was_new = state.last_frame.is_none();
                 state.last_frame = Some(frame);
                 state.last_activity = Instant::now();
+                if was_new {
+                    debug!("LiveStream stream {} has first frame stored", stream_id);
+                }
+                trace!("LiveStream stored: stream={} video={} audio={}", stream_id, has_video, has_audio);
                 vec![]
             }
             Source::S(sa) => {
                 // Peer sent this — verify signature, store, push to all WS clients.
+                debug!("LiveStream from peer {}: stream={} video={} audio={} signed={}",
+                    sa, self.stream_id, self.videoframe.is_some(), self.audioframe.is_some(), self.sig.is_some());
                 if self.sig.is_some() && !self.verify() {
                     warn!("LiveStream bad signature from {sa} stream {}", self.stream_id);
                     return vec![];
                 }
+                if self.sig.is_none() {
+                    warn!("LiveStream from peer {sa} has no signature on stream {}", self.stream_id);
+                }
                 let stream_id = self.stream_id.clone();
                 {
-                    let state = ps.stream_states.entry(stream_id)
-                        .or_insert_with(|| StreamState::new(&self.stream_id));
+                    let state = ps.stream_states.entry(stream_id.clone())
+                        .or_insert_with(|| {
+                            info!("LiveStream new stream discovered from peer {}: {}", sa, stream_id);
+                            StreamState::new(&stream_id)
+                        });
                     state.last_frame = Some(self.clone());
                     state.last_activity = Instant::now();
                     state.add_peer(*sa);
@@ -2957,16 +2976,20 @@ impl Receive for LiveStream {
                 // that handle_network already sends for all raw UDP packets).
                 let msg_str = match serde_json::to_string(&vec![Message::LiveStream(self)]) {
                     Ok(s) => s,
-                    Err(_) => return vec![],
+                    Err(e) => { warn!("LiveStream serialize error for WS push: {e}"); return vec![]; }
                 };
+                let viewer_count = ps.ws_vec.len();
                 let mut to_remove: Vec<usize> = vec![];
                 for (i, ws) in ps.ws_vec.iter_mut().enumerate() {
                     if ws.write(tungstenite::Message::Text(msg_str.clone().into())).is_err() {
+                        debug!("LiveStream WS push failed for viewer {i}, removing");
                         to_remove.push(i);
                     } else {
                         ws.flush().ok();
                     }
                 }
+                trace!("LiveStream pushed stream={} to {}/{} WS viewers from peer {}",
+                    stream_id, viewer_count - to_remove.len(), viewer_count, sa);
                 for i in to_remove.iter().rev() { ps.ws_vec.remove(*i); }
                 vec![]
             }
@@ -2995,11 +3018,15 @@ impl Receive for Subscribe {
         let stream_id = self.stream_id.clone();
 
         // UDP peer asking us for the stream — reply with last frame if we have it.
-        if let Source::S(_) = src {
-            return ps.stream_states.get(&stream_id)
+        if let Source::S(sa) = src {
+            let has_frame = ps.stream_states.get(&stream_id).and_then(|s| s.last_frame.as_ref()).is_some();
+            debug!("Subscribe from peer {}: stream={} have_frame={}", sa, stream_id, has_frame);
+            let reply = ps.stream_states.get(&stream_id)
                 .and_then(|s| s.last_frame.clone())
                 .map(|f| vec![Message::LiveStream(f)])
                 .unwrap_or_default();
+            trace!("Subscribe reply to peer {}: stream={} sending_frame={}", sa, stream_id, !reply.is_empty());
+            return reply;
         }
 
         // WebSocket (local browser) asking — return cached frame and search for fresh.
@@ -3007,12 +3034,17 @@ impl Receive for Subscribe {
         // before we call ps.socket or ps.best_peers.
         let (last_frame, head_peer, gap_ms, do_search) = {
             let state = ps.stream_states.entry(stream_id.clone())
-                .or_insert_with(|| StreamState::new(&stream_id));
+                .or_insert_with(|| {
+                    info!("Subscribe: browser watching new stream {}", stream_id);
+                    StreamState::new(&stream_id)
+                });
             let last_frame = state.last_frame.clone();
             let head_peer  = state.peers.first().copied();
             let gap_ms     = self.gap_ms;
             let interval   = state.search_interval_ms();
             let do_search  = state.last_search.elapsed().as_millis() as u64 >= interval || gap_ms > 0;
+            debug!("Subscribe from browser: stream={} gap_ms={} have_frame={} head_peer={:?} interval={}ms do_search={}",
+                stream_id, gap_ms, last_frame.is_some(), head_peer, interval, do_search);
             if do_search { state.last_search = Instant::now(); }
             (last_frame, head_peer, gap_ms, do_search)
         };
@@ -3025,8 +3057,16 @@ impl Receive for Subscribe {
             })]).unwrap_or_default();
 
             if let Some(head) = head_peer {
-                ps.socket.send_to(&sub_bytes, head).ok();
+                debug!("Subscribe: sending to known head peer {} for stream={}", head, stream_id);
+                if let Err(e) = ps.socket.send_to(&sub_bytes, head) {
+                    warn!("Subscribe: send_to head peer {head} failed: {e}");
+                } else {
+                    trace!("Subscribe: sent {} bytes to head peer {} stream={}", sub_bytes.len(), head, stream_id);
+                }
+            } else {
+                debug!("Subscribe: no known head peer for stream={}", stream_id);
             }
+
             // How many random peers to flood based on how stale our view is.
             let random_count: i32 = match gap_ms {
                 0             => 0,
@@ -3036,14 +3076,26 @@ impl Receive for Subscribe {
                 10000..=29999 => 150,
                 _             => 300,
             };
+            debug!("Subscribe: stream={} gap_ms={} random_count={}", stream_id, gap_ms, random_count);
             if random_count > 0 {
                 let peers = ps.best_peers(random_count, 5);
-                for sa in peers {
-                    ps.socket.send_to(&sub_bytes, sa).ok();
+                if peers.is_empty() {
+                    warn!("Subscribe: need to search {} peers for stream={} but peer table is empty", random_count, stream_id);
+                } else {
+                    debug!("Subscribe: flooding {} peers for stream={}", peers.len(), stream_id);
+                }
+                for sa in &peers {
+                    if let Err(e) = ps.socket.send_to(&sub_bytes, *sa) {
+                        warn!("Subscribe: send_to peer {sa} failed: {e}");
+                    } else {
+                        trace!("Subscribe: sent {} bytes to peer {} stream={}", sub_bytes.len(), sa, stream_id);
+                    }
                 }
             }
         }
 
+        let returning_frame = last_frame.is_some();
+        debug!("Subscribe: stream={} returning_frame={}", stream_id, returning_frame);
         last_frame.map(|f| vec![Message::LiveStream(f)]).unwrap_or_default()
     }
 }

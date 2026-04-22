@@ -175,11 +175,11 @@ function scheduleVideoSub(delay_ms) {
     if (!viewVideoStreamId) return;
     if (videoSubTimer) clearTimeout(videoSubTimer);
     videoSubTimer = setTimeout(() => {
+        // Never received → treat as very stale so the server fans out to many peers.
+        const gap = videoLastReceived ? Date.now() - videoLastReceived : 999999;
         if (socket && socket.readyState === WebSocket.OPEN) {
-            const gap = videoLastReceived ? Date.now() - videoLastReceived : 0;
             socket.send(JSON.stringify([{Subscribe:{stream_id:viewVideoStreamId, gap_ms:gap > FRAME_MS ? gap : 0}}]));
         }
-        const gap = videoLastReceived ? Date.now() - videoLastReceived : 0;
         // Back off: if stream silent, slow down; if live, stay fast
         const next = gap < FRAME_MS*2 ? FRAME_MS : Math.min(5000, gap * 0.6 | 0);
         scheduleVideoSub(next);
@@ -190,11 +190,11 @@ function scheduleAudioSub(delay_ms) {
     if (!viewAudioStreamId) return;
     if (audioSubTimer) clearTimeout(audioSubTimer);
     audioSubTimer = setTimeout(() => {
+        // Never received → treat as very stale so the server fans out to many peers.
+        const gap = audioLastReceived ? Date.now() - audioLastReceived : 999999;
         if (socket && socket.readyState === WebSocket.OPEN) {
-            const gap = audioLastReceived ? Date.now() - audioLastReceived : 0;
             socket.send(JSON.stringify([{Subscribe:{stream_id:viewAudioStreamId, gap_ms:gap > FRAME_MS ? gap : 0}}]));
         }
-        const gap = audioLastReceived ? Date.now() - audioLastReceived : 0;
         const next = gap < FRAME_MS*2 ? FRAME_MS : Math.min(5000, gap * 0.6 | 0);
         scheduleAudioSub(next);
     }, delay_ms);
