@@ -71,7 +71,7 @@ or HTML pages with many page components, individually downloaded from the networ
 - reviews of content
 -  some equivalent of wikipedia
 ## updateable content
-for distirbuting latest versions of things, maybe a homepageish thing for key, generally avaliable with a seq number, signed home page, with which newer content can be linked?  or just any pages signed by pubs, its how to find the newest thats the trick.. oh just give people latest urls that always pull from me not by hash..and dont error in the app about it
+- for distirbuting latest versions of things, maybe a homepageish thing for key, generally avaliable with a seq number, signed home page, with which newer content can be linked?  or just any pages signed by pubs, its how to find the newest thats the trick.. oh just give people latest urls that always pull from me not by hash..and dont error in the app about it
 - content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 ## unnsorted
 - make it do what i actually do each day, check for news basically, from friends or weigthed by importance/distance. like /trending but scoped/weighted.  user defined algorithm. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
@@ -84,16 +84,16 @@ for distirbuting latest versions of things, maybe a homepageish thing for key, g
 - put nostr or bitcoin addr in chat too ..however that is signed
 - put this as a git bundle in cjp2p/public
 - putting git files in cjp2p/public is breaking a git pull if the directory is beyond is a symlink
-my putting plain names in public/ will go badly for anyone who doest have thetm and tries to get them ..just think of what i need to do for me and the fastest way to do it, htats how it will be done.. it doesnt have to be authenticated , as long as it CAN be later, just automate what i do, thats my specialtiy, and if a file is deleted and someone uses the URL it will have unpredictable results
-lcdp crate now? send to ed25519 as the base theme with the big hash getter should be core?
-more orderly chat with history on dashboard page, like make this a social focused space 
+- my putting plain names in public/ will go badly for anyone who doest have thetm and tries to get them ..just think of what i need to do for me and the fastest way to do it, htats how it will be done.. it doesnt have to be authenticated , as long as it CAN be later, just automate what i do, thats my specialtiy, and if a file is deleted and someone uses the URL it will have unpredictable results
+- lcdp crate now? send to ed25519 as the base theme with the big hash getter should be core?
+- more orderly chat with history on dashboard page, like make this a social focused space 
 - find by eth faster for 1st time users of OnePlus, assuming the other side already has /  aggressive search for pubs and eth addrs for chriss app OnePlusOne
-put this on radicle? at least look at it more
-when people publish UIs to this, on this, there sholud be an easy directory of those, and with latest versions, and shown right on the status page
-web of trust, reputation is not absolute, its from your point of view, that solves sybil attacks
-any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
-browser light node, its easy, just treat non-localhost as network..easy, right? hows routing work
-have Claude make a .apk of the node and one of those built in webbrowsers that dont look like it is a web browser exactly so it can just reuse the same html thats already used for node+browser setups.  lets see what this bot can do!
-maybe with clauds new multi ID support, manage your signatures page separately fro the chat that's not working
-audio on video.html is 85% overhead..i thought i fixed that
-if streaming video is a signed list of hashes, just sign the video itself, then i can multisource per packet, the encryption does hashing already i think?
+- put this on radicle? at least look at it more
+- when people publish UIs to this, on this, there sholud be an easy directory of those, and with latest versions, and shown right on the status page
+- web of trust, reputation is not absolute, its from your point of view, that solves sybil attacks
+- any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
+- browser light node, its easy, just treat non-localhost as network..easy, right? hows routing work
+- have Claude make a .apk of the node and one of those built in webbrowsers that dont look like it is a web browser exactly so it can just reuse the same html thats already used for node+browser setups.  lets see what this bot can do!
+- maybe with clauds new multi ID support, manage your signatures page separately fro the chat that's not working
+- audio on video.html is 85% overhead..i thought i fixed that
+- if streaming video is a signed list of hashes, just sign the video itself, then i can multisource per packet, the encryption does hashing already i think?
