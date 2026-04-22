@@ -33,4 +33,5 @@ socket2 = ">=0.0.0"
 urlencoding = ">=0.0.0"
 tungstenite = ">=0.0.0"
 alloy = { version = ">0.0.0", default-features = false, features = ["signers"] }
+k256 = { version = ">=0.0.0", features = ["schnorr"] }
 igd = ">=0.0.0"
