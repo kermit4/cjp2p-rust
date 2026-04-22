@@ -82,3 +82,4 @@ Want the `socket2` setup + core pinning code?
 
 ===========  JSON Forwarding, just copy raw bytes once you know the destinstead of parsing it as JSON.
 =========== change encryption to one that isnt making ephemeral keys for each packet, i.e. not Noise
+==== peer_map_by_pub doesnt need full 32 bytes of key

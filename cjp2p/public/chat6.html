@@ -99,7 +99,6 @@ debuging :
         const t = addrTypeEl.value;
         their_addr.value = '';
         their_ed25519.value = '';
-        their_ed25519.disabled = true;
         document.getElementById('safe-row').hidden         = (t !== 'safe');
         document.getElementById('connect-btn').hidden      = (t !== 'eth' && t !== 'safe');
         document.getElementById('nostr-btn-wrap').hidden   = (t !== 'nostr');
@@ -575,7 +574,6 @@ debuging :
 
     their_addr.addEventListener('input', () => {
         their_ed25519.value = '';
-        their_ed25519.disabled = true;
         if (addrTypeEl.value !== 'xmr' && addrTypeEl.value !== 'btc') {
             request_ed25519_for_addr();
         }
