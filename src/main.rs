@@ -74,18 +74,6 @@ struct PeerInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ed25519_nostr_signed: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ed25519_nostr_signer: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ed25519_btc_signed: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ed25519_btc_signer: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ed25519_xmr_signed: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ed25519_xmr_signer: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     you_should_see_this: Option<YouSouldSeeThis>,
     #[serde(skip_serializing_if = "Option::is_none")]
     i_just_saw_this: Option<IJustSawThis>,
@@ -98,12 +86,6 @@ impl PeerInfo {
             ed25519: None,
             ed25519_eth_signed: None,
             ed25519_eth_signer: None,
-            ed25519_nostr_signed: None,
-            ed25519_nostr_signer: None,
-            ed25519_btc_signed: None,
-            ed25519_btc_signer: None,
-            ed25519_xmr_signed: None,
-            ed25519_xmr_signer: None,
             you_should_see_this: Some(YouSouldSeeThis {
                 id: "43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1".to_owned(),
                 length: 105277987,
@@ -191,12 +173,6 @@ struct PersistentState {
     i_just_saw_this: Option<IJustSawThis>,
     #[serde(default)]
     my_ed25519_signed_by_web_wallet: Option<String>,
-    #[serde(default)]
-    my_ed25519_signed_by_nostr: Option<String>,
-    #[serde(default)]
-    my_ed25519_signed_by_btc: Option<String>,
-    #[serde(default)]
-    my_ed25519_signed_by_xmr: Option<String>,
 }
 impl PersistentState {
     fn save(&self) {
@@ -223,9 +199,6 @@ impl PersistentState {
                 you_should_see_this: None,
                 i_just_saw_this: None,
                 my_ed25519_signed_by_web_wallet: None,
-                my_ed25519_signed_by_nostr: None,
-                my_ed25519_signed_by_btc: None,
-                my_ed25519_signed_by_xmr: None,
             };
         }
     }
@@ -1123,11 +1096,7 @@ fn handle_web_request(
         if buf.starts_with(b"GET /wt") {
             let mut ws = accept(stream).unwrap();
             info!("websocket connected");
-            let any_sig = ps.p.my_ed25519_signed_by_web_wallet.is_some()
-                || ps.p.my_ed25519_signed_by_nostr.is_some()
-                || ps.p.my_ed25519_signed_by_btc.is_some()
-                || ps.p.my_ed25519_signed_by_xmr.is_some();
-            let message_out_string = if !any_sig {
+            let message_out_string = if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
                 format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]",ps.keypair.public_hex.clone().unwrap())
             } else {
                 format!("[{{\"YourEd25519\":{{\"ed25519\":\"{}\"}}}}]",ps.keypair.public_hex.clone().unwrap())
@@ -2196,9 +2165,6 @@ impl Receive for WhereAreThey {
                 let mpk = MyPublicKey {
                     ed25519h: self.ed25519h,
                     ed25519_eth_signed: p.ed25519_eth_signed.clone(),
-                    ed25519_nostr_signed: p.ed25519_nostr_signed.clone(),
-                    ed25519_btc_signed: p.ed25519_btc_signed.clone(),
-                    ed25519_xmr_signed: p.ed25519_xmr_signed.clone(),
                 };
                 let message_out = vec![Message::MyPublicKey(mpk)];
                 let from_ed25519 = Some(self.ed25519h);
@@ -2232,9 +2198,6 @@ impl Receive for GetPubByEth {
                         let mpk = MyPublicKey {
                             ed25519h: ed25519.clone(),
                             ed25519_eth_signed: p.ed25519_eth_signed.clone(),
-                            ed25519_nostr_signed: p.ed25519_nostr_signed.clone(),
-                            ed25519_btc_signed: p.ed25519_btc_signed.clone(),
-                            ed25519_xmr_signed: p.ed25519_xmr_signed.clone(),
                         };
                         let message_out = vec![Message::MyPublicKey(mpk)];
                         let from_ed25519 = Some(ed25519.clone());
@@ -2256,66 +2219,6 @@ impl Receive for GetPubByEth {
             info!("searching {} peers for eth addr",peers.len());
             for sa in peers {
                 let mut message_out = vec![Message::GetPubByEth(self.clone())];
-                message_out.push(ps.please_always_return(sa.clone()));
-                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                ps.socket.send_to(&message_out_bytes, sa).ok();
-            }
-            ps.socket.set_nonblocking(true).unwrap();
-        }
-        return vec![];
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct GetPubByAddr {
-    addr_type: String,
-    addr: String,
-}
-impl Receive for GetPubByAddr {
-    fn receive(
-        self,
-        ps: &mut PeerState,
-        src: &Source,
-        _: &mut bool,
-        _: &mut HashMap<String, InboundState>,
-    ) -> Vec<Message> {
-        let addr_lc = self.addr.to_lowercase();
-        for (k, p) in &ps.peer_map {
-            let signer_opt: Option<&String> = match self.addr_type.as_str() {
-                "eth" => p.ed25519_eth_signer.as_ref(),
-                "nostr" => p.ed25519_nostr_signer.as_ref(),
-                "btc" => p.ed25519_btc_signer.as_ref(),
-                "xmr" => p.ed25519_xmr_signer.as_ref(),
-                _ => None,
-            };
-            if let Some(signer) = signer_opt {
-                if let Some(ed25519) = &p.ed25519 {
-                    if signer.to_lowercase() == addr_lc {
-                        let mpk = MyPublicKey {
-                            ed25519h: ed25519.clone(),
-                            ed25519_eth_signed: p.ed25519_eth_signed.clone(),
-                            ed25519_nostr_signed: p.ed25519_nostr_signed.clone(),
-                            ed25519_btc_signed: p.ed25519_btc_signed.clone(),
-                            ed25519_xmr_signed: p.ed25519_xmr_signed.clone(),
-                        };
-                        let message_out = vec![Message::MyPublicKey(mpk)];
-                        let from_ed25519 = Some(ed25519.clone());
-                        let maybe_ed25519 = None;
-                        let messages = serde_json::to_string(&message_out).unwrap();
-                        info!("GetPubByAddr({}) found ed25519 {} for {}", self.addr_type, hex::encode(ed25519), signer);
-                        let src = *k;
-                        return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
-                    }
-                }
-            }
-        }
-        ps.socket.set_nonblocking(false).unwrap();
-        if let Source::None = src {
-            warn!("failed to find ed25519 for {} addr {}, searching..", self.addr_type, self.addr);
-            let peers = ps.best_peers(250, 6);
-            info!("searching {} peers for eth addr",peers.len());
-            for sa in peers {
-                let mut message_out = vec![Message::GetPubByAddr(self.clone())];
                 message_out.push(ps.please_always_return(sa.clone()));
                 let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                 ps.socket.send_to(&message_out_bytes, sa).ok();
@@ -2417,46 +2320,15 @@ struct MyPublicKey {
     ed25519h: [u8; 32],
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signed: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ed25519_nostr_signed: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ed25519_btc_signed: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ed25519_xmr_signed: Option<String>,
 }
 impl MyPublicKey {
     fn new(ps: &PeerState) -> Message {
         return Message::MyPublicKey(Self {
             ed25519h: ps.keypair.public.clone(),
             ed25519_eth_signed: ps.p.my_ed25519_signed_by_web_wallet.clone(),
-            ed25519_nostr_signed: ps.p.my_ed25519_signed_by_nostr.clone(),
-            ed25519_btc_signed: ps.p.my_ed25519_signed_by_btc.clone(),
-            ed25519_xmr_signed: ps.p.my_ed25519_signed_by_xmr.clone(),
         });
     }
 }
-fn verify_nostr_sig(ed25519h_hex: &str, nostr_signed_json: &str) -> Option<String> {
-    use k256::schnorr::{VerifyingKey, Signature as SchnorrSig};
-    use sha2::{Sha256, Digest};
-    #[derive(serde::Deserialize)]
-    struct NostrSigData { pubkey: String, sig: String, id: String, created_at: u64 }
-    let d: NostrSigData = serde_json::from_str(nostr_signed_json).ok()?;
-    let content = format!("my ed25519 public key is {}", ed25519h_hex);
-    let event_json = format!("[0,\"{}\",{},1,[],\"{}\"]", d.pubkey, d.created_at, content);
-    let computed_id = hex::encode(Sha256::digest(event_json.as_bytes()));
-    if computed_id != d.id {
-        warn!("nostr event id mismatch: computed {} != claimed {}", computed_id, d.id);
-        return None;
-    }
-    let pubkey_bytes = hex::decode(&d.pubkey).ok()?;
-    let sig_bytes = hex::decode(&d.sig).ok()?;
-    let vk = VerifyingKey::from_bytes(pubkey_bytes.as_slice().try_into().ok()?).ok()?;
-    let sig = SchnorrSig::try_from(sig_bytes.as_slice()).ok()?;
-    let id_bytes: [u8; 32] = hex::decode(&d.id).ok()?.try_into().ok()?;
-    vk.verify_raw(&id_bytes, &sig).ok()?;
-    Some(d.pubkey)
-}
-
 impl Receive for MyPublicKey {
     fn receive(
         self,
@@ -2467,17 +2339,19 @@ impl Receive for MyPublicKey {
     ) -> Vec<Message> {
         use alloy::signers::Signature;
         use std::str::FromStr;
-        let mut recovered_eth: Option<String> = None;
-        let mut recovered_nostr: Option<String> = None;
+        let mut recovered_address: Option<String> = None;
         let ed25519h_hex = hex::encode(&self.ed25519h);
         ps.peer_map_by_pub.insert(self.ed25519h, src.to_owned());
         if let Some(sig) = &self.ed25519_eth_signed {
             if let Ok(sig) = Signature::from_str(sig.as_str()) {
+                // takes 0.0003s so do this in advance
                 if let Ok(address) = sig
                     .recover_address_from_msg(format!("my ed25519 public key is {}",ed25519h_hex))
                 {
-                    debug!("Recovered eth address: {}", address);
-                    recovered_eth = Some(address.to_string());
+                    debug!("Recovered address: {}", address);
+                    // comes out like 0x9aE035dEE8318A9b9fD080Dda31D7524098f65EF
+                    // address
+                    recovered_address = Some(address.to_string());
                 } else {
                     warn!("eth signature failed recover from {:?}",src);
                     return vec![];
@@ -2487,74 +2361,23 @@ impl Receive for MyPublicKey {
                 return vec![];
             }
         }
-        if let Some(nostr_json) = &self.ed25519_nostr_signed {
-            match verify_nostr_sig(&ed25519h_hex, nostr_json) {
-                Some(pubkey) => {
-                    info!("verified nostr pubkey {} for ed25519 {}", pubkey, ed25519h_hex);
-                    recovered_nostr = Some(pubkey);
-                }
-                None => {
-                    warn!("nostr signature verification failed from {:?}", src);
-                    return vec![];
-                }
-            }
-        }
-        // btc and xmr: stored without server-side verification for now
         if let Source::S(src) = *src {
             let pi = ps.peer_map.get_mut(&src).unwrap();
-            if let Some(a) = recovered_eth {
+            if let Some(a) = recovered_address {
                 pi.ed25519_eth_signer = Some(a);
                 pi.ed25519_eth_signed = self.ed25519_eth_signed;
-            }
-            if let Some(a) = recovered_nostr {
-                pi.ed25519_nostr_signer = Some(a);
-                pi.ed25519_nostr_signed = self.ed25519_nostr_signed;
-            }
-            if let Some(s) = self.ed25519_btc_signed {
-                // JSON: {"address":"...","sig":"..."}
-                #[derive(serde::Deserialize)]
-                struct BtcSig { address: String }
-                if let Ok(b) = serde_json::from_str::<BtcSig>(&s) {
-                    pi.ed25519_btc_signer = Some(b.address);
-                    pi.ed25519_btc_signed = Some(s);
-                }
-            }
-            if let Some(s) = self.ed25519_xmr_signed {
-                #[derive(serde::Deserialize)]
-                struct XmrSig { address: String }
-                if let Ok(x) = serde_json::from_str::<XmrSig>(&s) {
-                    pi.ed25519_xmr_signer = Some(x.address);
-                    pi.ed25519_xmr_signed = Some(s);
-                }
             }
             pi.ed25519 = Some(self.ed25519h);
         } else {
             info!("websocket sent signed {} to ", ed25519h_hex);
             if ed25519h_hex == ps.keypair.public_hex.clone().unwrap() {
-                let mut changed = false;
-                if let Some(s) = self.ed25519_eth_signed {
-                    info!("websocket eth signature saved");
-                    ps.p.my_ed25519_signed_by_web_wallet = Some(s);
-                    changed = true;
+                if let Some(ed25519_eth_signed) = self.ed25519_eth_signed {
+                    info!("websocket signature saved");
+                    ps.p.my_ed25519_signed_by_web_wallet = Some(ed25519_eth_signed);
+                    ps.p.save();
                 }
-                if let Some(s) = self.ed25519_nostr_signed {
-                    info!("websocket nostr signature saved");
-                    ps.p.my_ed25519_signed_by_nostr = Some(s);
-                    changed = true;
-                }
-                if let Some(s) = self.ed25519_btc_signed {
-                    info!("websocket btc signature saved");
-                    ps.p.my_ed25519_signed_by_btc = Some(s);
-                    changed = true;
-                }
-                if let Some(s) = self.ed25519_xmr_signed {
-                    info!("websocket xmr signature saved");
-                    ps.p.my_ed25519_signed_by_xmr = Some(s);
-                    changed = true;
-                }
-                if changed { ps.p.save(); }
             } else {
-                warn!("why is websocket signing someone else's ed25519 pub");
+                warn!("why is websocket eth signing someone else's ed25519 pub");
             }
         }
         return vec![];
@@ -2838,7 +2661,6 @@ enum Message {
     SignedPub(SignedPub),
     GetPubByEth(GetPubByEth),
     WhereAreThey(WhereAreThey),
-    GetPubByAddr(GetPubByAddr),
 }
 
 // this struct only exists to be able to get that VecSkipError in there.
