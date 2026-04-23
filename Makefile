@@ -8,16 +8,16 @@ chat5: src/chat5.html Makefile
 
 debug: target/debug/cjp2p
 target/debug/cjp2p: Makefile Cargo.toml src/*.rs 
-	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo build
+	BUILD_VERSION="debug: `git log --pretty=format:"Rust %ad %h %s" -1`" cargo build
 	rm -f target/*/libcjp
 
 release: target/release/cjp2p
 target/release/cjp2p:	Makefile Cargo.toml src/*.rs 
-	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo build --release
+	BUILD_VERSION="release `git log --pretty=format:"Rust %ad %h %s" -1`" cargo build --release
 	rm -f target/*/libcjp
 
 check: Makefile Cargo.toml src/*.rs 
-	BUILD_VERSION=`git log --pretty=format:"Rust %ad %h %s" -1` cargo check 
+	BUILD_VERSION="check `git log --pretty=format:"Rust %ad %h %s" -1`" cargo check 
 
 pretty: debug
 	cargo fmt --  --config skip_macro_invocations='["*"]' --config match_arm_blocks=false
