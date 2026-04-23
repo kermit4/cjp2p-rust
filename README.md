@@ -5,6 +5,9 @@ The current target audience is devs, so the UI IS minimal and not clearly docume
 This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it.
 
 
+Most recent updates probably on Radicle https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z3muoqLkU65QFyyJaVvCv9WiDEo21 not Github
+
+
 # building
 
 make release
@@ -24,7 +27,7 @@ This uses 10KB/s at idle (almost 1GB/day).  It seems to not use a lot of battery
 
 You can copy cjp2p/state/key.json to other systems if you want and it should receive messages directed to it on all systems.
 
-This also works on Android.
+This also works fine on Android.
 
 # hints
 
@@ -88,11 +91,11 @@ or HTML pages with many page components, individually downloaded from the networ
 - lcdp crate now? send to ed25519 as the base theme with the big hash getter should be core?
 - more orderly chat with history on dashboard page, like make this a social focused space 
 - find by eth faster for 1st time users of OnePlus, assuming the other side already has /  aggressive search for pubs and eth addrs for chriss app OnePlusOne
-- put this on radicle? at least look at it more
 - when people publish UIs to this, on this, there sholud be an easy directory of those, and with latest versions, and shown right on the status page
 - web of trust, reputation is not absolute, its from your point of view, that solves sybil attacks
 - any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
 - browser light node, its easy, just treat non-localhost as network..easy, right? hows routing work
 - have Claude make a .apk of the node and one of those built in webbrowsers that dont look like it is a web browser exactly so it can just reuse the same html thats already used for node+browser setups.  lets see what this bot can do!
-- maybe with clauds new multi ID support, manage your signatures page separately fro the chat that's not working
 - if streaming video is a signed list of hashes, just sign the video itself, then i can multisource per packet, the encryption does hashing already i think?
+- dot file, env var, commmand line options..too many ways to pass options
+- so a link to an updatedable would just have the pub IN the link and the name, thats easy
