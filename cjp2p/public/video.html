@@ -46,6 +46,9 @@ their ed25519: <input id=their_ed25519 size=80>
   <button id=muteAudioBtn>Unmute Mic</button>
   <button id=muteVideoBtn>Unmute Video</button>
   <span class="led rx-led" id=rxLed title="rx audio"></span>
+  <button id=echoCancelBtn>Echo: Off</button>
+  <button id=noiseBtn>Noise: Off</button>
+  <button id=gainBtn>Gain: Off</button>
   <button id=debugBtn>debug log</button>
 </div>
 <pre id=stats style="font-size:11px;margin:4px 0;"></pre>
@@ -152,6 +155,10 @@ let videoSeqSent = Date.now(); // start high so post-reload seqs aren't rejected
 let videoSeqRecv = 0;
 
 // -- audio state --------------------------------------------------------------
+let echoCancel    = false;
+let noiseSuppress = false;
+let autoGain      = false;
+let micSrc          = null;
 let audioCtx        = null;
 let recordProc      = null;
 let playProc        = null;
@@ -270,7 +277,7 @@ async function startCameraAndMic() {
             camStream = await navigator.mediaDevices.getUserMedia({
                 video: { width:{ max:640 }, height:{ max:640 }, frameRate:{ ideal:24, max:30 } },
                 audio: { channelCount:1, sampleRate:48000,
-                         echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+                         echoCancellation:echoCancel, noiseSuppression:noiseSuppress, autoGainControl:autoGain }
             });
         } catch(e) { log_always('getUserMedia failed:', e.message || e); return false; }
 
@@ -364,7 +371,7 @@ async function startCameraAndMic() {
 
     // mic -> processor
     if (!recordProc) {
-        const micSrc = audioCtx.createMediaStreamSource(camStream);
+        micSrc = audioCtx.createMediaStreamSource(camStream);
         recordProc = audioCtx.createScriptProcessor(SP_FRAMES, 1, 1);
         recordProc.onaudioprocess = e => {
             const input = e.inputBuffer.getChannelData(0);
@@ -415,6 +422,44 @@ muteVideoBtn.onclick = async () => {
     videoMuted = !videoMuted;
     muteVideoBtn.textContent = videoMuted ? 'Unmute Video' : 'Mute Video';
     if (!videoMuted) frameCount = 0; // force keyframe on unmute
+};
+
+// -- audio processing toggles -------------------------------------------------
+async function restartAudio() {
+    if (!camStream) return;
+    const wasActive = micActive;
+    micActive = false;
+    setLed(recLed, false);
+    camStream.getAudioTracks().forEach(t => t.stop());
+    if (recordProc) { recordProc.disconnect(); recordProc = null; }
+    if (micSrc)     { micSrc.disconnect();     micSrc = null; }
+    if (audioEncoder) { try { audioEncoder.close(); } catch {} audioEncoder = null; }
+    try {
+        const s = await navigator.mediaDevices.getUserMedia({
+            audio: { channelCount:1, sampleRate:48000,
+                     echoCancellation:echoCancel, noiseSuppression:noiseSuppress, autoGainControl:autoGain }
+        });
+        camStream.getAudioTracks().forEach(t => camStream.removeTrack(t));
+        s.getAudioTracks().forEach(t => camStream.addTrack(t));
+    } catch(e) { log_always('audio restart failed:', e.message || e); return; }
+    await startCameraAndMic();
+    if (wasActive) { micActive = true; setLed(recLed, true); muteAudioBtn.textContent = 'Mute Mic'; }
+}
+
+document.getElementById('echoCancelBtn').onclick = async () => {
+    echoCancel = !echoCancel;
+    document.getElementById('echoCancelBtn').textContent = echoCancel ? 'Echo: On' : 'Echo: Off';
+    await restartAudio();
+};
+document.getElementById('noiseBtn').onclick = async () => {
+    noiseSuppress = !noiseSuppress;
+    document.getElementById('noiseBtn').textContent = noiseSuppress ? 'Noise: On' : 'Noise: Off';
+    await restartAudio();
+};
+document.getElementById('gainBtn').onclick = async () => {
+    autoGain = !autoGain;
+    document.getElementById('gainBtn').textContent = autoGain ? 'Gain: On' : 'Gain: Off';
+    await restartAudio();
 };
 
 // -- WebSocket + receive (always on from page load) ---------------------------
