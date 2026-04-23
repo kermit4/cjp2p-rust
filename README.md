@@ -25,7 +25,7 @@ for some noise
 
 This uses 10KB/s at idle (almost 1GB/day).  It seems to not use a lot of battery but I haven't done long tests, and there's still a small risk of bugs that will spin net/cpu.
 
-You can copy cjp2p/state/key.json to other sysetems if you want and it should receive messages directed to it on all systems.
+You can copy cjp2p/state/key.json to other systems if you want and it should receive messages directed to it on all systems.
 
 This also works fine on Android.
 
