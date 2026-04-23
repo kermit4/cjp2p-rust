@@ -1,4 +1,4 @@
-This uses https://github.com/kermit4/LCDP .   The primary purpose of this repo, is to demonstrate sample use cases of connectionless JSON (externally tagged) P2P aka the Lowest Common Denominator Protocol messaging, however there are some users of it now, usually using web interfaces over the websocket that speaks the same protocol though is handled somewhat differently as it's intended only for the node operator's browser.
+This uses https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z4NaokAHdQyjkF562Cj9PpHpGH5f1 .   The primary purpose of this repo, is to demonstrate sample use cases of connectionless JSON (externally tagged) P2P aka the Lowest Common Denominator Protocol messaging, however there are some users of it now, usually using web interfaces over the websocket that speaks the same protocol though is handled somewhat differently as it's intended only for the node operator's browser.
 
 The current target audience is devs, so the UI IS minimal and not clearly documented.   
 
