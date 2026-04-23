@@ -47,7 +47,7 @@ use std::path::Path;
 //use std::io::copy;
 
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq, Hash)]
 enum Source {
     // <'a> {
     None, // W(&'a WebSocket<TcpStream>), // borrow checker, this really has to be the index, or taken out of peerstate, or maybe just pass the IP/port of the websocket instead of an index, make that the index
@@ -411,9 +411,18 @@ impl PeerState {
             .ok();
     }
 
-    fn best_peers(&self, how_many: i32, quality: i32) -> HashSet<SocketAddr> {
+    fn best_peers(&self, mut how_many: i32, quality: i32) -> HashSet<SocketAddr> {
+        // this should be randomized, whenever there are enough peers that its not just all of them
+        // anyway
         let mut rng = rand::rng();
         let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
+        for i in self.peer_map_by_pub.values() {
+            if let Source::S(sa) = i {
+                result.insert(sa.clone());
+                how_many-=1;
+                if how_many==0 {return result.clone();}
+            }
+        }
         for _ in 0..how_many {
             let i = ((rng.random_range(0.0..1.0) as f64).powi(quality)
                 * (self.peer_vec.len() as f64)) as usize;
