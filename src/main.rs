@@ -153,6 +153,7 @@ struct PeerState {
     recent_peer_timer: Instant,
     recent_peer_counter_max: usize,
     socket: UdpSocket,
+    lcdp_port: u16,
     boot: Instant,
     keypair: Keypair,
     open_file_cache: HashMap<String, OpenFile>,
@@ -204,7 +205,7 @@ impl PersistentState {
     }
 }
 impl PeerState {
-    fn new() -> Self {
+    fn new(lcdp_port: u16) -> Self {
         fs::create_dir("./cjp2p").ok();
         fs::create_dir("./cjp2p/public").ok();
         fs::create_dir("./cjp2p/metadata").ok();
@@ -217,7 +218,8 @@ impl PeerState {
             recent_peers: HashSet::new(),
             recent_peer_timer: Instant::now(),
             recent_peer_counter_max: 0,
-            socket: UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 24254)).unwrap(),
+            socket: UdpSocket::bind((Ipv6Addr::UNSPECIFIED, lcdp_port)).unwrap(),
+            lcdp_port,
             boot: Instant::now(),
             keypair: Keypair::load_key(),
             open_file_cache: HashMap::new(),
@@ -541,7 +543,7 @@ impl PeerState {
         }
     }
     fn upnp(&self) {
-        let local_port: u16 = 24254;
+        let local_port: u16 = self.lcdp_port;
         let external_port: u16 =
             (((self.keypair.public[0] as u16) << 8) + self.keypair.public[1] as u16) | 0x401;
         let lease_duration: u32 = 3600; // 0 = permanent
@@ -653,17 +655,65 @@ fn get_local_ip_for_gateway(gateway_ip: Ipv4Addr) -> Ipv4Addr {
         .expect("parse failed")
 }
 
+fn parse_args() -> (u16, u16, Vec<String>) {
+    let mut lcdp_port: u16 = 24254;
+    let mut http_port: u16 = 24255;
+    let raw_args: Vec<String> = env::args().skip(1).collect();
+    let mut file_args: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < raw_args.len() {
+        match raw_args[i].as_str() {
+            "--help" | "-h" => {
+                println!("Usage: cjp2p [OPTIONS] [FILES...]");
+                println!();
+                println!("Options:");
+                println!("  --lcdp-port PORT   UDP port for p2p traffic (default: 24254)");
+                println!("  --http-port PORT  HTTP port for web console (default: 24255)");
+                println!("  --help            Show this help message");
+                println!();
+                println!("Files: hash IDs to download");
+                std::process::exit(0);
+            }
+            "--lcdp-port" => {
+                i += 1;
+                lcdp_port = raw_args
+                    .get(i)
+                    .expect("--lcdp-port requires a value")
+                    .parse()
+                    .expect("--lcdp-port must be a valid port number");
+            }
+            "--http-port" => {
+                i += 1;
+                http_port = raw_args
+                    .get(i)
+                    .expect("--http-port requires a value")
+                    .parse()
+                    .expect("--http-port must be a valid port number");
+            }
+            _ => {
+                file_args.push(raw_args[i].clone());
+            }
+        }
+        i += 1;
+    }
+    (lcdp_port, http_port, file_args)
+}
+
 fn main() -> Result<(), std::io::Error> {
     env_logger::builder()
         .format_timestamp(Some(TimestampPrecision::Millis))
         .init();
     println!("logging level: {}", log::max_level());
-    let mut ps: PeerState = PeerState::new();
-    let web_server = if Path::new(".allow_remote_http").exists() {
-        TcpListener::bind("0.0.0.0:24255").unwrap()
+
+    let (lcdp_port, http_port, file_args) = parse_args();
+
+    let mut ps: PeerState = PeerState::new(lcdp_port);
+    let bind_addr = if Path::new(".allow_remote_http").exists() {
+        format!("0.0.0.0:{http_port}")
     } else {
-        TcpListener::bind("127.0.0.1:24255").unwrap()
+        format!("127.0.0.1:{http_port}")
     };
+    let web_server = TcpListener::bind(&bind_addr).unwrap();
     SockRef::from(&web_server)
         .set_send_buffer_size(0x400000)
         .ok();
@@ -672,11 +722,9 @@ fn main() -> Result<(), std::io::Error> {
         warn!("sndbuf  = {:?}",sndbuf);
     }
     println!("your ed25519 public key, stored in cjp2p/state/key.json, is:  0x{}",ps.keypair.public_hex.clone().unwrap());
-    println!("web console at        http://127.0.0.1:24255/");
-    let mut args = env::args();
-    args.next();
+    println!("web console at        http://127.0.0.1:{http_port}/");
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
-    for v in args {
+    for v in file_args {
         info!("queing inbound file {:?}", v);
         inbound_states.insert(v.to_string(), InboundState::new(&v));
     }
@@ -1991,7 +2039,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     if ps.recent_peer_timer.elapsed() > Duration::from_secs(5 * 60) {
         if ps.recent_peers.len() < ps.recent_peer_counter_max * 4 / 5 {
             error!("only {} peers in 5 minutes, vs max of {}",ps.recent_peers.len(),ps.recent_peer_counter_max);
-            ps.recent_peer_counter_max=ps.recent_peers.len(); // only alert once
+            ps.recent_peer_counter_max = ps.recent_peers.len(); // only alert once
         }
         if ps.recent_peers.len() > ps.recent_peer_counter_max * 4 / 5 {
             ps.recent_peer_counter_max = ps.recent_peers.len()
