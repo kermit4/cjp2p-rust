@@ -597,7 +597,6 @@ dependencies = [
  "getifaddrs",
  "hex",
  "igd",
- "k256",
  "log",
  "memmap2",
  "mimetype-detector",
@@ -1485,7 +1484,6 @@ dependencies = [
  "elliptic-curve",
  "once_cell",
  "sha2",
- "signature",
 ]
 
 [[package]]
