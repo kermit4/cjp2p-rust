@@ -20,6 +20,12 @@ video, canvas { display:block; background:#000; }
 .vu-seg { width:5px; height:14px; background:#ddd; border-radius:1px; flex-shrink:0; }
 #logDiv { font-family:monospace; font-size:11px; white-space:pre-wrap;
           word-break:break-all; max-height:30vh; overflow:auto; border:1px solid #ccc; padding:4px; }
+.tip-wrap { position:relative; cursor:help; border-bottom:1px dotted #888; display:inline; }
+.tip { display:none; position:absolute; z-index:20; background:#222; color:#eee;
+       font-family:sans-serif; font-size:11px; font-weight:normal; line-height:1.5;
+       padding:6px 9px; border-radius:5px; width:230px; bottom:calc(100% + 4px); left:0;
+       white-space:normal; box-shadow:0 2px 8px rgba(0,0,0,.5); pointer-events:none; }
+.tip-wrap:hover .tip, .tip-wrap.tip-open .tip { display:block; }
 </style>
 </head>
 <body>
@@ -175,11 +181,11 @@ let videoDelayMs = 0;
 const videoQueue = [];
 let sendW = 0, sendH = 0;
 
-const RING_SIZE  = 4096;              // 85ms capacity at 48kHz
+const RING_SIZE  = 32768;             // ~682ms capacity at 48kHz
 const AUDIO_RATE = 48000;
 const SP_FRAMES  = 512;              // ~10.7ms per ScriptProcessor callback
 const MIN_BUF    = SP_FRAMES;        // ~10.7ms minimum target
-const MAX_BUF    = 2880;             // ~60ms maximum target
+const MAX_BUF    = 24000;            // ~500ms maximum target (handles 400ms+ spikes)
 let   audioBufTarget = MIN_BUF;      // adaptive; drives videoDelayMs
 const ring = new Float32Array(RING_SIZE);
 let writeIdx = 0, readIdx = 0;
@@ -238,7 +244,7 @@ async function ensureAudioCtx() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
     await audioCtx.resume();
     const hwLatency = (audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0);
-    log_always('audio hw latency reported:', Math.round(hwLatency*1000)+'ms  adaptive buffer starts at:', Math.round(MIN_BUF/AUDIO_RATE*1000)+'ms');
+    log_always('audio hw latency reported:', Math.round(hwLatency*1000)+'ms  adaptive buffer: '+Math.round(MIN_BUF/AUDIO_RATE*1000)+'ms–'+Math.round(MAX_BUF/AUDIO_RATE*1000)+'ms');
     playProc = audioCtx.createScriptProcessor(SP_FRAMES, 1, 1);
     playProc.onaudioprocess = e => {
         const out = e.outputBuffer.getChannelData(0);
@@ -256,11 +262,11 @@ async function ensureAudioCtx() {
         }
         if (underrun) {
             setLed(rxLed, false);
-            // increase buffer target on underrun; clamp to max
-            audioBufTarget = Math.min(MAX_BUF, audioBufTarget + SP_FRAMES * 2);
+            // increase buffer target on underrun; jump by 4 callbacks worth for faster adaptation
+            audioBufTarget = Math.min(MAX_BUF, audioBufTarget + SP_FRAMES * 4);
         }
-        // slow decay back toward minimum (~25s from max to min at 93 callbacks/s)
-        audioBufTarget = Math.max(MIN_BUF, audioBufTarget - 1);
+        // slow decay back toward minimum (~200s from 500ms to min, so spotty links stay buffered)
+        audioBufTarget = Math.max(MIN_BUF, audioBufTarget - 2);
         videoDelayMs = Math.round(audioBufTarget / AUDIO_RATE * 1000);
     };
     playProc.connect(audioCtx.destination);
@@ -563,17 +569,31 @@ const statsEl = document.getElementById('stats');
     requestAnimationFrame(renderLoop);
 })();
 
+const TIP_BUF = `Adaptive jitter buffer target. Grows by ~43ms on any audio underrun (even one too small to hear), then slowly decays back to ~11ms minimum over ~200s. Also delays video by the same amount to keep A/V in sync.`;
+const TIP_RING = `Current audio buffer depth — milliseconds of decoded audio queued and waiting to play. When this hits zero the buffer underruns and buf\u00a0target increases.`;
+
+function tipHtml(label, tip) {
+    return `<span class="tip-wrap">${label}<span class="tip">${tip}</span></span>`;
+}
+
 setInterval(() => {
     const now = Date.now();
     const ago = ms => ms ? Math.round((now - ms)/1000)+'s ago' : 'never';
     const sr = sendW && sendH ? sendW+'x'+sendH : '--';
     const rr = remoteCanvas.width && remoteCanvas.height ? remoteCanvas.width+'x'+remoteCanvas.height : '--';
     const ringDepth = (writeIdx - readIdx + RING_SIZE) & (RING_SIZE - 1);
-    statsEl.textContent =
-        `send: ${sr}  recv: ${rr}  buf target: ${videoDelayMs}ms  ring: ${Math.round(ringDepth/AUDIO_RATE*1000)}ms\n` +
+    statsEl.innerHTML =
+        `send: ${sr}  recv: ${rr}  ${tipHtml('buf target', TIP_BUF)}: ${videoDelayMs}ms  ${tipHtml('ring', TIP_RING)}: ${Math.round(ringDepth/AUDIO_RATE*1000)}ms\n` +
         `video loss: ${videoDrops}  last: ${ago(lastVideoDropMs)}\n` +
         `audio loss: ${audioDrops}  last: ${ago(lastAudioDropMs)}`;
 }, 1000);
+
+// tap to toggle tooltips on touchscreens
+document.addEventListener('click', e => {
+    const wrap = e.target.closest('.tip-wrap');
+    document.querySelectorAll('.tip-wrap.tip-open').forEach(el => { if (el !== wrap) el.classList.remove('tip-open'); });
+    if (wrap) { wrap.classList.toggle('tip-open'); e.stopPropagation(); }
+});
 
 connect();
 </script>
