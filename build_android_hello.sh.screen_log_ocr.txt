@@ -1,0 +1,29 @@
+cjp2p
+
+started
+
+udp: sent ok
+
+binary exists: false path: /data/app/~~nBxkcs50MG8iLRosBhvjcg==/
+
+com.cjp2p-vzGOGX646lrBFm-8r_-bmw==/lib/arm64/libcjp2p.so
+
+binary canExec: false
+
+filesDir:/data/user/0/com.cjp2p/files
+
+filesDir exists: true
+
+assets/public count: 21
+
+assets extracted to: /data/user/0/com.cjp2p/files/cjp2p/public
+
+attempting binary launch (exists=false canExec=false)
+
+binary launch FAIL: IOException: Cannot run program "/data/app/~~nBxkcs50MG8iLRosBhvjcg==/
+
+com.cjp2p-vzGOGX646lrBFm-8r_-bmw==/lib/arm64/libcjp2p.so" (in directory "/data/user/0/
+
+com.cjp2p/files"): error=2, No such file or directory
+
+done

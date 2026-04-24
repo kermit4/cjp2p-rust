@@ -1,0 +1,39 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.cjp2p'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.cjp2p"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "0.3.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    // Include arm64-v8a only (where the Rust binary lives)
+    splits {
+        abi {
+            enable false
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+}
+
+dependencies {
+    // No external dependencies needed
+}

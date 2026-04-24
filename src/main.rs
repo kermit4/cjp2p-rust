@@ -218,7 +218,10 @@ impl PeerState {
             recent_peers: HashSet::new(),
             recent_peer_timer: Instant::now(),
             recent_peer_counter_max: 0,
-            socket: UdpSocket::bind((Ipv6Addr::UNSPECIFIED, lcdp_port)).unwrap(),
+            socket: UdpSocket::bind((Ipv6Addr::UNSPECIFIED, lcdp_port))
+                .or_else(|_| {
+                    UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, lcdp_port))
+                }).unwrap(),
             lcdp_port,
             boot: Instant::now(),
             keypair: Keypair::load_key(),
