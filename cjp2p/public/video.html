@@ -193,6 +193,7 @@ let audioPingSeq = 0, videoPingSeq = 0;
 const pendingAudioPings = new Map();
 const pendingVideoPings = new Map();
 let audioFramesSent = 0, videoFramesSent = 0;
+let lastAudioRtt = null, lastRemoteBuf = null;
 
 const RING_SIZE  = 32768;             // ~682ms capacity at 48kHz
 const AUDIO_RATE = 48000;
@@ -586,10 +587,13 @@ function connect() {
                     if (forwarded && 'AudioPing' in msg) {
                         if (socket.readyState === WebSocket.OPEN)
                             socket.send(JSON.stringify([{Forward:{to_ed25519:src,
-                                messages:[{AudioPong:{seq:msg.AudioPing.seq,t:msg.AudioPing.t}}]}}]));
+                                messages:[{AudioPong:{seq:msg.AudioPing.seq,t:msg.AudioPing.t,buf:videoDelayMs}}]}}]));
                     }
                     if (forwarded && 'AudioPong' in msg) {
-                        audioChartData[Math.floor(msg.AudioPong.t/CHART_MS_PER_COL)%CHART_W] = Date.now() - msg.AudioPong.t;
+                        const rtt = Date.now() - msg.AudioPong.t;
+                        audioChartData[Math.floor(msg.AudioPong.t/CHART_MS_PER_COL)%CHART_W] = rtt;
+                        lastAudioRtt = rtt;
+                        lastRemoteBuf = msg.AudioPong.buf ?? null;
                         pendingAudioPings.delete(msg.AudioPong.seq);
                     }
                 }
@@ -661,8 +665,15 @@ setInterval(() => {
     const sr = sendW && sendH ? sendW+'x'+sendH : '--';
     const rr = remoteCanvas.width && remoteCanvas.height ? remoteCanvas.width+'x'+remoteCanvas.height : '--';
     const ringDepth = (writeIdx - readIdx + RING_SIZE) & (RING_SIZE - 1);
+    const rttStr = lastAudioRtt !== null ? lastAudioRtt+'ms' : '--';
+    const remoteBufStr = lastRemoteBuf !== null ? lastRemoteBuf+'ms' : '--';
+    const est1way = (lastAudioRtt !== null && lastRemoteBuf !== null)
+        ? Math.round(lastAudioRtt / 2 + lastRemoteBuf)+'ms' : '--';
+    const estTotal = (lastAudioRtt !== null && lastRemoteBuf !== null)
+        ? Math.round(lastAudioRtt / 2 + lastRemoteBuf + videoDelayMs)+'ms' : '--';
     statsEl.innerHTML =
         `send: ${sr}  recv: ${rr}  ${tipHtml('buf target', TIP_BUF)}: ${videoDelayMs}ms  ${tipHtml('ring', TIP_RING)}: ${Math.round(ringDepth/AUDIO_RATE*1000)}ms\n` +
+        `net RTT: ${rttStr}  remote buf: ${remoteBufStr}  est 1-way: ${est1way}  est total: ${estTotal}\n` +
         `video loss: ${videoDrops}  last: ${ago(lastVideoDropMs)}\n` +
         `audio loss: ${audioDrops}  last: ${ago(lastAudioDropMs)}`;
 }, 1000);
