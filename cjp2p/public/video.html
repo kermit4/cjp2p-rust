@@ -279,8 +279,8 @@ async function ensureAudioCtx() {
             // increase buffer target on underrun; jump by 4 callbacks worth for faster adaptation
             audioBufTarget = Math.min(MAX_BUF, audioBufTarget + SP_FRAMES * 4);
         }
-        // slow decay back toward minimum (~200s from 500ms to min, so spotty links stay buffered)
-        audioBufTarget = Math.max(MIN_BUF, audioBufTarget - 2);
+        // slow decay back toward minimum (~100s from 500ms to min, so spotty links stay buffered)
+        audioBufTarget = Math.max(MIN_BUF, audioBufTarget - 4);
         videoDelayMs = Math.round(audioBufTarget / AUDIO_RATE * 1000);
     };
     playProc.connect(audioCtx.destination);
@@ -652,7 +652,7 @@ const statsEl = document.getElementById('stats');
     requestAnimationFrame(renderLoop);
 })();
 
-const TIP_BUF = `Adaptive jitter buffer target. Grows by ~43ms on any audio underrun (even one too small to hear), then slowly decays back to ~11ms minimum over ~200s. Also delays video by the same amount to keep A/V in sync.`;
+const TIP_BUF = `Adaptive jitter buffer target. Grows by ~43ms on any audio underrun (even one too small to hear), then slowly decays back to ~11ms minimum over ~100s. Also delays video by the same amount to keep A/V in sync.`;
 const TIP_RING = `Current audio buffer depth — milliseconds of decoded audio queued and waiting to play. When this hits zero the buffer underruns and buf\u00a0target increases.`;
 
 function tipHtml(label, tip) {
