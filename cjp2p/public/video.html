@@ -52,9 +52,9 @@ their ed25519: <input id=their_ed25519 size=80>
   <button id=muteAudioBtn>Unmute Mic</button>
   <button id=muteVideoBtn>Unmute Video</button>
   <span class="led rx-led" id=rxLed title="rx audio"></span>
-  <button id=echoCancelBtn>Echo: Off</button>
-  <button id=noiseBtn>Noise: Off</button>
-  <button id=gainBtn>Gain: Off</button>
+  <button id=echoCancelBtn>Echo: On</button>
+  <button id=noiseBtn>Noise: On</button>
+  <button id=gainBtn>Gain: On</button>
   <button id=debugBtn>debug log</button>
 </div>
 <pre id=stats style="font-size:11px;margin:4px 0;"></pre>
@@ -161,9 +161,9 @@ let videoSeqSent = Date.now(); // start high so post-reload seqs aren't rejected
 let videoSeqRecv = 0;
 
 // -- audio state --------------------------------------------------------------
-let echoCancel    = false;
-let noiseSuppress = false;
-let autoGain      = false;
+let echoCancel    = true;
+let noiseSuppress = true;
+let autoGain      = true;
 let micSrc          = null;
 let audioCtx        = null;
 let recordProc      = null;
@@ -307,7 +307,7 @@ async function startCameraAndMic() {
         let encW = s.width  || 320;
         let encH = s.height || 240;
         const FPS = s.frameRate || 24;
-        const KEYFRAME_EVERY = Math.max(1, Math.round(FPS / 3));
+        const KEYFRAME_EVERY = Math.max(1, Math.round(FPS / 2));
         log_always('camera:', encW, 'x', encH, '@', FPS, 'fps  keyframe every', KEYFRAME_EVERY);
         fitEl(localVideo, encW, encH);
 
