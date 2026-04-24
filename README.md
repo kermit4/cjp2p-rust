@@ -1,4 +1,4 @@
-This uses https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z4NaokAHdQyjkF562Cj9PpHpGH5f1 .   The primary purpose of this repo, is to demonstrate sample use cases of connectionless JSON (externally tagged) P2P aka the Lowest Common Denominator Protocol messaging, however there are some users of it now, usually using web interfaces over the websocket that speaks the same protocol though is handled somewhat differently as it's intended only for the node operator's browser.
+This uses the Lowest Common Denominator Protocol (LCDP) (at  https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z4NaokAHdQyjkF562Cj9PpHpGH5f1 ) .   The primary purpose of this repo, is to demonstrate sample use cases of connectionless JSON (externally tagged) P2P aka the Lowest Common Denominator Protocol messaging, however there are some users of it now, usually using web interfaces over the websocket that speaks the same protocol though is handled somewhat differently as it's intended only for the node operator's browser.
 
 The current target audience is devs, so the UI IS minimal and not clearly documented.   
 
@@ -99,3 +99,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - if streaming video is a signed list of hashes, just sign the video itself, then i can multisource per packet, the encryption does hashing already i think?
 - dot file, env var, commmand line options..too many ways to pass options
 - so a link to an updatedable would just have the pub IN the link and the name, thats easy
+derive pub key from secret words? bip 39? is the pub the nodes or a persons though? is it meant to move around

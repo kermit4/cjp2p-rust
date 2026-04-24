@@ -179,8 +179,8 @@ let videoDrops = 0, lastVideoDropMs = null, hasFirstVideo = false;
 let audioDrops = 0, lastAudioDropMs = null, hasFirstAudio = false;
 let videoDelayMs = 0;
 const videoQueue = [];
-const videoPending = new Map(); // seq -> {vf, arrivedAt} — pre-decode reorder buffer
-const audioPending = new Map(); // offset -> {af, arrivedAt} — pre-decode reorder buffer
+const videoPending = new Map(); // seq -> {vf, arrivedAt} -- pre-decode reorder buffer
+const audioPending = new Map(); // offset -> {af, arrivedAt} -- pre-decode reorder buffer
 let sendW = 0, sendH = 0;
 let lastVideoFrame = null;
 
@@ -198,8 +198,8 @@ let audioFramesSent = 0, videoFramesSent = 0;
 let lastAudioRtt = null, lastRemoteBuf = null;
 
 const BPS_WINDOW_MS = 5000;
-const keyframeBits   = []; // {t, bytes} — raw VP8 bytes, keyframes
-const deltaframeBits = []; // {t, bytes} — raw VP8 bytes, delta frames
+const keyframeBits   = []; // {t, bytes} -- raw VP8 bytes, keyframes
+const deltaframeBits = []; // {t, bytes} -- raw VP8 bytes, delta frames
 
 const RING_SIZE  = 32768;             // ~682ms capacity at 48kHz
 const AUDIO_RATE = 48000;
@@ -268,7 +268,7 @@ async function ensureAudioCtx() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
     await audioCtx.resume();
     const hwLatency = (audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0);
-    log_always('audio hw latency reported:', Math.round(hwLatency*1000)+'ms  adaptive buffer: '+Math.round(MIN_BUF/AUDIO_RATE*1000)+'ms–'+Math.round(MAX_BUF/AUDIO_RATE*1000)+'ms');
+    log_always('audio hw latency reported:', Math.round(hwLatency*1000)+'ms  adaptive buffer: '+Math.round(MIN_BUF/AUDIO_RATE*1000)+'ms-'+Math.round(MAX_BUF/AUDIO_RATE*1000)+'ms');
     playProc = audioCtx.createScriptProcessor(SP_FRAMES, 1, 1);
     playProc.onaudioprocess = e => {
         const out = e.outputBuffer.getChannelData(0);
@@ -547,7 +547,7 @@ function drainVideoPending() {
             continue;
         }
         if (videoPending.size === 0) return;
-        // gap: wait up to videoDelayMs — the existing adaptive display buffer is exactly the slack we have
+        // gap: wait up to videoDelayMs -- the existing adaptive display buffer is exactly the slack we have
         const reorderMs = videoDelayMs;
         let minSeq = Infinity, oldestArrival = Infinity;
         for (const [seq, { arrivedAt }] of videoPending) {
@@ -587,7 +587,7 @@ function drainAudioPending() {
             continue;
         }
         if (audioPending.size === 0) return;
-        // gap: wait up to videoDelayMs — same adaptive buffer depth drives both
+        // gap: wait up to videoDelayMs -- same adaptive buffer depth drives both
         let minOffset = Infinity, oldestArrival = Infinity;
         for (const [offset, { arrivedAt }] of audioPending) {
             if (arrivedAt < oldestArrival) { oldestArrival = arrivedAt; minOffset = offset; }
@@ -708,7 +708,7 @@ const statsEl = document.getElementById('stats');
         latChartCursor = nowCol;
     }
 
-    // draw chart overlay — blue=video RTT, amber=audio RTT, no background
+    // draw chart overlay -- blue=video RTT, amber=audio RTT, no background
     if (cw > 0 && ch > 0) {
         for (let c = 0; c < CHART_W; c++) {
             const x  = Math.round(c       * cw / CHART_W);
@@ -730,7 +730,7 @@ const statsEl = document.getElementById('stats');
 })();
 
 const TIP_BUF = `Adaptive jitter buffer target. Grows by ~43ms on any audio underrun (even one too small to hear), then slowly decays back to ~11ms minimum over ~100s. Also delays video by the same amount to keep A/V in sync.`;
-const TIP_RING = `Current audio buffer depth — milliseconds of decoded audio queued and waiting to play. When this hits zero the buffer underruns and buf\u00a0target increases.`;
+const TIP_RING = `Current audio buffer depth -- milliseconds of decoded audio queued and waiting to play. When this hits zero the buffer underruns and buf\u00a0target increases.`;
 
 function tipHtml(label, tip) {
     return `<span class="tip-wrap">${label}<span class="tip">${tip}</span></span>`;
