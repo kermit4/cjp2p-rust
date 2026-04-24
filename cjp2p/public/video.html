@@ -180,6 +180,7 @@ let audioDrops = 0, lastAudioDropMs = null, hasFirstAudio = false;
 let videoDelayMs = 0;
 const videoQueue = [];
 const videoPending = new Map(); // seq -> {vf, arrivedAt} — pre-decode reorder buffer
+const audioPending = new Map(); // offset -> {af, arrivedAt} — pre-decode reorder buffer
 let sendW = 0, sendH = 0;
 let lastVideoFrame = null;
 
@@ -554,6 +555,44 @@ function drainVideoPending() {
     }
 }
 
+// -- audio reorder buffer helper ----------------------------------------------
+function drainAudioPending() {
+    for (;;) {
+        if (!hasFirstAudio) {
+            if (audioPending.size === 0) return;
+            offset_received = Math.min(...audioPending.keys()) - 1;
+            hasFirstAudio = true;
+        }
+        const next = offset_received + 1;
+        if (audioPending.has(next)) {
+            const { af } = audioPending.get(next);
+            audioPending.delete(next);
+            offset_received = next;
+            if (audioDecoder && audioDecoder.state === 'configured') {
+                try {
+                    audioDecoder.decode(new EncodedAudioChunk({
+                        type: 'key', timestamp: offset_received,
+                        data: b64ToU8(af.data)
+                    }));
+                } catch(e) { log_always('audio decode err:', e.message || e); }
+            }
+            continue;
+        }
+        if (audioPending.size === 0) return;
+        // gap: wait up to videoDelayMs — same adaptive buffer depth drives both
+        let minOffset = Infinity, oldestArrival = Infinity;
+        for (const [offset, { arrivedAt }] of audioPending) {
+            if (arrivedAt < oldestArrival) { oldestArrival = arrivedAt; minOffset = offset; }
+        }
+        if (Date.now() - oldestArrival < videoDelayMs) return; // still within window
+        // gap expired: count drops and skip (ring buffer will have silence for the gap)
+        const skipped = minOffset - next;
+        if (skipped > 0) { audioDrops += skipped; lastAudioDropMs = Date.now(); }
+        offset_received = minOffset - 1;
+        // loop continues: picks up minOffset on next iteration
+    }
+}
+
 // -- WebSocket + receive (always on from page load) ---------------------------
 let socket;
 function connect() {
@@ -599,20 +638,10 @@ function connect() {
                     if (forwarded && 'AudioFrame' in msg) {
                         const af = msg.AudioFrame;
                         if (af.format === 'opus' && af.sampleRate === 48000 && af.channels === 1
-                                && af.offset > offset_received
-                                && audioDecoder && audioDecoder.state === 'configured') {
-                            if (hasFirstAudio && af.offset > offset_received + 1) {
-                                audioDrops += af.offset - offset_received - 1;
-                                lastAudioDropMs = Date.now();
-                            }
-                            offset_received = af.offset;
-                            hasFirstAudio = true;
-                            try {
-                                audioDecoder.decode(new EncodedAudioChunk({
-                                    type: 'key', timestamp: offset_received,
-                                    data: b64ToU8(af.data)
-                                }));
-                            } catch(e) { log_always('audio decode err:', e.message || e); }
+                                && af.offset > offset_received) {
+                            if (!audioPending.has(af.offset))
+                                audioPending.set(af.offset, { af, arrivedAt: Date.now() });
+                            drainAudioPending();
                         }
                     }
                     if (forwarded && 'VideoPing' in msg) {
@@ -700,7 +729,8 @@ function tipHtml(label, tip) {
 }
 
 setInterval(() => {
-    drainVideoPending(); // expire stale pending frames if no new video is arriving
+    drainVideoPending(); // expire stale pending frames if no new frames are arriving
+    drainAudioPending();
     const now = Date.now();
     const ago = ms => ms ? Math.round((now - ms)/1000)+'s ago' : 'never';
     const sr = sendW && sendH ? sendW+'x'+sendH : '--';
