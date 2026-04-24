@@ -215,8 +215,11 @@ if ('AudioDecoder' in window) {
             audioData.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
             audioData.close();
             setLed(rxLed, true);
+            // if ring was empty (resuming from underrun), ramp up to avoid pop
+            const resuming = (writeIdx === readIdx);
+            const rampLen = resuming ? Math.min(SP_FRAMES, pcm.length) : 0;
             for (let i = 0; i < pcm.length; i++) {
-                ring[writeIdx] = pcm[i];
+                ring[writeIdx] = i < rampLen ? pcm[i] * (i / rampLen) : pcm[i];
                 writeIdx = (writeIdx + 1) & (RING_SIZE - 1);
                 if (writeIdx === readIdx) readIdx = (readIdx + SP_FRAMES) & (RING_SIZE - 1); // ring full safety
             }
