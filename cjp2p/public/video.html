@@ -180,6 +180,19 @@ let audioDrops = 0, lastAudioDropMs = null, hasFirstAudio = false;
 let videoDelayMs = 0;
 const videoQueue = [];
 let sendW = 0, sendH = 0;
+let lastVideoFrame = null;
+
+// latency chart
+const CHART_W = 320;
+const CHART_MS_PER_COL = 200;
+const CHART_MAX_RTT = 500;
+const audioChartData = new Array(CHART_W).fill(null);
+const videoChartData = new Array(CHART_W).fill(null);
+let latChartCursor = Math.floor(Date.now() / CHART_MS_PER_COL) % CHART_W;
+let audioPingSeq = 0, videoPingSeq = 0;
+const pendingAudioPings = new Map();
+const pendingVideoPings = new Map();
+let audioFramesSent = 0, videoFramesSent = 0;
 
 const RING_SIZE  = 32768;             // ~682ms capacity at 48kHz
 const AUDIO_RATE = 48000;
@@ -311,11 +324,17 @@ async function startCameraAndMic() {
                     chunk.copyTo(data);
                     videoSeqSent++;
                     log('video', chunk.type, chunk.byteLength+'B seq'+videoSeqSent);
+                    const vmsgs = [{VideoFrame:{ codec:'vp8', keyframe: chunk.type==='key',
+                                                 seq: videoSeqSent, w: encW, h: encH,
+                                                 data: u8toB64(data) }}];
+                    if (++videoFramesSent % 5 === 0) {
+                        const seq = ++videoPingSeq;
+                        pendingVideoPings.set(seq, Date.now());
+                        vmsgs.push({VideoPing:{seq, t: Date.now()}});
+                    }
                     socket.send(JSON.stringify([{Forward:{
                         to_ed25519: their_ed25519.value,
-                        messages: [{VideoFrame:{ codec:'vp8', keyframe: chunk.type==='key',
-                                                 seq: videoSeqSent, w: encW, h: encH,
-                                                 data: u8toB64(data) }}]
+                        messages: vmsgs
                     }}]));
                 },
                 error: e => log_always('video encoder err:', e.message || e)
@@ -363,10 +382,16 @@ async function startCameraAndMic() {
                 const data = new Uint8Array(chunk.byteLength);
                 chunk.copyTo(data);
                 offset_sent++;
+                const amsgs = [{AudioFrame:{ sampleRate:48000, channels:1, format:'opus',
+                                             data: u8toB64(data), offset: offset_sent }}];
+                if (++audioFramesSent % 5 === 0) {
+                    const seq = ++audioPingSeq;
+                    pendingAudioPings.set(seq, Date.now());
+                    amsgs.push({AudioPing:{seq, t: Date.now()}});
+                }
                 socket.send(JSON.stringify([{Forward:{
                     to_ed25519: their_ed25519.value,
-                    messages: [{AudioFrame:{ sampleRate:48000, channels:1, format:'opus',
-                                             data: u8toB64(data), offset: offset_sent }}]
+                    messages: amsgs
                 }}]));
             },
             error: e => log_always('audio encoder err:', e.message || e)
@@ -549,6 +574,24 @@ function connect() {
                             } catch(e) { log_always('audio decode err:', e.message || e); }
                         }
                     }
+                    if (forwarded && 'VideoPing' in msg) {
+                        if (socket.readyState === WebSocket.OPEN)
+                            socket.send(JSON.stringify([{Forward:{to_ed25519:src,
+                                messages:[{VideoPong:{seq:msg.VideoPing.seq,t:msg.VideoPing.t}}]}}]));
+                    }
+                    if (forwarded && 'VideoPong' in msg) {
+                        videoChartData[Math.floor(msg.VideoPong.t/CHART_MS_PER_COL)%CHART_W] = Date.now() - msg.VideoPong.t;
+                        pendingVideoPings.delete(msg.VideoPong.seq);
+                    }
+                    if (forwarded && 'AudioPing' in msg) {
+                        if (socket.readyState === WebSocket.OPEN)
+                            socket.send(JSON.stringify([{Forward:{to_ed25519:src,
+                                messages:[{AudioPong:{seq:msg.AudioPing.seq,t:msg.AudioPing.t}}]}}]));
+                    }
+                    if (forwarded && 'AudioPong' in msg) {
+                        audioChartData[Math.floor(msg.AudioPong.t/CHART_MS_PER_COL)%CHART_W] = Date.now() - msg.AudioPong.t;
+                        pendingAudioPings.delete(msg.AudioPong.seq);
+                    }
                 }
             });
         };
@@ -557,14 +600,50 @@ function connect() {
         });
     };
 }
-// -- video render loop (draws queued frames after videoDelayMs) ----------------
+// -- video render loop (draws queued frames after videoDelayMs, then chart overlay) --
 const statsEl = document.getElementById('stats');
 (function renderLoop() {
     const now = Date.now();
     while (videoQueue.length && videoQueue[0].due <= now) {
         const { bm } = videoQueue.shift();
-        remoteCanvas.getContext('2d').drawImage(bm, 0, 0);
-        bm.close();
+        if (lastVideoFrame) lastVideoFrame.close();
+        lastVideoFrame = bm;
+    }
+    const ctx2d = remoteCanvas.getContext('2d');
+    const cw = remoteCanvas.width, ch = remoteCanvas.height;
+    if (lastVideoFrame) ctx2d.drawImage(lastVideoFrame, 0, 0);
+
+    // advance chart cursor, clearing stale columns
+    const nowCol = Math.floor(now / CHART_MS_PER_COL) % CHART_W;
+    if (nowCol !== latChartCursor) {
+        let c = latChartCursor;
+        while (c !== nowCol) {
+            c = (c + 1) % CHART_W;
+            audioChartData[c] = null;
+            videoChartData[c] = null;
+        }
+        audioChartData[(nowCol + 1) % CHART_W] = null;
+        videoChartData[(nowCol + 1) % CHART_W] = null;
+        latChartCursor = nowCol;
+    }
+
+    // draw chart overlay — blue=video RTT, amber=audio RTT, no background
+    if (cw > 0 && ch > 0) {
+        for (let c = 0; c < CHART_W; c++) {
+            const x  = Math.round(c       * cw / CHART_W);
+            const x1 = Math.round((c + 1) * cw / CHART_W);
+            const bw = Math.max(1, x1 - x);
+            if (videoChartData[c] !== null) {
+                const barH = Math.min(ch, Math.round(videoChartData[c] * ch / CHART_MAX_RTT));
+                ctx2d.fillStyle = 'rgba(30,160,255,0.55)';
+                ctx2d.fillRect(x, ch - barH, bw, barH);
+            }
+            if (audioChartData[c] !== null) {
+                const barH = Math.min(ch, Math.round(audioChartData[c] * ch / CHART_MAX_RTT));
+                ctx2d.fillStyle = 'rgba(255,160,0,0.65)';
+                ctx2d.fillRect(x, ch - barH, bw, barH);
+            }
+        }
     }
     requestAnimationFrame(renderLoop);
 })();
