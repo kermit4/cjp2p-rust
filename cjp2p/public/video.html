@@ -179,6 +179,7 @@ let videoDrops = 0, lastVideoDropMs = null, hasFirstVideo = false;
 let audioDrops = 0, lastAudioDropMs = null, hasFirstAudio = false;
 let videoDelayMs = 0;
 const videoQueue = [];
+const videoPending = new Map(); // seq -> {vf, arrivedAt} — pre-decode reorder buffer
 let sendW = 0, sendH = 0;
 let lastVideoFrame = null;
 
@@ -498,6 +499,61 @@ document.getElementById('gainBtn').onclick = async () => {
     await restartAudio();
 };
 
+// -- video reorder buffer helpers ---------------------------------------------
+function decodeVideoFrame(vf) {
+    if (needKeyframe && !vf.keyframe) return;
+    if (vf.w && vf.h && (vf.w !== remoteCanvas.width || vf.h !== remoteCanvas.height)) {
+        if (decoder && decoder.state !== 'closed') { try { decoder.close(); } catch {} }
+        decoder = makeDecoder(vf.w, vf.h);
+        remoteCanvas.width  = vf.w;
+        remoteCanvas.height = vf.h;
+        fitEl(remoteCanvas, vf.w, vf.h);
+        needKeyframe = true;
+        if (!vf.keyframe) return;
+    }
+    if (!decoder || decoder.state === 'closed') decoder = makeDecoder(vf.w, vf.h);
+    try {
+        decoder.decode(new EncodedVideoChunk({
+            type: vf.keyframe ? 'key' : 'delta',
+            timestamp: videoSeqRecv,
+            data: b64ToU8(vf.data)
+        }));
+    } catch(e) { log_always('video decode err:', e.message || e); needKeyframe = true; }
+}
+
+function drainVideoPending() {
+    for (;;) {
+        if (!hasFirstVideo) {
+            if (videoPending.size === 0) return;
+            // bootstrap: accept whatever seq arrives first
+            videoSeqRecv = Math.min(...videoPending.keys()) - 1;
+            hasFirstVideo = true;
+        }
+        const next = videoSeqRecv + 1;
+        if (videoPending.has(next)) {
+            const { vf } = videoPending.get(next);
+            videoPending.delete(next);
+            videoSeqRecv = next;
+            decodeVideoFrame(vf);
+            continue;
+        }
+        if (videoPending.size === 0) return;
+        // gap: wait up to videoDelayMs — the existing adaptive display buffer is exactly the slack we have
+        const reorderMs = videoDelayMs;
+        let minSeq = Infinity, oldestArrival = Infinity;
+        for (const [seq, { arrivedAt }] of videoPending) {
+            if (arrivedAt < oldestArrival) { oldestArrival = arrivedAt; minSeq = seq; }
+        }
+        if (Date.now() - oldestArrival < reorderMs) return; // still within window
+        // gap expired: count truly missing frames as drops and skip
+        const skipped = minSeq - next;
+        if (skipped > 0) { videoDrops += skipped; lastVideoDropMs = Date.now(); }
+        videoSeqRecv = minSeq - 1;
+        needKeyframe = true;
+        // loop continues: picks up minSeq on next iteration
+    }
+}
+
 // -- WebSocket + receive (always on from page load) ---------------------------
 let socket;
 function connect() {
@@ -531,34 +587,14 @@ function connect() {
                     if (forwarded && 'VideoFrame' in msg) {
                         const vf = msg.VideoFrame;
                         if (vf.codec !== 'vp8') continue;
-                        if (vf.seq !== undefined && vf.seq <= videoSeqRecv) continue;
                         if (vf.seq !== undefined) {
-                            if (hasFirstVideo && vf.seq > videoSeqRecv + 1) {
-                                videoDrops += vf.seq - videoSeqRecv - 1;
-                                lastVideoDropMs = Date.now();
-                            }
-                            videoSeqRecv = vf.seq;
-                            hasFirstVideo = true;
+                            if (vf.seq <= videoSeqRecv) continue; // stale
+                            if (!videoPending.has(vf.seq))
+                                videoPending.set(vf.seq, { vf, arrivedAt: Date.now() });
+                        } else {
+                            decodeVideoFrame(vf); // no seq: decode directly
                         }
-                        if (needKeyframe && !vf.keyframe) continue;
-                        // reconfigure decoder if sender dimensions changed (e.g. phone rotated)
-                        if (vf.w && vf.h && (vf.w !== remoteCanvas.width || vf.h !== remoteCanvas.height)) {
-                            if (decoder && decoder.state !== 'closed') { try { decoder.close(); } catch {} }
-                            decoder = makeDecoder(vf.w, vf.h);
-                            remoteCanvas.width  = vf.w;
-                            remoteCanvas.height = vf.h;
-                            fitEl(remoteCanvas, vf.w, vf.h);
-                            needKeyframe = true;
-                            if (!vf.keyframe) continue;
-                        }
-                        if (!decoder || decoder.state === 'closed') decoder = makeDecoder(vf.w, vf.h);
-                        try {
-                            decoder.decode(new EncodedVideoChunk({
-                                type: vf.keyframe ? 'key' : 'delta',
-                                timestamp: videoSeqRecv,
-                                data: b64ToU8(vf.data)
-                            }));
-                        } catch(e) { log_always('video decode err:', e.message || e); needKeyframe = true; }
+                        drainVideoPending();
                     }
                     if (forwarded && 'AudioFrame' in msg) {
                         const af = msg.AudioFrame;
@@ -664,6 +700,7 @@ function tipHtml(label, tip) {
 }
 
 setInterval(() => {
+    drainVideoPending(); // expire stale pending frames if no new video is arriving
     const now = Date.now();
     const ago = ms => ms ? Math.round((now - ms)/1000)+'s ago' : 'never';
     const sr = sendW && sendH ? sendW+'x'+sendH : '--';
