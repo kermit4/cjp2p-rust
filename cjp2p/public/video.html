@@ -203,6 +203,7 @@ const MAX_BUF    = 24000;            // ~500ms maximum target (handles 400ms+ sp
 let   audioBufTarget = MIN_BUF;      // adaptive; drives videoDelayMs
 const ring = new Float32Array(RING_SIZE);
 let writeIdx = 0, readIdx = 0;
+let inUnderrun = false;
 
 // -- audio receive decoder (no user gesture needed) ---------------------------
 if ('AudioDecoder' in window) {
@@ -276,8 +277,11 @@ async function ensureAudioCtx() {
         }
         if (underrun) {
             setLed(rxLed, false);
-            // increase buffer target on underrun; jump by 4 callbacks worth for faster adaptation
-            audioBufTarget = Math.min(MAX_BUF, audioBufTarget + SP_FRAMES * 4);
+            // bump only on leading edge of each underrun period, not for every callback while starved
+            if (!inUnderrun) audioBufTarget = Math.min(MAX_BUF, audioBufTarget + SP_FRAMES * 4);
+            inUnderrun = true;
+        } else {
+            inUnderrun = false;
         }
         // slow decay back toward minimum (~100s from 500ms to min, so spotty links stay buffered)
         audioBufTarget = Math.max(MIN_BUF, audioBufTarget - 4);
