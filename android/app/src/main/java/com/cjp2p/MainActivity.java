@@ -10,7 +10,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 public class MainActivity extends Activity {
-    private static final String URL = "http://127.0.0.1:24255/chat5.html";
+    private static final String URL = "http://127.0.0.1:24255/";
     private WebView webView;
     private final Handler handler = new Handler(Looper.getMainLooper());
 

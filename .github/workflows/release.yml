@@ -1,0 +1,74 @@
+name: Build APK
+
+# Runs on a version tag (git tag v1.2.3 && git push --tags)
+# or manually via Actions → "Run workflow" on GitHub.
+# Either way the release notes record the exact commit so users
+# only have to trust GitHub's build log, not the author.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create/update releases
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so git log works in BUILD_VERSION
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Rust (stable + aarch64-linux-android)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build APK
+        run: ./build_android.sh
+
+      # Always upload as a workflow artifact (visible on the Actions run page)
+      # so manual runs and PR checks have a downloadable APK too.
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cjp2p-${{ github.sha }}.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      # On tag push: create/update a GitHub release with the APK attached.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          body: |
+            ## cjp2p Android APK
+
+            Built by GitHub Actions from commit `${{ github.sha }}`.
+
+            To verify provenance: click the workflow run linked above, confirm
+            the commit SHA matches a commit you can read in this repository.
+            You are trusting GitHub's build infrastructure, not the author's machine.
+
+            ### Install
+            Download `app-debug.apk`, copy to the phone, open it in the Files app.
+            You may need to allow "install unknown apps" for your file manager.
