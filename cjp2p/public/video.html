@@ -53,8 +53,8 @@ their ed25519: <input id=their_ed25519 size=80>
   <button id=muteVideoBtn>Unmute Video</button>
   <span class="led rx-led" id=rxLed title="rx audio"></span>
   <button id=echoCancelBtn>Echo: On</button>
-  <button id=noiseBtn>Noise: On</button>
-  <button id=gainBtn>Gain: On</button>
+  <button id=noiseBtn>Noise: Off</button>
+  <button id=gainBtn>Gain: Off</button>
   <button id=debugBtn>debug log</button>
 </div>
 <pre id=stats style="font-size:11px;margin:4px 0;"></pre>
@@ -162,8 +162,8 @@ let videoSeqRecv = 0;
 
 // -- audio state --------------------------------------------------------------
 let echoCancel    = true;
-let noiseSuppress = true;
-let autoGain      = true;
+let noiseSuppress = false;
+let autoGain      = false;
 let micSrc          = null;
 let audioCtx        = null;
 let recordProc      = null;
@@ -196,6 +196,10 @@ const pendingAudioPings = new Map();
 const pendingVideoPings = new Map();
 let audioFramesSent = 0, videoFramesSent = 0;
 let lastAudioRtt = null, lastRemoteBuf = null;
+
+const BPS_WINDOW_MS = 5000;
+const keyframeBits   = []; // {t, bytes} — raw VP8 bytes, keyframes
+const deltaframeBits = []; // {t, bytes} — raw VP8 bytes, delta frames
 
 const RING_SIZE  = 32768;             // ~682ms capacity at 48kHz
 const AUDIO_RATE = 48000;
@@ -332,6 +336,7 @@ async function startCameraAndMic() {
                     if (videoMuted || socket.readyState !== WebSocket.OPEN || !their_ed25519.value) return;
                     const data = new Uint8Array(chunk.byteLength);
                     chunk.copyTo(data);
+                    (chunk.type === 'key' ? keyframeBits : deltaframeBits).push({ t: Date.now(), bytes: chunk.byteLength });
                     videoSeqSent++;
                     log('video', chunk.type, chunk.byteLength+'B seq'+videoSeqSent);
                     const vmsgs = [{VideoFrame:{ codec:'vp8', keyframe: chunk.type==='key',
@@ -745,9 +750,16 @@ setInterval(() => {
         ? Math.round(lastAudioRtt / 2 + lastRemoteBuf)+'ms' : '--';
     const estTotal = (lastAudioRtt !== null && lastRemoteBuf !== null)
         ? Math.round(lastAudioRtt / 2 + lastRemoteBuf + videoDelayMs)+'ms' : '--';
+    const bpsFloor = now - BPS_WINDOW_MS;
+    while (keyframeBits.length   && keyframeBits[0].t   < bpsFloor) keyframeBits.shift();
+    while (deltaframeBits.length && deltaframeBits[0].t < bpsFloor) deltaframeBits.shift();
+    const keyBps   = Math.round(keyframeBits.reduce((s, x)   => s + x.bytes, 0) * 8 / (BPS_WINDOW_MS / 1000));
+    const deltaBps = Math.round(deltaframeBits.reduce((s, x) => s + x.bytes, 0) * 8 / (BPS_WINDOW_MS / 1000));
+    const fmtBps = n => n >= 1000 ? (n/1000).toFixed(1)+'kbps' : n+'bps';
     statsEl.innerHTML =
         `send: ${sr}  recv: ${rr}  ${tipHtml('buf target', TIP_BUF)}: ${videoDelayMs}ms  ${tipHtml('ring', TIP_RING)}: ${Math.round(ringDepth/AUDIO_RATE*1000)}ms\n` +
         `net RTT: ${rttStr}  remote buf: ${remoteBufStr}  est 1-way: ${est1way}  est total: ${estTotal}\n` +
+        `video key: ${fmtBps(keyBps)}  delta: ${fmtBps(deltaBps)}  (5s avg, raw VP8)\n` +
         `video loss: ${videoDrops}  last: ${ago(lastVideoDropMs)}\n` +
         `audio loss: ${audioDrops}  last: ${ago(lastAudioDropMs)}`;
 }, 1000);
