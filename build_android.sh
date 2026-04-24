@@ -1,7 +1,51 @@
 #!/bin/bash
 # Builds cjp2p as an Android APK.
-# Requires: curl, unzip, gradle (for first run), Java 17+
+#
+# SYSTEM PREREQUISITES (must be installed manually before first run):
+#
+#   Java 17+:
+#     Ubuntu/Debian:  sudo apt install openjdk-17-jdk
+#     Fedora/RHEL:    sudo dnf install java-17-openjdk-devel
+#     Arch:           sudo pacman -S jdk17-openjdk
+#   curl:
+#     Ubuntu/Debian:  sudo apt install curl
+#   unzip:
+#     Ubuntu/Debian:  sudo apt install unzip
+#   Rust + cargo (https://rustup.rs):
+#     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+#
+# Everything else (Android SDK, NDK, Gradle, Rust Android target) is
+# downloaded automatically by this script on first run.
+
 set -e
+
+echo "=== Checking prerequisites ==="
+fail=0
+if ! command -v java &>/dev/null; then
+    echo "ERROR: java not found. Install Java 17+:  sudo apt install openjdk-17-jdk"
+    fail=1
+else
+    jver=$(java -version 2>&1 | awk -F'"' '/version/{print $2}' | cut -d. -f1)
+    [ "$jver" = "1" ] && jver=$(java -version 2>&1 | awk -F'"' '/version/{print $2}' | cut -d. -f2)
+    if [ "${jver:-0}" -lt 17 ] 2>/dev/null; then
+        echo "ERROR: Java 17+ required, found version $jver.  sudo apt install openjdk-17-jdk"
+        fail=1
+    else
+        echo "java: ok (version $jver)"
+    fi
+fi
+for cmd in curl unzip cargo; do
+    if ! command -v $cmd &>/dev/null; then
+        case $cmd in
+            curl|unzip) echo "ERROR: $cmd not found.  sudo apt install $cmd" ;;
+            cargo) echo "ERROR: cargo not found. Install Rust: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh" ;;
+        esac
+        fail=1
+    else
+        echo "$cmd: ok"
+    fi
+done
+[ $fail -ne 0 ] && exit 1
 
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}"
 NDK_VERSION="27.2.12479018"
