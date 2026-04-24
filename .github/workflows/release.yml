@@ -1,7 +1,7 @@
 name: Build APK
 
 # Runs on a version tag (git tag v1.2.3 && git push --tags)
-# or manually via Actions → "Run workflow" on GitHub.
+# or manually via Actions -> "Run workflow" on GitHub.
 # Either way the release notes record the exact commit so users
 # only have to trust GitHub's build log, not the author.
 

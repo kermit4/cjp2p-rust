@@ -90,7 +90,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - my putting plain names in public/ will go badly for anyone who doest have thetm and tries to get them ..just think of what i need to do for me and the fastest way to do it, htats how it will be done.. it doesnt have to be authenticated , as long as it CAN be later, just automate what i do, thats my specialtiy, and if a file is deleted and someone uses the URL it will have unpredictable results
 - lcdp crate now? send to ed25519 as the base theme with the big hash getter should be core?
 - more orderly chat with history on dashboard page, like make this a social focused space 
-- find by eth faster for 1st time users of OnePlus, assuming the other side already has /  aggressive search for pubs and eth addrs for chriss app OnePlusOne
 - when people publish UIs to this, on this, there sholud be an easy directory of those, and with latest versions, and shown right on the status page
 - web of trust, reputation is not absolute, its from your point of view, that solves sybil attacks
 - any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
@@ -100,3 +99,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - dot file, env var, commmand line options..too many ways to pass options
 - so a link to an updatedable would just have the pub IN the link and the name, thats easy
 derive pub key from secret words? bip 39? is the pub the nodes or a persons though? is it meant to move around
+- the killer app for this i think is the drop in socket replacement that takes a pub

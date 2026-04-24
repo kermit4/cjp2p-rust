@@ -1,0 +1,128 @@
+name: Build Binaries
+
+# Same triggers as release.yml: version tag or manual run.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+
+  # ── Linux x86-64 (static musl so it runs on any distro) ──────────────────
+  linux-x86_64:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl toolchain
+        run: sudo apt-get install -y musl-tools
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-musl-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-musl-
+
+      - name: Build
+        run: |
+          BUILD_VERSION="linux-x86_64 $(git log --pretty=format:'%ad %h %s' -1)" \
+          cargo build --release --target x86_64-unknown-linux-musl
+          cp target/x86_64-unknown-linux-musl/release/cjp2p cjp2p-linux-x86_64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cjp2p-linux-x86_64-${{ github.sha }}
+          path: cjp2p-linux-x86_64
+
+      - name: Publish to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cjp2p-linux-x86_64
+          body: |
+            Built from commit `${{ github.sha }}` by GitHub Actions.
+
+  # ── Android aarch64 (runs in Termux, same binary the APK embeds) ──────────
+  android-aarch64:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-android-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-android-
+
+      - name: Install Android NDK
+        run: |
+          NDK_VERSION="27.2.12479018"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "ndk;$NDK_VERSION"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> $GITHUB_ENV
+
+      - name: Write cargo cross-compile config
+        run: |
+          CLANG="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<EOF
+          [target.aarch64-linux-android]
+          linker = "$CLANG"
+          EOF
+
+      - name: Build
+        run: |
+          NDK_TC="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          export CC_aarch64_linux_android="$NDK_TC/bin/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$NDK_TC/bin/llvm-ar"
+          BUILD_VERSION="android-aarch64 $(git log --pretty=format:'%ad %h %s' -1)" \
+          cargo build --release --target aarch64-linux-android
+          cp target/aarch64-linux-android/release/cjp2p cjp2p-android-aarch64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cjp2p-android-aarch64-${{ github.sha }}
+          path: cjp2p-android-aarch64
+
+      - name: Publish to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cjp2p-android-aarch64
+          body: |
+            Built from commit `${{ github.sha }}` by GitHub Actions.
+            Drop into Termux and `chmod +x cjp2p-android-aarch64 && ./cjp2p-android-aarch64`.
