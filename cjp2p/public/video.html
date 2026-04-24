@@ -130,6 +130,13 @@ function update_links() {
     link.href = url; link.textContent = url;
 }
 their_ed25519.addEventListener('input', update_links);
+their_ed25519.addEventListener('change', () => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('ed25519')) {
+        params.set('ed25519', their_ed25519.value);
+        history.replaceState(null, '', window.location.pathname + '?' + params.toString());
+    }
+});
 
 // -- fullscreen ---------------------------------------------------------------
 function goFullscreen(el) {
