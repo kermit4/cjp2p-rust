@@ -34,3 +34,5 @@ urlencoding = ">=0.0.0"
 tungstenite = ">=0.0.0"
 alloy = { version = ">0.0.0", default-features = false, features = ["signers"] }
 igd = ">=0.0.0"
+ed25519-dalek = "2"
+curve25519-dalek = "4"
