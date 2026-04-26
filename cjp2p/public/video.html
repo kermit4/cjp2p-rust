@@ -56,6 +56,7 @@ their ed25519: <input id=their_ed25519 size=80>
   <button id=noiseBtn>Noise: Off</button>
   <button id=gainBtn>Gain: Off</button>
   <button id=debugBtn>debug log</button>
+  <button id=diagBtn>Diag: Off</button>
 </div>
 <pre id=stats style="font-size:11px;margin:4px 0;"></pre>
 <div id=logDiv></div>
@@ -99,6 +100,11 @@ function setLed(el, on) { el.classList.toggle('on', on); }
 // -- logging ------------------------------------------------------------------
 let logging = false;
 debugBtn.onclick = () => { logging = !logging; };
+const diagBtn = document.getElementById('diagBtn');
+diagBtn.onclick = () => {
+    diagEnabled = !diagEnabled;
+    diagBtn.textContent = diagEnabled ? 'Diag: On' : 'Diag: Off';
+};
 function log_always(...a) {
     const d = document.createElement('div');
     d.textContent = `[${new Date().toLocaleTimeString()}] ${a.join(' ')}`;
@@ -198,6 +204,7 @@ const CHART_MAX_RTT = 500;
 const audioChartData = new Array(CHART_W).fill(null);
 const videoChartData = new Array(CHART_W).fill(null);
 let latChartCursor = Math.floor(Date.now() / CHART_MS_PER_COL) % CHART_W;
+let diagEnabled = false;
 let audioPingSeq = 0, videoPingSeq = 0;
 const pendingAudioPings = new Map();
 const pendingVideoPings = new Map();
@@ -349,7 +356,7 @@ async function startCameraAndMic() {
                     const vmsgs = [{VideoFrame:{ codec:'vp8', keyframe: chunk.type==='key',
                                                  seq: videoSeqSent, w: encW, h: encH,
                                                  data: u8toB64(data) }}];
-                    if (++videoFramesSent % 5 === 0) {
+                    if (diagEnabled && ++videoFramesSent % 5 === 0) {
                         const seq = ++videoPingSeq;
                         pendingVideoPings.set(seq, Date.now());
                         vmsgs.push({VideoPing:{seq, t: Date.now()}});
@@ -406,7 +413,7 @@ async function startCameraAndMic() {
                 offset_sent++;
                 const amsgs = [{AudioFrame:{ sampleRate:48000, channels:1, format:'opus',
                                              data: u8toB64(data), offset: offset_sent }}];
-                if (++audioFramesSent % 5 === 0) {
+                if (diagEnabled && ++audioFramesSent % 5 === 0) {
                     const seq = ++audioPingSeq;
                     pendingAudioPings.set(seq, Date.now());
                     amsgs.push({AudioPing:{seq, t: Date.now()}});
@@ -716,7 +723,7 @@ const statsEl = document.getElementById('stats');
     }
 
     // draw chart overlay -- blue=video RTT, amber=audio RTT, no background
-    if (cw > 0 && ch > 0) {
+    if (diagEnabled && cw > 0 && ch > 0) {
         for (let c = 0; c < CHART_W; c++) {
             const x  = Math.round(c       * cw / CHART_W);
             const x1 = Math.round((c + 1) * cw / CHART_W);
