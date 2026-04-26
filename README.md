@@ -4,6 +4,8 @@ The current target audience is devs, so the UI IS minimal and not clearly docume
 
 This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it.
 
+Files in ./cjp2p/origin/ will be shared by name by your pub, i.e. http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html
+
 - this repo is at at https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z3muoqLkU65QFyyJaVvCv9WiDEo21 and https://github.com/kermit4/cjp2p-rust/
 
 
