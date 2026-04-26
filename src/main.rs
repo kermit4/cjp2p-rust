@@ -661,9 +661,11 @@ impl PeerState {
         return None;
     }
     fn unstall_getlatests(&self) {
-        let stalled_latest: Vec<(String, String)> = self.content_gateways.iter()
-        .filter_map(|cg| cg.pending_latest.clone())
-        .collect();
+        let stalled_latest: Vec<(String, String)> = self
+            .content_gateways
+            .iter()
+            .filter_map(|cg| cg.pending_latest.clone())
+            .collect();
         let mut msg_out = vec![];
         for (pub_hex, name) in stalled_latest {
             if let Ok(pub_bytes) = hex::decode(&pub_hex) {
@@ -673,11 +675,27 @@ impl PeerState {
                 }
             }
         }
-        let peers = self.best_peers(250, 6);
-        for sa in &peers {
-            msg_out.append(&mut self.always_returned(*sa));
-            self.socket.send_to(&serde_json::to_vec(&msg_out).unwrap(), sa).ok();
-            msg_out.pop();
+        if msg_out.len() > 0 {
+            let peers = self.best_peers(250, 6);
+            info!("trying to GetLatest {:?} from {:?}",msg_out,peers);
+            for sa in &peers {
+                msg_out.append(&mut self.always_returned(*sa));
+                match self
+                    .socket
+                    .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
+                {
+                    Ok(s) => trace!("sent {s}"),
+                    Err(e) =>
+                        if e.raw_os_error() == Some(11) {
+                            warn!("EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", msg_out.len());
+                        } else {
+                            debug!("failed to send to {sa} {0} bytes: {e} ", msg_out.len());
+                        },
+                }
+                if self.always_returned(*sa).len() > 0 {
+                    msg_out.pop();
+                }
+            }
         }
     }
 }
@@ -1305,7 +1323,9 @@ fn handle_web_request(
                 if let (Some(raw_pub), Some(name_with_q)) = (maybe_pub, maybe_name_q) {
                     let pub_hex = raw_pub.strip_prefix("0x").unwrap_or(raw_pub);
                     let name_raw = name_with_q.split('?').next().unwrap_or("");
-                    let name = urlencoding::decode(name_raw).unwrap_or_default().to_string();
+                    let name = urlencoding::decode(name_raw)
+                        .unwrap_or_default()
+                        .to_string();
                     if !name.is_empty()
                         && !name.contains('/')
                         && !name.contains('\\')
@@ -1315,14 +1335,21 @@ fn handle_web_request(
                         if let Ok(pub_bytes) = hex::decode(pub_hex) {
                             let ed25519_arr: Result<[u8; 32], _> = pub_bytes.try_into();
                             if let Ok(ed25519) = ed25519_arr {
-                                let gl = GetLatest { ed25519, name: name.clone() };
+                                let gl = GetLatest {
+                                    ed25519,
+                                    name: name.clone(),
+                                };
                                 // Handle locally first (covers publisher case, updates cache)
                                 let _local = gl.clone().receive(
-                                    ps, &Source::None, &mut false, inbound_states, None,
+                                    ps,
+                                    &Source::None,
+                                    &mut false,
+                                    inbound_states,
+                                    None,
                                 );
                                 // Always send directly to the publisher if we know their address,
                                 // so they aren't missed when peer_map_by_pub has many entries.
-                                if let Some(Source::S(pa)) = ps.peer_map_by_pub.get(&ed25519) { 
+                                if let Some(Source::S(pa)) = ps.peer_map_by_pub.get(&ed25519) {
                                     let mut msg_out = vec![Message::GetLatest(gl.clone())];
                                     msg_out.append(&mut ps.always_returned(*pa));
                                     ps.socket
@@ -2957,7 +2984,9 @@ impl Receive for SignedMessage {
                         if let Some(dir) = Path::new(&cache_path).parent() {
                             fs::create_dir_all(dir).ok();
                         }
-                        if let Ok(json) = serde_json::to_vec_pretty(&Message::SignedMessage(self.clone())) {
+                        if let Ok(json) =
+                            serde_json::to_vec_pretty(&Message::SignedMessage(self.clone()))
+                        {
                             fs::write(&cache_path, json).ok();
                         }
                         info!("cached latest {}/{} seq={} sha256={}", pub_hex, latest.name, latest.seq, latest.sha256);
@@ -3004,10 +3033,18 @@ fn latest_cache_path(pub_hex: &str, name: &str) -> String {
 }
 
 fn load_seq_from_latest_cache(cache_path: &str) -> u64 {
-    let Ok(json) = fs::read(cache_path) else { return 0 };
-    let Ok(msg) = serde_json::from_slice::<Message>(&json) else { return 0 };
-    let Message::SignedMessage(sm) = msg else { return 0 };
-    let Ok(msgs) = serde_json::from_slice::<Vec<Message>>(&sm.payload) else { return 0 };
+    let Ok(json) = fs::read(cache_path) else {
+        return 0;
+    };
+    let Ok(msg) = serde_json::from_slice::<Message>(&json) else {
+        return 0;
+    };
+    let Message::SignedMessage(sm) = msg else {
+        return 0;
+    };
+    let Ok(msgs) = serde_json::from_slice::<Vec<Message>>(&sm.payload) else {
+        return 0;
+    };
     for inner in msgs {
         if let Message::Latest(l) = inner {
             return l.seq;
@@ -3019,7 +3056,9 @@ fn load_seq_from_latest_cache(cache_path: &str) -> u64 {
 fn load_sha256_from_latest_cache(cache_path: &str) -> Option<String> {
     let json = fs::read(cache_path).ok()?;
     let msg = serde_json::from_slice::<Message>(&json).ok()?;
-    let Message::SignedMessage(sm) = msg else { return None };
+    let Message::SignedMessage(sm) = msg else {
+        return None;
+    };
     let msgs = serde_json::from_slice::<Vec<Message>>(&sm.payload).ok()?;
     for inner in msgs {
         if let Message::Latest(l) = inner {
@@ -3030,8 +3069,12 @@ fn load_sha256_from_latest_cache(cache_path: &str) -> Option<String> {
 }
 
 fn load_latest_signed_message(cache_path: &str) -> Vec<Message> {
-    let Ok(json) = fs::read(cache_path) else { return vec![] };
-    let Ok(msg) = serde_json::from_slice::<Message>(&json) else { return vec![] };
+    let Ok(json) = fs::read(cache_path) else {
+        return vec![];
+    };
+    let Ok(msg) = serde_json::from_slice::<Message>(&json) else {
+        return vec![];
+    };
     vec![msg]
 }
 
@@ -3157,10 +3200,17 @@ impl Receive for Latest {
         }
         let pub_hex = hex::encode(self.ed25519);
         // Find ContentGateways parked waiting for this (pub_hex, name).
-        let pending: Vec<usize> = ps.content_gateways.iter().enumerate()
+        let pending: Vec<usize> = ps
+            .content_gateways
+            .iter()
+            .enumerate()
             .filter_map(|(i, cg)| {
                 if let Some((ph, n)) = &cg.pending_latest {
-                    if ph == &pub_hex && n == &self.name { Some(i) } else { None }
+                    if ph == &pub_hex && n == &self.name {
+                        Some(i)
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
@@ -3267,7 +3317,9 @@ fn msgs_to_pub(ps: &mut PeerState, their_pub_hex_: &String, messages: &Vec<Value
                     message_out.push(serde_json::to_value(&c[0]).unwrap());
                 }
                 let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                message_out.pop();
+                if c.len() > 0 {
+                    message_out.pop();
+                }
                 trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
                 ps.socket.send_to(&message_out_bytes, sa).ok();
                 return;
