@@ -11,6 +11,7 @@ use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
 use memmap2::MmapMut;
+use serde_with::hex::Hex;
 use std::net::IpAddr;
 //use nix::NixPath;
 use serde::{Deserialize, Serialize};
@@ -47,6 +48,37 @@ use std::path::Path;
 //use std::io::copy;
 
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
+
+#[serde_as]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+struct Ed25519Pub(#[serde_as(as = "Hex")] [u8; 32]);
+impl Ed25519Pub {
+    fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+impl std::fmt::Display for Ed25519Pub {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", hex::encode(self.0))
+    }
+}
+impl std::fmt::Debug for Ed25519Pub {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Ed25519Pub({})", hex::encode(self.0))
+    }
+}
+impl std::str::FromStr for Ed25519Pub {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.strip_prefix("0x").unwrap_or(s);
+        let bytes = hex::decode(s).map_err(|e| e.to_string())?;
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| "expected 32 bytes".to_string())?;
+        Ok(Self(arr))
+    }
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, Eq, PartialEq, Hash)]
 enum Source {
     // <'a> {
@@ -61,14 +93,11 @@ macro_rules! BLOCK_SIZE {
 }
 
 // when this gets to millions of peers, consider keeping less info about the slower ones
-use serde_with::hex::Hex;
-#[serde_as]
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct PeerInfo {
     delay: Duration,
     anti_ip_spoofing_cookie_they_expect: Option<String>,
-    #[serde_as(as = "Option<Hex>")]
-    ed25519: Option<[u8; 32]>,
+    ed25519: Option<Ed25519Pub>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -102,8 +131,7 @@ struct OpenFile {
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct Keypair {
-    #[serde_as(as = "Hex")]
-    public: [u8; 32],
+    public: Ed25519Pub,
     #[serde_as(as = "Hex")]
     private: [u8; 32],
 }
@@ -122,7 +150,7 @@ impl Keypair {
         let seed: [u8; 32] = rand::rng().random();
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
         let keypair = Self {
-            public: signing_key.verifying_key().to_bytes(),
+            public: Ed25519Pub(signing_key.verifying_key().to_bytes()),
             private: seed,
         };
         file.as_ref()
@@ -154,7 +182,7 @@ impl Keypair {
 
 struct PeerState {
     peer_map: HashMap<SocketAddr, PeerInfo>,
-    peer_map_by_pub: HashMap<[u8; 32], Source>,
+    peer_map_by_pub: HashMap<Ed25519Pub, Source>,
     peer_vec: Vec<SocketAddr>,
     recent_peers: HashSet<SocketAddr>,
     recent_peer_timer: Instant,
@@ -454,7 +482,7 @@ impl PeerState {
         src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        signer: Option<[u8; 32]>,
+        signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         let mut message_out = vec![];
         for message_in_enum in messages {
@@ -576,8 +604,9 @@ impl PeerState {
     }
     fn upnp(&self) {
         let local_port: u16 = self.lcdp_port;
-        let external_port: u16 =
-            (((self.keypair.public[0] as u16) << 8) + self.keypair.public[1] as u16) | 0x401;
+        let external_port: u16 = (((self.keypair.public.as_bytes()[0] as u16) << 8)
+            + self.keypair.public.as_bytes()[1] as u16)
+            | 0x401;
         let lease_duration: u32 = 3600; // 0 = permanent
         let protocol = PortMappingProtocol::UDP;
         let description = "cjp2p";
@@ -640,19 +669,19 @@ impl PeerState {
         });
     }
 
-    pub fn x25519_to_ed25519(&self, their_x25519: [u8; 32]) -> Option<(Source, [u8; 32])> {
+    pub fn x25519_to_ed25519(&self, their_x25519: [u8; 32]) -> Option<(Source, Ed25519Pub)> {
         let u = curve25519_dalek::MontgomeryPoint(their_x25519);
 
         // to_edwards(0) gives point with x sign bit = 0
         let ed_point_0 = u.to_edwards(0)?;
-        let cand = ed_point_0.compress().to_bytes();
+        let cand = Ed25519Pub(ed_point_0.compress().to_bytes());
         if let Some(src) = self.peer_map_by_pub.get(&cand) {
             return Some((*src, cand));
         }
 
         // to_edwards(1) gives point with x sign bit = 1
         let ed_point_1 = u.to_edwards(1)?;
-        let cand = ed_point_1.compress().to_bytes();
+        let cand = Ed25519Pub(ed_point_1.compress().to_bytes());
 
         if let Some(src) = self.peer_map_by_pub.get(&cand) {
             return Some((*src, cand));
@@ -669,7 +698,7 @@ impl PeerState {
         let mut msg_out = vec![];
         for (pub_hex, name) in stalled_latest {
             if let Ok(pub_bytes) = hex::decode(&pub_hex) {
-                if let Ok(ed25519) = pub_bytes.try_into() {
+                if let Ok(ed25519) = TryInto::<[u8; 32]>::try_into(pub_bytes).map(Ed25519Pub) {
                     let gl = GetLatest { ed25519, name };
                     msg_out.push(Message::GetLatest(gl.clone()));
                 }
@@ -812,7 +841,7 @@ fn main() -> Result<(), std::io::Error> {
     if sndbuf < 0x40000 {
         warn!("sndbuf  = {:?}",sndbuf);
     }
-    println!("your ed25519 public key, stored in cjp2p/state/key.v2.json, is:  0x{}",hex::encode(ps.keypair.public));
+    println!("your ed25519 public key, stored in cjp2p/state/key.v2.json, is:  0x{}", ps.keypair.public);
     println!("web console at        http://127.0.0.1:{http_port}/");
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     for v in file_args {
@@ -1089,7 +1118,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
     }
 }
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, stream: TcpStream) {
-    let public_key_hex = hex::encode(ps.keypair.public);
+    let public_key_hex = ps.keypair.public.to_string();
     let all_chats = ps.all_chats.clone();
     let current_dir = std::env::current_dir().unwrap().display().to_string();
 
@@ -1126,8 +1155,8 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
 
     let total_peers = ps.peer_map.len();
 
-    let mut seen_pubs: HashSet<[u8; 32]> = HashSet::new();
-    let mut active_peers: Vec<(SocketAddr, [u8; 32])> = Vec::new();
+    let mut seen_pubs: HashSet<Ed25519Pub> = HashSet::new();
+    let mut active_peers: Vec<(SocketAddr, Ed25519Pub)> = Vec::new();
     for (k, v) in &ps.peer_map {
         if v.delay < Duration::from_millis(250) {
             if let Some(pub_) = v.ed25519 {
@@ -1200,10 +1229,9 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
         page += &format!("--- active public keys (recently responding in under than 250ms).  Click on one to open an encrypted 2-way chat.\n\
             Note that unless they have a tab open with you, they'll only see it in the console or status page: \n");
         for (sa, pub_) in &active_peers {
-            let their_pub_hex = hex::encode(pub_);
             page += &format!("{:21} <a href=/chat/{} target=_blank>0x{}</a> {}\n", sa.ip(),
-                their_pub_hex,
-                their_pub_hex,
+                pub_.to_string(),
+                pub_.to_string(),
                 if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
             );
         }
@@ -1237,9 +1265,9 @@ fn handle_web_request(
             let mut ws = accept(stream).unwrap();
             info!("websocket connected");
             let message_out_string = if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
-                format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]",hex::encode(ps.keypair.public))
+                format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]", ps.keypair.public)
             } else {
-                format!("[{{\"YourEd25519\":{{\"ed25519\":\"{}\"}}}}]",hex::encode(ps.keypair.public))
+                format!("[{{\"YourEd25519\":{{\"ed25519\":\"{}\"}}}}]", ps.keypair.public)
             };
             info!("sending websocktet: {}",message_out_string);
             ws.write(tungstenite::Message::Text(message_out_string.into()))
@@ -1283,8 +1311,8 @@ fn handle_web_request(
                     "
                     ,their_pub
                     ,their_pub
-                    ,hex::encode(&ps.keypair.public)
-                    ,hex::encode(&ps.keypair.public)
+                    ,ps.keypair.public
+                    ,ps.keypair.public
                     ,their_pub
                     ,their_pub
                     ,their_pub
@@ -1333,8 +1361,9 @@ fn handle_web_request(
                         && pub_hex.len() == 64
                     {
                         if let Ok(pub_bytes) = hex::decode(pub_hex) {
-                            let ed25519_arr: Result<[u8; 32], _> = pub_bytes.try_into();
-                            if let Ok(ed25519) = ed25519_arr {
+                            if let Ok(ed25519) =
+                                TryInto::<[u8; 32]>::try_into(pub_bytes).map(Ed25519Pub)
+                            {
                                 let gl = GetLatest {
                                     ed25519,
                                     name: name.clone(),
@@ -1565,7 +1594,7 @@ impl Receive for AlwaysReturned {
         _: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         //this is handled early
         return vec![];
@@ -1583,7 +1612,7 @@ impl Receive for PleaseAlwaysReturnThisMessage {
         src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
             // not even needed for websockets
@@ -1605,7 +1634,7 @@ impl Receive for PleaseSendPeers {
         src: &Source,
         might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         let p = ps.best_peers(1 + 45 * !*might_be_ip_spoofing as i32, 6);
         trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
@@ -1625,7 +1654,7 @@ impl Receive for Peers {
         _: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         trace!("received peers {:?} ", self.peers.len());
         for p in &self.peers {
@@ -1651,7 +1680,7 @@ impl Receive for IJustSawThis {
         src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if self.id.find("/") != None
             || self.id.find("\\") != None
@@ -1685,7 +1714,7 @@ impl Receive for YouSouldSeeThis {
         src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if self.id.find("/") != None
             || self.id.find("\\") != None
@@ -1774,7 +1803,7 @@ impl Receive for PleaseSendContent {
         src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if self.id.find("/") != None
             || self.id.find("\\") != None
@@ -1861,7 +1890,7 @@ impl Receive for Content {
         src: &Source,
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
             if !inbound_states.contains_key(&self.id) {
@@ -2325,7 +2354,7 @@ impl Receive for MaybeTheyHaveSome {
         src: &Source,
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if !inbound_states.contains_key(&self.id) {
             return vec![];
@@ -2352,7 +2381,7 @@ impl Receive for PleaseReturnThisMessage {
         _: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         return vec![Message::ReturnedMessage(ReturnedMessage { cookie: self.cookie, })];
     }
@@ -2376,7 +2405,7 @@ impl Receive for ReturnedMessage {
         src: &Source,
         might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
             if !*might_be_ip_spoofing {
@@ -2391,11 +2420,9 @@ impl Receive for ReturnedMessage {
     }
 }
 //        socket.send(JSON.stringify([{GetPubByEth:{eth_addr:their_eth_addr}}]));
-#[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct WhereAreThey {
-    #[serde_as(as = "Hex")]
-    ed25519h: [u8; 32],
+    ed25519h: Ed25519Pub,
 }
 impl Receive for WhereAreThey {
     fn receive(
@@ -2404,7 +2431,7 @@ impl Receive for WhereAreThey {
         src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&self.ed25519h) {
             if let Some(p) = ps.peer_map.get(&sa) {
@@ -2416,7 +2443,7 @@ impl Receive for WhereAreThey {
                 let from_ed25519 = None;
                 let maybe_ed25519 = None;
                 let messages = serde_json::to_string(&message_out).unwrap();
-                trace!("sending {:?} ed25519 {} from  {}",src,hex::encode(self.ed25519h),sa);
+                trace!("sending {:?} ed25519 {} from  {}",src,self.ed25519h,sa);
                 let src = *sa;
                 return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
             }
@@ -2436,23 +2463,23 @@ impl Receive for GetPubByEth {
         src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         for (k, p) in &ps.peer_map {
             if let Some(signer) = &p.ed25519_eth_signer {
                 if let Some(ed25519) = &p.ed25519 {
                     if *signer == self.eth_addr {
                         let mpk = MyPublicKey {
-                            ed25519h: ed25519.clone(),
+                            ed25519h: *ed25519,
                             ed25519_eth_signed: p.ed25519_eth_signed.clone(),
                         };
                         let message_out = vec![Message::MyPublicKey(mpk)];
-                        let from_ed25519 = Some(ed25519.clone());
+                        let from_ed25519 = Some(*ed25519);
                         let maybe_ed25519 = None;
 
                         let messages = serde_json::to_string(&message_out).unwrap();
-                        trace!("sending {:?} ed25519 {} to ",src,hex::encode(ed25519));
-                        info!("sending {:?} ed25519 {} for eth addr {} to ",src,hex::encode(ed25519),signer);
+                        trace!("sending {:?} ed25519 {} to ",src,ed25519);
+                        info!("sending {:?} ed25519 {} for eth addr {} to ",src,ed25519,signer);
                         let src = *k;
                         return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
                     }
@@ -2488,7 +2515,7 @@ impl Receive for SignedPub {
         src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if let Source::S(_) = src {
             return vec![];
@@ -2499,15 +2526,12 @@ impl Receive for SignedPub {
         return vec![];
     }
 }
-#[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct Forwarded {
     src: SocketAddr,
-    #[serde_as(as = "Option<Hex>")]
-    from_ed25519: Option<[u8; 32]>,
+    from_ed25519: Option<Ed25519Pub>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde_as(as = "Option<Hex>")]
-    maybe_ed25519: Option<[u8; 32]>,
+    maybe_ed25519: Option<Ed25519Pub>,
     messages: String,
 }
 impl Receive for Forwarded {
@@ -2517,7 +2541,7 @@ impl Receive for Forwarded {
         src: &Source,
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         let messages: Messages = match serde_json::from_str(&self.messages) {
             Ok(r) => r,
@@ -2551,7 +2575,7 @@ impl Receive for Forward {
         src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if let Source::S(_) = src {
             // we could allow this, i dont see why not, though theres not a currrent use
@@ -2569,11 +2593,9 @@ impl Receive for Forward {
         return vec![];
     }
 }
-#[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct MyPublicKey {
-    #[serde_as(as = "Hex")]
-    ed25519h: [u8; 32],
+    ed25519h: Ed25519Pub,
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signed: Option<String>,
 }
@@ -2592,12 +2614,12 @@ impl Receive for MyPublicKey {
         src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         use alloy::signers::Signature;
         use std::str::FromStr;
         let mut recovered_address: Option<String> = None;
-        let ed25519h_hex = hex::encode(&self.ed25519h);
+        let ed25519h_hex = self.ed25519h.to_string();
         if let Some(sig) = &self.ed25519_eth_signed {
             if let Ok(sig) = Signature::from_str(sig.as_str()) {
                 // takes 0.0003s so do this in advance
@@ -2627,7 +2649,7 @@ impl Receive for MyPublicKey {
             }
         } else {
             info!("websocket sent signed {} to ", ed25519h_hex);
-            if ed25519h_hex == hex::encode(ps.keypair.public) {
+            if self.ed25519h == ps.keypair.public {
                 if let Some(ed25519_eth_signed) = self.ed25519_eth_signed {
                     info!("websocket signature saved");
                     ps.p.my_ed25519_signed_by_web_wallet = Some(ed25519_eth_signed);
@@ -2662,20 +2684,24 @@ impl Receive for ChatMessage {
         src: &Source,
         might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
             if *might_be_ip_spoofing {
                 info!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
                 return vec![];
             }
+            let their_pub_hex = if let Some(p) = &ps.peer_map[&src].ed25519 {
+                p.to_string()
+            } else {
+                "unknown".to_string()
+            };
             println!("\x1b[7m{} {src} 0x{} from {:?} away said \x1b[33m{}\x1b[m",
                 Utc::now().to_rfc3339(),
-                hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
+                their_pub_hex,
                 ps.peer_map[&src].delay,
                 self.message
             );
-            let their_pub_hex = hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default());
             if (ps.all_chats.len() == 0
                 || ps.all_chats.last().unwrap().0 != their_pub_hex
                 || ps.all_chats.last().unwrap().1 != self.message)
@@ -2729,7 +2755,7 @@ impl Receive for PleaseListContent {
         _: &Source,
         might_be_ip_spoofing: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         let mut results: Vec<(String, u64)> = vec![];
         for path in fs::read_dir("./cjp2p/public").unwrap() {
@@ -2771,13 +2797,13 @@ impl Receive for ContentList {
         src: &Source,
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if let Source::S(src) = *src {
             for (id, size) in &self.results {
                 trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
                     Utc::now().to_rfc3339(),
-                    hex::encode(&ps.peer_map[&src].ed25519.clone().unwrap_or_default()),
+                    ps.peer_map[&src].ed25519.map(|p| p.to_string()).unwrap_or_default(),
                     ps.peer_map[&src].delay,
                     self.results
                 );
@@ -2813,9 +2839,9 @@ struct EncryptedMessages {
     noise_params: String,
 }
 impl EncryptedMessages {
-    fn new(ps: &PeerState, their_pub: &[u8; 32], message: Vec<u8>) -> Message {
+    fn new(ps: &PeerState, their_pub: &Ed25519Pub, message: Vec<u8>) -> Message {
         use curve25519_dalek::edwards::CompressedEdwardsY;
-        let their_x25519 = CompressedEdwardsY(*their_pub)
+        let their_x25519 = CompressedEdwardsY(*their_pub.as_bytes())
             .decompress()
             .expect("valid ed25519 public key")
             .to_montgomery()
@@ -2841,7 +2867,7 @@ impl Receive for EncryptedMessages {
         src_: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if let Source::S(src) = *src_ {
             let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
@@ -2857,9 +2883,9 @@ impl Receive for EncryptedMessages {
                     let pi = ps.peer_map.get_mut(&src).unwrap();
                     pi.ed25519 = Some(their_pub);
 
-                    let their_pub_hex = hex::encode(their_pub);
                     message_in_bytes.truncate(len);
-                    trace!("handling decrypted message from {src} {their_pub_hex}: {}",
+                    trace!("handling decrypted message from {src} {}: {}",
+                    their_pub.to_string(),
                      String::from_utf8_lossy(&message_in_bytes));
                     let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
                         Ok(r) => r,
@@ -2911,8 +2937,7 @@ impl Receive for EncryptedMessages {
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct SignedMessage {
-    #[serde_as(as = "Hex")]
-    ed25519: [u8; 32],
+    ed25519: Ed25519Pub,
     #[serde_as(as = "Base64")]
     signature: Vec<u8>,
     #[serde_as(as = "Base64")]
@@ -2935,10 +2960,10 @@ impl Receive for SignedMessage {
         src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         use ed25519_dalek::{Verifier, VerifyingKey};
-        let verifying_key = match VerifyingKey::from_bytes(&self.ed25519) {
+        let verifying_key = match VerifyingKey::from_bytes(self.ed25519.as_bytes()) {
             Ok(k) => k,
             Err(_) => {
                 warn!("SignedMessage: bad ed25519 key from {:?}", src);
@@ -2977,7 +3002,7 @@ impl Receive for SignedMessage {
                     && latest.sha256.len() == 64
                     && hex::decode(&latest.sha256).is_ok()
                 {
-                    let pub_hex = hex::encode(self.ed25519);
+                    let pub_hex = self.ed25519.to_string();
                     let cache_path = latest_cache_path(&pub_hex, &latest.name);
                     let cached_seq = load_seq_from_latest_cache(&cache_path);
                     if latest.seq > cached_seq {
@@ -2995,7 +3020,7 @@ impl Receive for SignedMessage {
             }
         }
         if ps.ws_vec.len() > 0 {
-            let ed25519_hex = hex::encode(self.ed25519);
+            let ed25519_hex = self.ed25519.to_string();
             let message_out_string = serde_json::to_string(&json![
                 [Message::Forwarded(Forwarded{
                     src: if let Source::S(s) = src { *s } else { "0.0.0.0:0".parse().unwrap() },
@@ -3120,11 +3145,9 @@ fn create_and_cache_latest(ps: &PeerState, name: &str, pub_hex: &str, seq: u64, 
 }
 
 // GetLatest: ask for the latest signed hash for a named file owned by ed25519 publisher
-#[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct GetLatest {
-    #[serde_as(as = "Hex")]
-    ed25519: [u8; 32],
+    ed25519: Ed25519Pub,
     name: String,
 }
 impl Receive for GetLatest {
@@ -3134,7 +3157,7 @@ impl Receive for GetLatest {
         _src: &Source,
         _: &mut bool,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<[u8; 32]>,
+        _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if self.name.contains('/')
             || self.name.contains('\\')
@@ -3143,7 +3166,7 @@ impl Receive for GetLatest {
         {
             return vec![];
         }
-        let pub_hex = hex::encode(self.ed25519);
+        let pub_hex = self.ed25519.to_string();
         let cache_path = latest_cache_path(&pub_hex, &self.name);
 
         if ps.keypair.public == self.ed25519 {
@@ -3171,11 +3194,9 @@ impl Receive for GetLatest {
 }
 
 // Latest: the signed response carrying the sha256 and sequence number of a named file
-#[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Latest {
-    #[serde_as(as = "Hex")]
-    ed25519: [u8; 32],
+    ed25519: Ed25519Pub,
     name: String,
     sha256: String,
     seq: u64,
@@ -3187,7 +3208,7 @@ impl Receive for Latest {
         src: &Source,
         _: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        signer: Option<[u8; 32]>,
+        signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         // Caching is handled upstream in SignedMessage::receive; here we resolve waiting connections.
         if signer != Some(self.ed25519) {
@@ -3198,7 +3219,7 @@ impl Receive for Latest {
             warn!("Latest has invalid sha256: {}", self.sha256);
             return vec![];
         }
-        let pub_hex = hex::encode(self.ed25519);
+        let pub_hex = self.ed25519.to_string();
         // Find ContentGateways parked waiting for this (pub_hex, name).
         let pending: Vec<usize> = ps
             .content_gateways
@@ -3285,15 +3306,14 @@ trait Receive {
         src: &Source,
         might_be_ip_spoofing: &mut bool,
         inbound_states: &mut HashMap<String, InboundState>,
-        signer: Option<[u8; 32]>,
+        signer: Option<Ed25519Pub>,
     ) -> Vec<Message>;
 }
 
 fn msgs_to_pub(ps: &mut PeerState, their_pub_hex_: &String, messages: &Vec<Value>) -> () {
     let their_pub_hex = their_pub_hex_.strip_prefix("0x").unwrap_or(their_pub_hex_);
     if let Ok(to__) = hex::decode(their_pub_hex) {
-        let to_: Result<[u8; 32], _> = to__.try_into();
-        if let Ok(to) = to_ {
+        if let Ok(to) = TryInto::<[u8; 32]>::try_into(to__).map(Ed25519Pub) {
             if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&to) {
                 let mut message_out: Vec<Value> = vec![];
                 if rand::rng().random::<u32>() % 37 == 0 {
