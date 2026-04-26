@@ -217,6 +217,8 @@ impl PeerState {
         fs::create_dir("./cjp2p/public").ok();
         fs::create_dir("./cjp2p/metadata").ok();
         fs::create_dir("./cjp2p/state").ok();
+        fs::create_dir("./cjp2p/origin").ok();
+        fs::create_dir_all("./cjp2p/metadata/latest").ok();
         use std::net::Ipv6Addr;
         let mut ps = Self {
             peer_map: PeerState::load_peers(),
@@ -475,6 +477,9 @@ impl PeerState {
         if cg.http_done {
             warn!("is this code ever called? why?");
             return;
+        }
+        if cg.pending_latest.is_some() {
+            return; // still waiting for Latest resolution
         }
 
         if !std::env::var("SKIP_LOCAL").is_ok() {
@@ -1132,6 +1137,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
 
         page += &format!("</div>");
         page += &format!("<a href=/chat5.html>chat interface</a>");
+        page += &format!("<a href=/dashboard.html>fancy Claude made dashboard</a>");
         page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
         for (id, bytes_complete, eof) in &inbound_info {
@@ -1270,6 +1276,82 @@ fn handle_web_request(
                 stream.write_all(page.as_bytes()).ok();
                 return;
             }
+            // /latest/<pub_hex>/<name> -- updatable named content via signed Latest message
+            if req.path.starts_with("/latest/") {
+                let rest = &req.path[8..];
+                let mut parts = rest.splitn(2, '/');
+                let maybe_pub = parts.next();
+                let maybe_name_q = parts.next();
+                if let (Some(pub_hex), Some(name_with_q)) = (maybe_pub, maybe_name_q) {
+                    let name_raw = name_with_q.split('?').next().unwrap_or("");
+                    let name = urlencoding::decode(name_raw).unwrap_or_default().to_string();
+                    if !name.is_empty()
+                        && !name.contains('/')
+                        && !name.contains('\\')
+                        && !name.starts_with('.')
+                        && pub_hex.len() == 64
+                    {
+                        if let Ok(pub_bytes) = hex::decode(pub_hex) {
+                            let ed25519_arr: Result<[u8; 32], _> = pub_bytes.try_into();
+                            if let Ok(ed25519) = ed25519_arr {
+                                let gl = GetLatest { ed25519, name: name.clone() };
+                                // Handle locally first (covers publisher case, updates cache)
+                                let _local = gl.clone().receive(
+                                    ps, &Source::None, &mut false, inbound_states, None,
+                                );
+                                // Always send directly to the publisher if we know their address,
+                                // so they aren't missed when peer_map_by_pub has many entries.
+                                if let Some(Source::S(pa)) = ps.peer_map_by_pub.get(&ed25519) { 
+                                    let mut msg_out = vec![Message::GetLatest(gl.clone())];
+                                    msg_out.append(&mut ps.always_returned(*pa));
+                                    ps.socket
+                                        .send_to(&serde_json::to_vec(&msg_out).unwrap(), pa)
+                                        .ok();
+                                }
+                                // Parse Range header for partial content
+                                let mut start: usize = 0;
+                                let mut end: usize = 0;
+                                if let Some(range) = req.headers.get("range") {
+                                    sscanf!(range, "bytes={}-{}", start, end).ok();
+                                }
+                                let cache_path = latest_cache_path(pub_hex, &name);
+                                let sha256_opt = load_sha256_from_latest_cache(&cache_path);
+                                let pending = if sha256_opt.is_some() {
+                                    None
+                                } else {
+                                    // Broadcast search to network peers
+                                    let peers = ps.best_peers(250, 6);
+                                    for sa in &peers {
+                                        let mut msg_out = vec![Message::GetLatest(gl.clone())];
+                                        msg_out.append(&mut ps.always_returned(*sa));
+                                        ps.socket
+                                            .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
+                                            .ok();
+                                    }
+                                    Some((pub_hex.to_string(), name.clone()))
+                                };
+                                let index = ps.content_gateways.len();
+                                ps.content_gateways.push(ContentGateway {
+                                    id: sha256_opt.unwrap_or_default(),
+                                    http_start: start,
+                                    http_end: end,
+                                    http_socket: stream,
+                                    waiting_for_browser: false,
+                                    http_done: false,
+                                    sent_header: false,
+                                    eof: 0,
+                                    pending_latest: pending,
+                                });
+                                if ps.content_gateways[index].pending_latest.is_none() {
+                                    ps.serve_http_content(inbound_states, index);
+                                }
+                                return;
+                            }
+                        }
+                    }
+                }
+                return;
+            }
             let id = &req.path[1..].split('?').next().unwrap();
             let id = &id.split('/').next().unwrap();
             if id.find("/") != None
@@ -1309,6 +1391,7 @@ fn handle_web_request(
                 http_done: false,
                 sent_header: false,
                 eof: 0,
+                pending_latest: None,
             };
             ps.content_gateways.push(cg);
             ps.serve_http_content(inbound_states, index);
@@ -1818,6 +1901,8 @@ struct ContentGateway {
     http_done: bool,
     sent_header: bool,
     eof: usize,
+    /// If Some((pub_hex, name)), we are holding the connection open waiting for a Latest reply.
+    pending_latest: Option<(String, String)>,
 }
 impl ContentGateway {
     fn serve_content_from_disk(&mut self, file: &File) {
@@ -2772,7 +2857,7 @@ impl Receive for EncryptedMessages {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct SignedMessage {
     #[serde_as(as = "Hex")]
     ed25519: [u8; 32],
@@ -2827,6 +2912,34 @@ impl Receive for SignedMessage {
             }
         };
         let messages = messages.0;
+        // Cache any Latest message found inside this valid SignedMessage
+        // since it saves the signature, this couldnt be handled inside the Latest receiver
+        // without passing the signature and the payload down the handling chain so its special case either way, but maybe this should be in a different function in Latest
+        for msg in &messages {
+            if let Message::Latest(latest) = msg {
+                if latest.ed25519 == self.ed25519
+                    && !latest.name.contains('/')
+                    && !latest.name.contains('\\')
+                    && !latest.name.starts_with('.')
+                    && !latest.name.is_empty()
+                    && latest.sha256.len() == 64
+                    && hex::decode(&latest.sha256).is_ok()
+                {
+                    let pub_hex = hex::encode(self.ed25519);
+                    let cache_path = latest_cache_path(&pub_hex, &latest.name);
+                    let cached_seq = load_seq_from_latest_cache(&cache_path);
+                    if latest.seq > cached_seq {
+                        if let Some(dir) = Path::new(&cache_path).parent() {
+                            fs::create_dir_all(dir).ok();
+                        }
+                        if let Ok(json) = serde_json::to_vec_pretty(&Message::SignedMessage(self.clone())) {
+                            fs::write(&cache_path, json).ok();
+                        }
+                        info!("cached latest {}/{} seq={} sha256={}", pub_hex, latest.name, latest.seq, latest.sha256);
+                    }
+                }
+            }
+        }
         if ps.ws_vec.len() > 0 {
             let ed25519_hex = hex::encode(self.ed25519);
             let message_out_string = serde_json::to_string(&json![
@@ -2859,6 +2972,194 @@ impl Receive for SignedMessage {
     }
 }
 
+// ---- Latest / GetLatest helpers ----
+
+fn latest_cache_path(pub_hex: &str, name: &str) -> String {
+    format!("./cjp2p/metadata/latest/{}/{}.json", pub_hex, name)
+}
+
+fn load_seq_from_latest_cache(cache_path: &str) -> u64 {
+    let Ok(json) = fs::read(cache_path) else { return 0 };
+    let Ok(msg) = serde_json::from_slice::<Message>(&json) else { return 0 };
+    let Message::SignedMessage(sm) = msg else { return 0 };
+    let Ok(msgs) = serde_json::from_slice::<Vec<Message>>(&sm.payload) else { return 0 };
+    for inner in msgs {
+        if let Message::Latest(l) = inner {
+            return l.seq;
+        }
+    }
+    0
+}
+
+fn load_sha256_from_latest_cache(cache_path: &str) -> Option<String> {
+    let json = fs::read(cache_path).ok()?;
+    let msg = serde_json::from_slice::<Message>(&json).ok()?;
+    let Message::SignedMessage(sm) = msg else { return None };
+    let msgs = serde_json::from_slice::<Vec<Message>>(&sm.payload).ok()?;
+    for inner in msgs {
+        if let Message::Latest(l) = inner {
+            return Some(l.sha256);
+        }
+    }
+    None
+}
+
+fn load_latest_signed_message(cache_path: &str) -> Vec<Message> {
+    let Ok(json) = fs::read(cache_path) else { return vec![] };
+    let Ok(msg) = serde_json::from_slice::<Message>(&json) else { return vec![] };
+    vec![msg]
+}
+
+fn create_and_cache_latest(ps: &PeerState, name: &str, pub_hex: &str, seq: u64, cache_path: &str) {
+    let origin_path = format!("./cjp2p/origin/{}", name);
+    let temp_name = format!(".tmp_{:016x}", rand::rng().random::<u64>());
+    let temp_path = format!("./cjp2p/public/{}", temp_name);
+    if fs::copy(&origin_path, &temp_path).is_err() {
+        warn!("create_and_cache_latest: failed to copy origin/{}", name);
+        return;
+    }
+    let contents = match fs::read(&temp_path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("create_and_cache_latest: read temp failed: {e}");
+            fs::remove_file(&temp_path).ok();
+            return;
+        }
+    };
+    let sha256 = format!("{:x}", Sha256::digest(&contents));
+    let hash_path = format!("./cjp2p/public/{}", sha256);
+    if let Err(e) = fs::rename(&temp_path, &hash_path) {
+        warn!("create_and_cache_latest: rename to {} failed: {e}", sha256);
+        fs::remove_file(&temp_path).ok();
+        return;
+    }
+    let latest = Latest {
+        ed25519: ps.keypair.public,
+        name: name.to_string(),
+        sha256: sha256.clone(),
+        seq,
+    };
+    let payload = serde_json::to_vec(&vec![Message::Latest(latest)]).unwrap();
+    let signed_msg = SignedMessage::new(ps, payload);
+    if let Some(dir) = Path::new(cache_path).parent() {
+        fs::create_dir_all(dir).ok();
+    }
+    if let Err(e) = fs::write(cache_path, serde_json::to_vec_pretty(&signed_msg).unwrap()) {
+        warn!("create_and_cache_latest: write cache failed: {e}");
+        return;
+    }
+    info!("created latest for {}/{} sha256={} seq={}", pub_hex, name, sha256, seq);
+}
+
+// GetLatest: ask for the latest signed hash for a named file owned by ed25519 publisher
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct GetLatest {
+    #[serde_as(as = "Hex")]
+    ed25519: [u8; 32],
+    name: String,
+}
+impl Receive for GetLatest {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        _src: &Source,
+        _: &mut bool,
+        _: &mut HashMap<String, InboundState>,
+        _signer: Option<[u8; 32]>,
+    ) -> Vec<Message> {
+        if self.name.contains('/')
+            || self.name.contains('\\')
+            || self.name.starts_with('.')
+            || self.name.is_empty()
+        {
+            return vec![];
+        }
+        let pub_hex = hex::encode(self.ed25519);
+        let cache_path = latest_cache_path(&pub_hex, &self.name);
+
+        if ps.keypair.public == self.ed25519 {
+            let origin_path = format!("./cjp2p/origin/{}", self.name);
+            if let Ok(origin_meta) = fs::metadata(&origin_path) {
+                let origin_seq = origin_meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(1);
+                let cached_seq = load_seq_from_latest_cache(&cache_path);
+                if cached_seq < origin_seq || !Path::new(&cache_path).exists() {
+                    create_and_cache_latest(ps, &self.name, &pub_hex, origin_seq, &cache_path);
+                }
+                return load_latest_signed_message(&cache_path);
+            }
+        }
+
+        if Path::new(&cache_path).exists() {
+            return load_latest_signed_message(&cache_path);
+        }
+        vec![]
+    }
+}
+
+// Latest: the signed response carrying the sha256 and sequence number of a named file
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Latest {
+    #[serde_as(as = "Hex")]
+    ed25519: [u8; 32],
+    name: String,
+    sha256: String,
+    seq: u64,
+}
+impl Receive for Latest {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: &Source,
+        _: &mut bool,
+        inbound_states: &mut HashMap<String, InboundState>,
+        signer: Option<[u8; 32]>,
+    ) -> Vec<Message> {
+        // Caching is handled upstream in SignedMessage::receive; here we resolve waiting connections.
+        if signer != Some(self.ed25519) {
+            warn!("Latest received without matching SignedMessage wrapper -- dropping");
+            return vec![];
+        }
+        if self.sha256.len() != 64 || hex::decode(&self.sha256).is_err() {
+            warn!("Latest has invalid sha256: {}", self.sha256);
+            return vec![];
+        }
+        let pub_hex = hex::encode(self.ed25519);
+        // Find ContentGateways parked waiting for this (pub_hex, name).
+        let pending: Vec<usize> = ps.content_gateways.iter().enumerate()
+            .filter_map(|(i, cg)| {
+                if let Some((ph, n)) = &cg.pending_latest {
+                    if ph == &pub_hex && n == &self.name { Some(i) } else { None }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !pending.is_empty() {
+            // Seed peer metadata so InboundState knows where to fetch the content.
+            if let Source::S(src_addr) = *src {
+                InboundState::send_content_peers_from_disk(&self.sha256, 0, &src_addr);
+            }
+            for &idx in &pending {
+                ps.content_gateways[idx].id = self.sha256.clone();
+                ps.content_gateways[idx].pending_latest = None;
+            }
+            // Serve in reverse-index order so removals inside serve_http_content
+            // don't invalidate lower indices we haven't visited yet.
+            for idx in pending.into_iter().rev() {
+                ps.serve_http_content(inbound_states, idx);
+            }
+        }
+        vec![]
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[enum_dispatch]
 enum Message {
@@ -2884,6 +3185,8 @@ enum Message {
     SignedPub(SignedPub),
     GetPubByEth(GetPubByEth),
     WhereAreThey(WhereAreThey),
+    GetLatest(GetLatest),
+    Latest(Latest),
 }
 
 // this struct only exists to be able to get that VecSkipError in there.
