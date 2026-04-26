@@ -690,19 +690,15 @@ impl PeerState {
         return None;
     }
     fn unstall_getlatests(&self) {
-        let stalled_latest: Vec<(String, String)> = self
+        let stalled_latest: Vec<(Ed25519Pub, String)> = self
             .content_gateways
             .iter()
             .filter_map(|cg| cg.pending_latest.clone())
             .collect();
         let mut msg_out = vec![];
-        for (pub_hex, name) in stalled_latest {
-            if let Ok(pub_bytes) = hex::decode(&pub_hex) {
-                if let Ok(ed25519) = TryInto::<[u8; 32]>::try_into(pub_bytes).map(Ed25519Pub) {
-                    let gl = GetLatest { ed25519, name };
-                    msg_out.push(Message::GetLatest(gl.clone()));
-                }
-            }
+        for (ed25519, name) in stalled_latest {
+            let gl = GetLatest { ed25519, name };
+            msg_out.push(Message::GetLatest(gl.clone()));
         }
         if msg_out.len() > 0 {
             let peers = self.best_peers(250, 6);
@@ -1349,7 +1345,6 @@ fn handle_web_request(
                 let maybe_pub = parts.next();
                 let maybe_name_q = parts.next();
                 if let (Some(raw_pub), Some(name_with_q)) = (maybe_pub, maybe_name_q) {
-                    let pub_hex = raw_pub.strip_prefix("0x").unwrap_or(raw_pub);
                     let name_raw = name_with_q.split('?').next().unwrap_or("");
                     let name = urlencoding::decode(name_raw)
                         .unwrap_or_default()
@@ -1358,72 +1353,67 @@ fn handle_web_request(
                         && !name.contains('/')
                         && !name.contains('\\')
                         && !name.starts_with('.')
-                        && pub_hex.len() == 64
                     {
-                        if let Ok(pub_bytes) = hex::decode(pub_hex) {
-                            if let Ok(ed25519) =
-                                TryInto::<[u8; 32]>::try_into(pub_bytes).map(Ed25519Pub)
-                            {
-                                let gl = GetLatest {
-                                    ed25519,
-                                    name: name.clone(),
-                                };
-                                // Handle locally first (covers publisher case, updates cache)
-                                let _local = gl.clone().receive(
-                                    ps,
-                                    &Source::None,
-                                    &mut false,
-                                    inbound_states,
-                                    None,
-                                );
-                                // Always send directly to the publisher if we know their address,
-                                // so they aren't missed when peer_map_by_pub has many entries.
-                                if let Some(Source::S(pa)) = ps.peer_map_by_pub.get(&ed25519) {
+                        if let Ok(ed25519) = raw_pub.parse::<Ed25519Pub>() {
+                            let gl = GetLatest {
+                                ed25519,
+                                name: name.clone(),
+                            };
+                            // Handle locally first (covers publisher case, updates cache)
+                            let _local = gl.clone().receive(
+                                ps,
+                                &Source::None,
+                                &mut false,
+                                inbound_states,
+                                None,
+                            );
+                            // Always send directly to the publisher if we know their address,
+                            // so they aren't missed when peer_map_by_pub has many entries.
+                            if let Some(Source::S(pa)) = ps.peer_map_by_pub.get(&ed25519) {
+                                let mut msg_out = vec![Message::GetLatest(gl.clone())];
+                                msg_out.append(&mut ps.always_returned(*pa));
+                                ps.socket
+                                    .send_to(&serde_json::to_vec(&msg_out).unwrap(), pa)
+                                    .ok();
+                            }
+                            // Parse Range header for partial content
+                            let mut start: usize = 0;
+                            let mut end: usize = 0;
+                            if let Some(range) = req.headers.get("range") {
+                                sscanf!(range, "bytes={}-{}", start, end).ok();
+                            }
+                            let cache_path = latest_cache_path(&ed25519.to_string(), &name);
+                            let sha256_opt = load_sha256_from_latest_cache(&cache_path);
+                            let pending = if sha256_opt.is_some() {
+                                None
+                            } else {
+                                // Broadcast search to network peers
+                                let peers = ps.best_peers(250, 6);
+                                for sa in &peers {
                                     let mut msg_out = vec![Message::GetLatest(gl.clone())];
-                                    msg_out.append(&mut ps.always_returned(*pa));
+                                    msg_out.append(&mut ps.always_returned(*sa));
                                     ps.socket
-                                        .send_to(&serde_json::to_vec(&msg_out).unwrap(), pa)
+                                        .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
                                         .ok();
                                 }
-                                // Parse Range header for partial content
-                                let mut start: usize = 0;
-                                let mut end: usize = 0;
-                                if let Some(range) = req.headers.get("range") {
-                                    sscanf!(range, "bytes={}-{}", start, end).ok();
-                                }
-                                let cache_path = latest_cache_path(pub_hex, &name);
-                                let sha256_opt = load_sha256_from_latest_cache(&cache_path);
-                                let pending = if sha256_opt.is_some() {
-                                    None
-                                } else {
-                                    // Broadcast search to network peers
-                                    let peers = ps.best_peers(250, 6);
-                                    for sa in &peers {
-                                        let mut msg_out = vec![Message::GetLatest(gl.clone())];
-                                        msg_out.append(&mut ps.always_returned(*sa));
-                                        ps.socket
-                                            .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
-                                            .ok();
-                                    }
-                                    Some((pub_hex.to_string(), name.clone()))
-                                };
-                                let index = ps.content_gateways.len();
-                                ps.content_gateways.push(ContentGateway {
-                                    id: sha256_opt.unwrap_or_default(),
-                                    http_start: start,
-                                    http_end: end,
-                                    http_socket: stream,
-                                    waiting_for_browser: false,
-                                    http_done: false,
-                                    sent_header: false,
-                                    eof: 0,
-                                    pending_latest: pending,
-                                });
-                                if ps.content_gateways[index].pending_latest.is_none() {
-                                    ps.serve_http_content(inbound_states, index);
-                                }
-                                return;
+                                Some((ed25519, name.clone()))
+                            };
+                            let index = ps.content_gateways.len();
+                            ps.content_gateways.push(ContentGateway {
+                                id: sha256_opt.unwrap_or_default(),
+                                http_start: start,
+                                http_end: end,
+                                http_socket: stream,
+                                waiting_for_browser: false,
+                                http_done: false,
+                                sent_header: false,
+                                eof: 0,
+                                pending_latest: pending,
+                            });
+                            if ps.content_gateways[index].pending_latest.is_none() {
+                                ps.serve_http_content(inbound_states, index);
                             }
+                            return;
                         }
                     }
                 }
@@ -1979,8 +1969,8 @@ struct ContentGateway {
     http_done: bool,
     sent_header: bool,
     eof: usize,
-    /// If Some((pub_hex, name)), we are holding the connection open waiting for a Latest reply.
-    pending_latest: Option<(String, String)>,
+    /// If Some((pub, name)), we are holding the connection open waiting for a Latest reply.
+    pending_latest: Option<(Ed25519Pub, String)>,
 }
 impl ContentGateway {
     fn serve_content_from_disk(&mut self, file: &File) {
@@ -3219,15 +3209,14 @@ impl Receive for Latest {
             warn!("Latest has invalid sha256: {}", self.sha256);
             return vec![];
         }
-        let pub_hex = self.ed25519.to_string();
-        // Find ContentGateways parked waiting for this (pub_hex, name).
+        // Find ContentGateways parked waiting for this (pub, name).
         let pending: Vec<usize> = ps
             .content_gateways
             .iter()
             .enumerate()
             .filter_map(|(i, cg)| {
-                if let Some((ph, n)) = &cg.pending_latest {
-                    if ph == &pub_hex && n == &self.name {
+                if let Some((pub_key, n)) = &cg.pending_latest {
+                    if *pub_key == self.ed25519 && n == &self.name {
                         Some(i)
                     } else {
                         None
@@ -3311,51 +3300,47 @@ trait Receive {
 }
 
 fn msgs_to_pub(ps: &mut PeerState, their_pub_hex_: &String, messages: &Vec<Value>) -> () {
-    let their_pub_hex = their_pub_hex_.strip_prefix("0x").unwrap_or(their_pub_hex_);
-    if let Ok(to__) = hex::decode(their_pub_hex) {
-        if let Ok(to) = TryInto::<[u8; 32]>::try_into(to__).map(Ed25519Pub) {
-            if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&to) {
-                let mut message_out: Vec<Value> = vec![];
-                if rand::rng().random::<u32>() % 37 == 0 {
-                    message_out
-                        .push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
-                } else if rand::rng().random::<u32>() % 5 == 0
-                    && ps.p.my_ed25519_signed_by_web_wallet.is_some()
-                {
-                    message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
-                }
-                // an optimization would be to skip serde once we know where
-                // it should go and just copy the message bytes
-                for m in messages {
-                    message_out.push(serde_json::to_value(m).unwrap());
-                }
-                message_out = vec![
+    if let Ok(to) = their_pub_hex_.parse::<Ed25519Pub>() {
+        if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&to) {
+            let mut message_out: Vec<Value> = vec![];
+            if rand::rng().random::<u32>() % 37 == 0 {
+                message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
+            } else if rand::rng().random::<u32>() % 5 == 0
+                && ps.p.my_ed25519_signed_by_web_wallet.is_some()
+            {
+                message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
+            }
+            // an optimization would be to skip serde once we know where
+            // it should go and just copy the message bytes
+            for m in messages {
+                message_out.push(serde_json::to_value(m).unwrap());
+            }
+            message_out = vec![
                                 serde_json::to_value(&EncryptedMessages::new(ps,&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
                             ];
-                let c = ps.always_returned(*sa);
-                if c.len() > 0 {
-                    message_out.push(serde_json::to_value(&c[0]).unwrap());
-                }
-                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                if c.len() > 0 {
-                    message_out.pop();
-                }
-                trace!( "sending message {:?} to {sa} {their_pub_hex}", String::from_utf8_lossy(&message_out_bytes));
-                ps.socket.send_to(&message_out_bytes, sa).ok();
-                return;
+            let c = ps.always_returned(*sa);
+            if c.len() > 0 {
+                message_out.push(serde_json::to_value(&c[0]).unwrap());
             }
-            ps.socket.set_nonblocking(false).unwrap();
-            warn!("failed to find ed25519 requested {}, searching..",their_pub_hex);
-            let peers = ps.best_peers(250, 6);
-            info!("searching {} peers for ed25519 addr",peers.len());
-            for sa in peers {
-                let mut message_out = vec![Message::WhereAreThey(WhereAreThey{ed25519h:to})];
-                message_out.append(&mut ps.always_returned(sa));
-                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                ps.socket.send_to(&message_out_bytes, sa).ok();
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            if c.len() > 0 {
+                message_out.pop();
             }
-            ps.socket.set_nonblocking(true).unwrap();
+            trace!( "sending message {:?} to {sa} {to}", String::from_utf8_lossy(&message_out_bytes));
+            ps.socket.send_to(&message_out_bytes, sa).ok();
+            return;
         }
+        ps.socket.set_nonblocking(false).unwrap();
+        warn!("failed to find ed25519 requested {}, searching..",to);
+        let peers = ps.best_peers(250, 6);
+        info!("searching {} peers for ed25519 addr",peers.len());
+        for sa in peers {
+            let mut message_out = vec![Message::WhereAreThey(WhereAreThey{ed25519h:to})];
+            message_out.append(&mut ps.always_returned(sa));
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            ps.socket.send_to(&message_out_bytes, sa).ok();
+        }
+        ps.socket.set_nonblocking(true).unwrap();
     } else {
         error!("failed to decode hex {} ",their_pub_hex_);
     }
