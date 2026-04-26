@@ -660,6 +660,26 @@ impl PeerState {
 
         return None;
     }
+    fn unstall_getlatests(&self) {
+        let stalled_latest: Vec<(String, String)> = self.content_gateways.iter()
+        .filter_map(|cg| cg.pending_latest.clone())
+        .collect();
+        let mut msg_out = vec![];
+        for (pub_hex, name) in stalled_latest {
+            if let Ok(pub_bytes) = hex::decode(&pub_hex) {
+                if let Ok(ed25519) = pub_bytes.try_into() {
+                    let gl = GetLatest { ed25519, name };
+                    msg_out.push(Message::GetLatest(gl.clone()));
+                }
+            }
+        }
+        let peers = self.best_peers(250, 6);
+        for sa in &peers {
+            msg_out.append(&mut self.always_returned(*sa));
+            self.socket.send_to(&serde_json::to_vec(&msg_out).unwrap(), sa).ok();
+            msg_out.pop();
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1282,7 +1302,8 @@ fn handle_web_request(
                 let mut parts = rest.splitn(2, '/');
                 let maybe_pub = parts.next();
                 let maybe_name_q = parts.next();
-                if let (Some(pub_hex), Some(name_with_q)) = (maybe_pub, maybe_name_q) {
+                if let (Some(raw_pub), Some(name_with_q)) = (maybe_pub, maybe_name_q) {
+                    let pub_hex = raw_pub.strip_prefix("0x").unwrap_or(raw_pub);
                     let name_raw = name_with_q.split('?').next().unwrap_or("");
                     let name = urlencoding::decode(name_raw).unwrap_or_default().to_string();
                     if !name.is_empty()
@@ -1354,9 +1375,10 @@ fn handle_web_request(
             }
             let id = &req.path[1..].split('?').next().unwrap();
             let id = &id.split('/').next().unwrap();
+            let id = id.strip_prefix("0x").unwrap_or(id);
             if id.find("/") != None
                 || id.find("\\") != None
-                || *id == "favicon.ico"
+                || id == "favicon.ico"
                 || id.starts_with(".")
             {
                 return;
@@ -2250,6 +2272,9 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
             break;
         }
     }
+
+    ps.unstall_getlatests();
+
     if ps.list_time + Duration::from_secs(1) < Instant::now() {
         let mut sorted_list_results: Vec<_> = ps.list_results.iter().collect();
         sorted_list_results.sort_by_key(|&(_, b)| b.0);
