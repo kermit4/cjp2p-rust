@@ -677,7 +677,7 @@ impl PeerState {
         }
         if msg_out.len() > 0 {
             let peers = self.best_peers(250, 6);
-            info!("trying to GetLatest {:?} from {:?}",msg_out,peers);
+            debug!("trying to GetLatest {:?} from {:?}",msg_out,peers);
             for sa in &peers {
                 msg_out.append(&mut self.always_returned(*sa));
                 match self
