@@ -52,7 +52,7 @@ public class BackendService extends Service {
     private File logFile() {
         return new File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "cjp2p.log");
+            "cjp2p4.log");
     }
 
     private void log(String msg) {

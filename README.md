@@ -4,8 +4,7 @@ The current target audience is devs, so the UI IS minimal and not clearly docume
 
 This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it.
 
-
-Most recent updates probably on Radicle https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z3muoqLkU65QFyyJaVvCv9WiDEo21 not Github
+- this repo is at at https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z3muoqLkU65QFyyJaVvCv9WiDEo21 and https://github.com/kermit4/cjp2p-rust/
 
 
 # building
@@ -18,10 +17,7 @@ make release
 
 or 
 
-RUST_BACKTRACE=1 RUST_LOG=info ./target/release/cjp2p
-
-for some noise
-
+RUST_LOG=info ./target/release/cjp2p
 
 This uses 10KB/s at idle (almost 1GB/day).  It seems to not use a lot of battery but I haven't done long tests, and there's still a small risk of bugs that will spin net/cpu.
 
@@ -84,7 +80,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - drop in socket() replacement that takes public keys intead of ips(), in Rust crate?
 - group chat 
 - public websocket support? / gateway /  consider more the model where anyone can connect to any node but keep the identity and security browser side
-- put nostr or bitcoin addr in chat too ..however that is signed
 - put this as a git bundle in cjp2p/public
 - putting git files in cjp2p/public is breaking a git pull if the directory is beyond is a symlink
 - my putting plain names in public/ will go badly for anyone who doest have thetm and tries to get them ..just think of what i need to do for me and the fastest way to do it, htats how it will be done.. it doesnt have to be authenticated , as long as it CAN be later, just automate what i do, thats my specialtiy, and if a file is deleted and someone uses the URL it will have unpredictable results
@@ -94,9 +89,9 @@ or HTML pages with many page components, individually downloaded from the networ
 - web of trust, reputation is not absolute, its from your point of view, that solves sybil attacks
 - any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
 - browser light node, its easy, just treat non-localhost as network..easy, right? hows routing work
-- have Claude make a .apk of the node and one of those built in webbrowsers that dont look like it is a web browser exactly so it can just reuse the same html thats already used for node+browser setups.  lets see what this bot can do!
 - if streaming video is a signed list of hashes, just sign the video itself, then i can multisource per packet, the encryption does hashing already i think?
 - dot file, env var, commmand line options..too many ways to pass options
 - so a link to an updatedable would just have the pub IN the link and the name, thats easy
-derive pub key from secret words? bip 39? is the pub the nodes or a persons though? is it meant to move around
 - the killer app for this i think is the drop in socket replacement that takes a pub
+- i can put drag and drop file sharing between phones now with this, which is something i would actually use
+- just save peer map by pub not each peer
