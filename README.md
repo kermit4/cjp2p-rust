@@ -97,7 +97,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - the killer app for this i think is the drop in socket replacement that takes a pub
 - i can put drag and drop file sharing between phones now with this, which is something i would actually use
 - just save peer map by pub not each peer ..or at least save those first
-- need to have auto gets now
 - enable secure open https, just for untrusted websocket and already existing files but no autoget
 - xor pubs mod timer to improve nat punching.. for casual probes, do it this way
 - break apart functionality more and use different names and repos

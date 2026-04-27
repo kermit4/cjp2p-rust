@@ -435,10 +435,8 @@ impl PeerState {
         debug!("saving peers");
         // not really sure how many, if any, of these peers or fields should be saved, or just a PleaseListContent of host:ips, but for the few users (1) of this so far, might as well save it all
         let mut peers_to_save: Vec<(SocketAddr, PeerInfo)> = Vec::new();
-        for (_, src) in &self.peer_map_by_pub {
-            if let Source::S(ssrc) = src {
-                peers_to_save.push((ssrc.clone(), self.peer_map[ssrc].clone()))
-            }
+        for ssrc in &self.best_peers(99, 9) {
+            peers_to_save.push((ssrc.clone(), self.peer_map[ssrc].clone()))
         }
 
         OpenOptions::new()
@@ -1311,7 +1309,9 @@ fn handle_web_request(
     let mut buf = [0; 16];
     if let Ok(len) = stream.peek(&mut buf) {
         if len < 7 {
-            if len > 0 { warn!("got short http request, {len} bytes, discarding"); }
+            if len > 0 {
+                warn!("got short http request, {len} bytes, discarding");
+            }
             return;
         }
         if buf.starts_with(b"GET /wt") {
