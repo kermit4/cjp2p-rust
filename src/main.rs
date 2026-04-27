@@ -435,7 +435,7 @@ impl PeerState {
         debug!("saving peers");
         // not really sure how many, if any, of these peers or fields should be saved, or just a PleaseListContent of host:ips, but for the few users (1) of this so far, might as well save it all
         let mut peers_to_save: Vec<(SocketAddr, PeerInfo)> = Vec::new();
-        for ssrc in &self.best_peers(99, 9) {
+        for ssrc in &self.best_peers(99, 3) {
             peers_to_save.push((ssrc.clone(), self.peer_map[ssrc].clone()))
         }
 
