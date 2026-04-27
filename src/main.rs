@@ -923,7 +923,9 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             println!("QUEING FILE {arg}");
             inbound_states.insert(arg.clone(), InboundState::new(&arg));
         } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
-            chat_to_pub(ps, &arg, &arg2);
+            if let Ok(pub_key) = arg.parse::<Ed25519Pub>() {
+                chat_to_pub(ps, pub_key, &arg2);
+            }
         } else if line == "/quit\n" {
             ps.save_peers();
             ps.p.save();
@@ -1331,7 +1333,9 @@ fn handle_web_request(
                     let _ = parts.next().unwrap().to_string();
                     let msg_ = parts.next().unwrap().to_string();
                     let msg = urlencoding::decode(&msg_).unwrap().to_string();
-                    chat_to_pub(ps, &their_pub.to_string(), &msg);
+                    if let Ok(pub_key) = their_pub.parse::<Ed25519Pub>() {
+                        chat_to_pub(ps, pub_key, &msg);
+                    }
                     page += &format!("\n\n{} sent..",msg);
                     ps.recorded_chats.get_mut(their_pub).unwrap().push(msg);
                 }
@@ -2555,7 +2559,7 @@ impl Receive for Forwarded {
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct Forward {
-    to_ed25519: String,
+    to_ed25519: Ed25519Pub,
     messages: Vec<Value>,
 }
 impl Receive for Forward {
@@ -2579,7 +2583,7 @@ impl Receive for Forward {
         debug!("websocket asked me to forward {:?} to {} ",
             &self.messages
             ,&self.to_ed25519);
-        msgs_to_pub(ps, &self.to_ed25519, &self.messages);
+        msgs_to_pub(ps, self.to_ed25519, &self.messages);
         return vec![];
     }
 }
@@ -3010,7 +3014,6 @@ impl Receive for SignedMessage {
             }
         }
         if ps.ws_vec.len() > 0 {
-            let ed25519_hex = self.ed25519.to_string();
             let message_out_string = serde_json::to_string(&json![
                 [Message::Forwarded(Forwarded{
                     src: if let Source::S(s) = src { *s } else { "0.0.0.0:0".parse().unwrap() },
@@ -3019,7 +3022,9 @@ impl Receive for SignedMessage {
                     messages: String::from_utf8_lossy(&self.payload).to_string(),
                 })]])
             .unwrap();
-            trace!("sending signed message from ed25519={ed25519_hex} to {} websockets", ps.ws_vec.len());
+            trace!("sending signed message from ed25519={} to {} websockets", 
+            self.ed25519.to_string(),
+                ps.ws_vec.len());
             for ws in &mut ps.ws_vec {
                 if ws
                     .write(tungstenite::Message::Text(
@@ -3299,57 +3304,53 @@ trait Receive {
     ) -> Vec<Message>;
 }
 
-fn msgs_to_pub(ps: &mut PeerState, their_pub_hex_: &String, messages: &Vec<Value>) -> () {
-    if let Ok(to) = their_pub_hex_.parse::<Ed25519Pub>() {
-        if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&to) {
-            let mut message_out: Vec<Value> = vec![];
-            if rand::rng().random::<u32>() % 37 == 0 {
-                message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
-            } else if rand::rng().random::<u32>() % 5 == 0
-                && ps.p.my_ed25519_signed_by_web_wallet.is_some()
-            {
-                message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
-            }
-            // an optimization would be to skip serde once we know where
-            // it should go and just copy the message bytes
-            for m in messages {
-                message_out.push(serde_json::to_value(m).unwrap());
-            }
-            message_out = vec![
-                                serde_json::to_value(&EncryptedMessages::new(ps,&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
-                            ];
-            let c = ps.always_returned(*sa);
-            if c.len() > 0 {
-                message_out.push(serde_json::to_value(&c[0]).unwrap());
-            }
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            if c.len() > 0 {
-                message_out.pop();
-            }
-            trace!( "sending message {:?} to {sa} {to}", String::from_utf8_lossy(&message_out_bytes));
-            ps.socket.send_to(&message_out_bytes, sa).ok();
-            return;
+fn msgs_to_pub(ps: &mut PeerState, to: Ed25519Pub, messages: &Vec<Value>) -> () {
+    if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&to) {
+        let mut message_out: Vec<Value> = vec![];
+        if rand::rng().random::<u32>() % 37 == 0 {
+            message_out.push(serde_json::to_value(PleaseReturnThisMessage::new(ps)).unwrap());
+        } else if rand::rng().random::<u32>() % 5 == 0
+            && ps.p.my_ed25519_signed_by_web_wallet.is_some()
+        {
+            message_out.push(serde_json::to_value(MyPublicKey::new(ps)).unwrap());
         }
-        ps.socket.set_nonblocking(false).unwrap();
-        warn!("failed to find ed25519 requested {}, searching..",to);
-        let peers = ps.best_peers(250, 6);
-        info!("searching {} peers for ed25519 addr",peers.len());
-        for sa in peers {
-            let mut message_out = vec![Message::WhereAreThey(WhereAreThey{ed25519h:to})];
-            message_out.append(&mut ps.always_returned(sa));
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            ps.socket.send_to(&message_out_bytes, sa).ok();
+        // an optimization would be to skip serde once we know where
+        // it should go and just copy the message bytes
+        for m in messages {
+            message_out.push(serde_json::to_value(m).unwrap());
         }
-        ps.socket.set_nonblocking(true).unwrap();
-    } else {
-        error!("failed to decode hex {} ",their_pub_hex_);
+        message_out = vec![
+                            serde_json::to_value(&EncryptedMessages::new(ps,&to, serde_json::to_vec(&message_out).unwrap())).unwrap(),
+                        ];
+        let c = ps.always_returned(*sa);
+        if c.len() > 0 {
+            message_out.push(serde_json::to_value(&c[0]).unwrap());
+        }
+        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+        if c.len() > 0 {
+            message_out.pop();
+        }
+        trace!( "sending message {:?} to {sa} {to}", String::from_utf8_lossy(&message_out_bytes));
+        ps.socket.send_to(&message_out_bytes, sa).ok();
+        return;
     }
+    ps.socket.set_nonblocking(false).unwrap();
+    warn!("failed to find ed25519 requested {}, searching..",to);
+    let peers = ps.best_peers(250, 6);
+    info!("searching {} peers for ed25519 addr",peers.len());
+    for sa in peers {
+        let mut message_out = vec![Message::WhereAreThey(WhereAreThey{ed25519h:to})];
+        message_out.append(&mut ps.always_returned(sa));
+        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+        ps.socket.send_to(&message_out_bytes, sa).ok();
+    }
+    ps.socket.set_nonblocking(true).unwrap();
 }
 
-fn chat_to_pub(ps: &mut PeerState, their_pub_hex: &String, msg: &String) -> () {
+fn chat_to_pub(ps: &mut PeerState, their_pub: Ed25519Pub, msg: &String) -> () {
     let mut message_out: Vec<Value> = Vec::new();
     for m in ChatMessage::new(&ps, msg.clone()) {
         message_out.push(serde_json::to_value(m).unwrap());
     }
-    msgs_to_pub(ps, their_pub_hex, &message_out);
+    msgs_to_pub(ps, their_pub, &message_out);
 }
