@@ -625,7 +625,7 @@ impl PeerState {
                     lease_duration,
                     description,
                 ) {
-                    Ok(()) =>
+                    Ok(()) => {
                         info!("UPNP external port requested base based on your public key: {}",external_port);
                         for index in 0..99 {
                             match gateway.get_generic_port_mapping_entry(index) {
@@ -654,7 +654,8 @@ impl PeerState {
                                 break;
                             }
                         }
-                        },
+                        }
+                    }
                     Err(e) => {
                         warn!("UPNP add_port failed: {e}");
                     }
@@ -853,7 +854,9 @@ pub fn run() -> Result<(), std::io::Error> {
         read_fds.insert(web_server.as_fd());
         let stdin = std::io::stdin();
         let stdin_is_tty = stdin.is_terminal();
-        if stdin_is_tty { read_fds.insert(stdin.as_fd()); }
+        if stdin_is_tty {
+            read_fds.insert(stdin.as_fd());
+        }
         let mut error_fds = read_fds.clone();
 
         for cg in &ps.content_gateways {
@@ -1137,9 +1140,15 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
     }
 
     let mut seen_ips: HashSet<IpAddr> = HashSet::new();
-    let unique_ips: usize = ps.peer_map.keys().filter(|k| seen_ips.insert(k.ip())).count();
+    let unique_ips: usize = ps
+        .peer_map
+        .keys()
+        .filter(|k| seen_ips.insert(k.ip()))
+        .count();
 
-    let fast_peer_count = ps.peer_vec.iter()
+    let fast_peer_count = ps
+        .peer_vec
+        .iter()
         .filter(|v| ps.peer_map[*v].delay < Duration::from_millis(119))
         .count();
 
@@ -3409,8 +3418,8 @@ fn chat_to_pub(ps: &mut PeerState, their_pub: Ed25519Pub, msg: &String) -> () {
 #[cfg(target_os = "android")]
 #[allow(non_snake_case)]
 pub mod android_jni {
-    use jni::JNIEnv;
     use jni::objects::{JClass, JString};
+    use jni::JNIEnv;
 
     /// Called once from BackendService.onStartCommand.
     /// dataDir is getFilesDir().getAbsolutePath() -- Rust uses it as cwd so
@@ -3421,7 +3430,8 @@ pub mod android_jni {
         _class: JClass<'local>,
         data_dir: JString<'local>,
     ) {
-        let dir: String = env.get_string(&data_dir)
+        let dir: String = env
+            .get_string(&data_dir)
             .map(|s| s.into())
             .unwrap_or_default();
         let _ = std::thread::Builder::new()
