@@ -459,18 +459,23 @@ impl PeerState {
                 result.insert(sa.clone());
                 how_many -= 1;
                 if how_many == 0 {
-                    return result.clone();
+                    break;
                 }
             }
         }
-        for _ in 0..how_many {
+        for _ in 0..how_many * 2 {
             let i = ((rng.random_range(0.0..1.0) as f64).powi(quality)
                 * (self.peer_vec.len() as f64)) as usize;
             if i >= self.peer_vec.len() {
                 continue;
             }
             let p = &self.peer_vec[i];
-            result.insert(*p);
+            if result.insert(*p) {
+                how_many -= 1;
+                if how_many == 0 {
+                    break;
+                }
+            }
             trace!( "best peer(q:{quality}) {0} {1} {2}", i, p, self.peer_map[p].delay.as_secs_f64());
         }
         result.clone()
