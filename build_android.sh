@@ -90,7 +90,7 @@ linker = "$CLANG"
 EOF
 echo "Wrote .cargo/config.toml"
 
-echo "=== Step 4: Compiling Rust binary for Android ==="
+echo "=== Step 4: Compiling Rust library for Android ==="
 cd "$PROJECT_DIR"
 export CC_aarch64_linux_android="$CLANG"
 export AR_aarch64_linux_android="$TOOLCHAIN/bin/llvm-ar"
@@ -100,11 +100,11 @@ echo "Compiled."
 
 echo "=== Step 5: Copying binary and assets into Android project ==="
 
-# Binary goes into jniLibs so Android installs it to nativeLibraryDir (executable)
+# cdylib goes into jniLibs so Android can load it with System.loadLibrary("cjp2p")
 JNILIBS="$ANDROID_DIR/app/src/main/jniLibs/arm64-v8a"
 mkdir -p "$JNILIBS"
-cp "target/$RUST_TARGET/release/cjp2p" "$JNILIBS/libcjp2p.so"
-echo "Copied binary -> jniLibs/arm64-v8a/libcjp2p.so"
+cp "target/$RUST_TARGET/release/libcjp2p.so" "$JNILIBS/libcjp2p.so"
+echo "Copied libcjp2p.so -> jniLibs/arm64-v8a/libcjp2p.so"
 
 # HTML assets go into assets/public/ and get extracted to filesDir at runtime
 ASSETS_PUB="$ANDROID_DIR/app/src/main/assets/public"

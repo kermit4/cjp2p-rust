@@ -3,7 +3,17 @@ name = "cjp2p"
 version = "0.3.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "cjp2p"
+path = "src/main.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "cjp2p"
+path = "src/bin/cjp2p.rs"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", default-features = false }
 
 [dependencies]
 hex = ">=0.0.0"

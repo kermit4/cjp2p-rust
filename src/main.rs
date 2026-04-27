@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256, Sha512};
 use snow::Builder;
 //use std::cmp;
 use std::collections::{HashMap, HashSet};
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, IsTerminal, Read, Seek, SeekFrom, Write};
 //use std::convert::TryInto;
 use std::env;
 //use std::fmt;
@@ -815,7 +815,7 @@ fn parse_args() -> (u16, u16, Vec<String>) {
     (lcdp_port, http_port, file_args)
 }
 
-fn main() -> Result<(), std::io::Error> {
+pub fn run() -> Result<(), std::io::Error> {
     env_logger::builder()
         .format_timestamp(Some(TimestampPrecision::Millis))
         .init();
@@ -852,7 +852,8 @@ fn main() -> Result<(), std::io::Error> {
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
         let stdin = std::io::stdin();
-        read_fds.insert(stdin.as_fd());
+        let stdin_is_tty = stdin.is_terminal();
+        if stdin_is_tty { read_fds.insert(stdin.as_fd()); }
         let mut error_fds = read_fds.clone();
 
         for cg in &ps.content_gateways {
@@ -886,7 +887,7 @@ fn main() -> Result<(), std::io::Error> {
             }
         }
 
-        if read_fds.contains(stdin.as_fd()) {
+        if stdin_is_tty && read_fds.contains(stdin.as_fd()) {
             info!("handling stdin");
             handle_stdin(&mut ps, &mut inbound_states);
             continue 'main;
@@ -1115,6 +1116,50 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
         }
     }
 }
+fn status_json(ps: &PeerState, mut stream: TcpStream) {
+    let public_key = format!("0x{}", ps.keypair.public);
+    let total_peers = ps.peer_map.len();
+
+    let mut seen_pubs: HashSet<Ed25519Pub> = HashSet::new();
+    let mut active_peers: Vec<serde_json::Value> = Vec::new();
+    for (addr, v) in &ps.peer_map {
+        if v.delay < Duration::from_millis(250) {
+            if let Some(pub_) = v.ed25519 {
+                if seen_pubs.insert(pub_) {
+                    active_peers.push(json!({
+                        "addr": addr.to_string(),
+                        "pub": format!("0x{}", pub_),
+                        "delay_ms": v.delay.as_millis(),
+                    }));
+                }
+            }
+        }
+    }
+
+    let mut seen_ips: HashSet<IpAddr> = HashSet::new();
+    let unique_ips: usize = ps.peer_map.keys().filter(|k| seen_ips.insert(k.ip())).count();
+
+    let fast_peer_count = ps.peer_vec.iter()
+        .filter(|v| ps.peer_map[*v].delay < Duration::from_millis(119))
+        .count();
+
+    let body = json!({
+        "version": env!("BUILD_VERSION"),
+        "public_key": public_key,
+        "total_peers": total_peers,
+        "unique_ips": unique_ips,
+        "active_peer_count": active_peers.len(),
+        "fast_peer_count": fast_peer_count,
+        "active_peers": active_peers,
+    });
+    let body_str = body.to_string();
+    let response = format!(
+        "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
+        body_str.len(), body_str
+    );
+    stream.write_all(response.as_bytes()).ok();
+}
+
 fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, stream: TcpStream) {
     let public_key_hex = ps.keypair.public.to_string();
     let all_chats = ps.all_chats.clone();
@@ -1283,6 +1328,10 @@ fn handle_web_request(
             let mut end: usize = 0;
             if req.path == "/" {
                 status_page(inbound_states, ps, stream);
+                return;
+            }
+            if req.path == "/status.json" {
+                status_json(ps, stream);
                 return;
             }
             info!("got http request for {}",req.path);
@@ -3353,4 +3402,35 @@ fn chat_to_pub(ps: &mut PeerState, their_pub: Ed25519Pub, msg: &String) -> () {
         message_out.push(serde_json::to_value(m).unwrap());
     }
     msgs_to_pub(ps, their_pub, &message_out);
+}
+
+// Android JNI entry points -- only compiled when targeting Android.
+// Java counterpart: com.cjp2p.NativeLib
+#[cfg(target_os = "android")]
+#[allow(non_snake_case)]
+pub mod android_jni {
+    use jni::JNIEnv;
+    use jni::objects::{JClass, JString};
+
+    /// Called once from BackendService.onStartCommand.
+    /// dataDir is getFilesDir().getAbsolutePath() -- Rust uses it as cwd so
+    /// relative paths like ./cjp2p/... resolve correctly.
+    #[no_mangle]
+    pub extern "C" fn Java_com_cjp2p_NativeLib_start<'local>(
+        mut env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        data_dir: JString<'local>,
+    ) {
+        let dir: String = env.get_string(&data_dir)
+            .map(|s| s.into())
+            .unwrap_or_default();
+        let _ = std::thread::Builder::new()
+            .name("cjp2p".into())
+            .spawn(move || {
+                if !dir.is_empty() {
+                    std::env::set_current_dir(&dir).ok();
+                }
+                let _ = super::run();
+            });
+    }
 }

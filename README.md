@@ -96,4 +96,10 @@ or HTML pages with many page components, individually downloaded from the networ
 - so a link to an updatedable would just have the pub IN the link and the name, thats easy
 - the killer app for this i think is the drop in socket replacement that takes a pub
 - i can put drag and drop file sharing between phones now with this, which is something i would actually use
-- just save peer map by pub not each peer
+- just save peer map by pub not each peer ..or at least save those first
+- need to have auto gets now
+- enable secure open https, just for untrusted websocket and already existing files but no autoget
+- xor pubs mod timer to improve nat punching.. for casual probes, do it this way
+- add some origin things to git? or maybe a different repo?
+- break apart functionality more and use different names and repos
+- actual download logs..so i know what people are using so i can delete stuff, especially for origin/
