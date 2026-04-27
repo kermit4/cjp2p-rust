@@ -2,12 +2,15 @@ SHELL = /bin/bash -ue
 
 default: debug release
 
-debug: target/debug/cjp2p
+pins: 
+	for a in $$(ls cjp2p/origin/);do  curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/$$a;done > /dev/null
+
+debug: target/debug/cjp2p pins
 target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs
 	BUILD_VERSION="debug: `git log --pretty=format:"Rust %ad %h %s" -1`" cargo build
 	rm -f target/*/libcjp
 
-release: target/release/cjp2p
+release: target/release/cjp2p pins
 target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs
 	BUILD_VERSION="release `git log --pretty=format:"Rust %ad %h %s" -1`" cargo build --release
 	rm -f target/*/libcjp
