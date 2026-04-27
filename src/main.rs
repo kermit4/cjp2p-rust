@@ -246,6 +246,7 @@ impl PeerState {
         fs::create_dir("./cjp2p/metadata").ok();
         fs::create_dir("./cjp2p/state").ok();
         fs::create_dir("./cjp2p/origin").ok();
+        fs::create_dir("./cjp2p/log").ok();
         fs::create_dir_all("./cjp2p/metadata/latest").ok();
         use std::net::Ipv6Addr;
         let mut ps = Self {
@@ -726,7 +727,7 @@ impl PeerState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct HttpRequest {
     path: String,
     headers: HashMap<String, String>,
@@ -1343,7 +1344,17 @@ fn handle_web_request(
                 status_json(ps, stream);
                 return;
             }
-            info!("got http request for {}",req.path);
+            info!("got http request for {:?}",req);
+            if let Ok(mut file) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .write(true)
+                .read(true)
+                .open("./cjp2p/log/http.json")
+            {
+                file.write_all(&serde_json::to_vec(&json![req]).unwrap())
+                    .ok();
+            }
 
             if req.path.starts_with("/chat/") {
                 if stream.peer_addr().unwrap().ip()

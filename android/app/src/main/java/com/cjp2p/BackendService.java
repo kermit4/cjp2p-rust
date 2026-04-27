@@ -61,7 +61,7 @@ public class BackendService extends Service {
         try {
             File logFile = new File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "cjp2p.log");
+                "cjp2p5.log");
             FileOutputStream fos = new FileOutputStream(logFile, true);
             String header = "\n=== " +
                 new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date()) +

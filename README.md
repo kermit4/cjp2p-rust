@@ -100,6 +100,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - need to have auto gets now
 - enable secure open https, just for untrusted websocket and already existing files but no autoget
 - xor pubs mod timer to improve nat punching.. for casual probes, do it this way
-- add some origin things to git? or maybe a different repo?
 - break apart functionality more and use different names and repos
-- actual download logs..so i know what people are using so i can delete stuff, especially for origin/

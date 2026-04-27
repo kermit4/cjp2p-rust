@@ -10,7 +10,7 @@ on:
 
 jobs:
 
-  # ── Linux x86-64 (static musl so it runs on any distro) ──────────────────
+  # -- Linux x86-64 (static musl so it runs on any distro) ------------------
   linux-x86_64:
     runs-on: ubuntu-latest
     permissions:
@@ -57,7 +57,7 @@ jobs:
           body: |
             Built from commit `${{ github.sha }}` by GitHub Actions.
 
-  # ── Android aarch64 (runs in Termux, same binary the APK embeds) ──────────
+  # -- Android aarch64 (runs in Termux, same binary the APK embeds) ----------
   android-aarch64:
     runs-on: ubuntu-latest
     permissions:
