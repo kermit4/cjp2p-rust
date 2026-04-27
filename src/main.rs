@@ -614,11 +614,10 @@ impl PeerState {
             if let Ok(gateway) = search_gateway(SearchOptions {
                 ..Default::default()
             }) {
-                info!("UPNP Found gateway: {}", gateway.addr);
+                debug!("UPNP Found gateway: {}", gateway.addr);
                 let local_ip = get_local_ip_for_gateway(gateway.addr.ip().clone());
                 let local_addr = SocketAddrV4::new(local_ip, local_port);
-                info!("UPNP Local addr: {local_addr}");
-                info!("UPNP exterrnal port requested base based on your public key: {}",external_port);
+                debug!("UPNP Local addr: {local_addr}");
                 match gateway.add_port(
                     protocol,
                     external_port,
@@ -627,18 +626,19 @@ impl PeerState {
                     description,
                 ) {
                     Ok(()) =>
+                        info!("UPNP external port requested base based on your public key: {}",external_port);
                         for index in 0..99 {
                             match gateway.get_generic_port_mapping_entry(index) {
                             Ok(entry) => {
                                 if entry.external_port == external_port
                                     && entry.protocol == protocol
                                 {
-                                    info!("UPNP Found mapping at index {index}");
-                                    info!("UPNP Real lease: {}s", entry.lease_duration);
-                                    info!("UPNP Internal: {}:{}", entry.internal_client, entry.internal_port);
-                                    info!("UPNP Desc: {}", entry.port_mapping_description);
+                                    debug!("UPNP Found mapping at index {index}");
+                                    debug!("UPNP Real lease: {}s", entry.lease_duration);
+                                    debug!("UPNP Internal: {}:{}", entry.internal_client, entry.internal_port);
+                                    debug!("UPNP Desc: {}", entry.port_mapping_description);
                                     if entry.lease_duration != lease_duration {
-                                        info!("UPNP router Clamped from {lease_duration} to {}", entry.lease_duration);
+                                        debug!("UPNP router Clamped from {lease_duration} to {}", entry.lease_duration);
                                     }
                                     break;
                                 }
@@ -646,11 +646,11 @@ impl PeerState {
                             Err(
                                 igd::GetGenericPortMappingEntryError::SpecifiedArrayIndexInvalid,
                             ) => {
-                                info!("UPNP Mapping not found. Router didn't create it or deleted it.");
+                                warn!("UPNP Mapping not found. Router didn't create it or deleted it.");
                                 break;
                             }
                             Err(e) => {
-                                info!("UPNP Error reading router index {index}: {:?}", e);
+                                warn!("UPNP Error reading router index {index}: {:?}", e);
                                 break;
                             }
                         }
@@ -661,7 +661,7 @@ impl PeerState {
                 }
 
                 if let Ok(ip) = gateway.get_external_ip() {
-                    info!("Your gateway's IP: {ip}");
+                    debug!("UPNP Your gateway's IP: {ip}");
                 }
             } else {
                 info!("UPNP no gateway found");
