@@ -1311,7 +1311,7 @@ fn handle_web_request(
     let mut buf = [0; 16];
     if let Ok(len) = stream.peek(&mut buf) {
         if len < 7 {
-            warn!("got short http request, {len} bytes, discarding");
+            if len > 0 { warn!("got short http request, {len} bytes, discarding"); }
             return;
         }
         if buf.starts_with(b"GET /wt") {
