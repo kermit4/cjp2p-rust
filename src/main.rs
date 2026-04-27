@@ -2324,6 +2324,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
     if ps.next_maintenance.elapsed() <= Duration::ZERO {
         return;
     }
+    let maint_timer = Instant::now();
     if ps.recent_peer_timer.elapsed() > Duration::from_secs(5 * 60) {
         if ps.recent_peers.len() < ps.recent_peer_counter_max * 4 / 5 {
             error!("only {} peers in 5 minutes, vs max (since last notice) of {}",ps.recent_peers.len(),ps.recent_peer_counter_max);
@@ -2406,6 +2407,19 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
             println!("{} {} {}",v.0,k,v.1);
         }
         ps.list_time += Duration::from_secs(60 * 60 * 24 * 365 * 99);
+    }
+    let prof = maint_timer.elapsed();
+    let txt = format!("maintenance took {:?}\x1b[m",prof);
+    if prof > Duration::from_millis(80) {
+        error!("\x1b[7;31m {} ",txt);
+    } else if prof > Duration::from_millis(40) {
+        warn!("{}",txt);
+    } else if prof > Duration::from_millis(20) {
+        info!("{}",txt);
+    } else if prof > Duration::from_millis(10) {
+        debug!("{}",txt);
+    } else {
+        trace!("{}",txt);
     }
 }
 
