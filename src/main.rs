@@ -1,6 +1,6 @@
 use igd::{search_gateway, PortMappingProtocol, SearchOptions};
 use socket2::SockRef;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4};
 use std::thread;
 use tungstenite::{accept, WebSocket};
 //use base64::{engine::general_purpose, Engine as _};
@@ -35,7 +35,7 @@ use rand::Rng;
 use scanf::sscanf;
 use std::net::{SocketAddr, UdpSocket};
 use std::net::{TcpListener, TcpStream};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::fs::FileExt;
 use std::time::{Duration, Instant};
 use std::vec;
@@ -302,6 +302,7 @@ impl PeerState {
             }
         }
         ps.upnp();
+        ps.pcp_ipv6();
         return ps;
     }
     fn hash_ip(&self, src: SocketAddr) -> String {
@@ -455,15 +456,16 @@ impl PeerState {
         let mut rng = rand::rng();
         let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
         if quality >= 3 {
-        for i in self.peer_map_by_pub.values() {
-            if let Source::S(sa) = i {
-                result.insert(sa.clone());
-                how_many -= 1;
-                if how_many == 0 {
-                    break;
+            for i in self.peer_map_by_pub.values() {
+                if let Source::S(sa) = i {
+                    result.insert(sa.clone());
+                    how_many -= 1;
+                    if how_many == 0 {
+                        break;
+                    }
                 }
             }
-        }}
+        }
         for _ in 0..how_many * 2 {
             let i = ((rng.random_range(0.0..1.0) as f64).powi(quality)
                 * (self.peer_vec.len() as f64)) as usize;
@@ -675,6 +677,116 @@ impl PeerState {
         });
     }
 
+    // Port Control Protocol (RFC 6887) MAP request for IPv6 firewall pinhole.
+    fn pcp_ipv6(&self) {
+        let local_port: u16 = self.lcdp_port;
+        let external_port: u16 = (((self.keypair.public.as_bytes()[0] as u16) << 8)
+            + self.keypair.public.as_bytes()[1] as u16)
+            | 0x401;
+        let lease_duration: u32 = 3600;
+        thread::spawn(move || {
+            let (gateway, oif) = match pcp_find_ipv6_gateway() {
+                Some(v) => v,
+                None => {
+                    info!("PCP no IPv6 default gateway found");
+                    return;
+                }
+            };
+            debug!("PCP IPv6 gateway: {} oif={}", gateway, oif);
+
+            // RTA_OIF gives us the interface index directly -- used as scope_id for link-local.
+            let scope_id: u32 = if gateway.is_unicast_link_local() {
+                oif
+            } else {
+                0
+            };
+            let gw_sock = SocketAddr::V6(std::net::SocketAddrV6::new(gateway, 5351, 0, scope_id));
+
+            // Discover which local IPv6 address routes toward the gateway.
+            let local_ip: Ipv6Addr = {
+                let s = match UdpSocket::bind("[::]:0") {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!("PCP probe bind failed: {e}");
+                        return;
+                    }
+                };
+                if s.connect(gw_sock).is_err() {
+                    warn!("PCP probe connect failed");
+                    return;
+                }
+                match s.local_addr().map(|a| a.ip()) {
+                    Ok(IpAddr::V6(v6)) => v6,
+                    _ => {
+                        warn!("PCP could not determine local IPv6 address");
+                        return;
+                    }
+                }
+            };
+            debug!("PCP local IPv6: {}", local_ip);
+
+            // Build PCP MAP request: 24-byte common header + 36-byte MAP opcode = 60 bytes.
+            let nonce: [u8; 12] = rand::rng().random();
+            let mut req = [0u8; 60];
+            req[0] = 2; // PCP version
+            req[1] = 1; // opcode: MAP
+                        // bytes 2-3: reserved
+            req[4..8].copy_from_slice(&lease_duration.to_be_bytes());
+            req[8..24].copy_from_slice(&local_ip.octets());
+            req[24..36].copy_from_slice(&nonce);
+            req[36] = 17; // protocol: UDP
+                          // bytes 37-39: reserved
+            req[40..42].copy_from_slice(&local_port.to_be_bytes());
+            req[42..44].copy_from_slice(&external_port.to_be_bytes());
+            // bytes 44-59: suggested external IP = all zeros (any)
+
+            let socket = match UdpSocket::bind("[::]:0") {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!("PCP bind failed: {e}");
+                    return;
+                }
+            };
+            socket.set_read_timeout(Some(Duration::from_secs(5))).ok();
+            if let Err(e) = socket.send_to(&req, gw_sock) {
+                warn!("PCP send failed: {e}");
+                return;
+            }
+
+            let mut resp = [0u8; 60];
+            match socket.recv_from(&mut resp) {
+                Ok((n, _)) => {
+                    if n < 24 {
+                        warn!("PCP response too short: {n} bytes");
+                        return;
+                    }
+                    // Response byte 1 has R=1 bit set, opcode in low 7 bits -> 0x81 for MAP.
+                    if resp[0] != 2 || resp[1] != 0x81 {
+                        warn!("PCP unexpected response: ver={} op={:#x}", resp[0], resp[1]);
+                        return;
+                    }
+                    let result = resp[3];
+                    if result != 0 {
+                        warn!("PCP MAP failed, result code: {result}");
+                        return;
+                    }
+                    let lifetime = u32::from_be_bytes(resp[4..8].try_into().unwrap());
+                    if n >= 60 {
+                        let ext_port = u16::from_be_bytes(resp[42..44].try_into().unwrap());
+                        let ext_ip_bytes: [u8; 16] = resp[44..60].try_into().unwrap();
+                        let ext_ip = Ipv6Addr::from(ext_ip_bytes);
+                        info!("PCP IPv6 mapping: external [{}]:{ext_port} lifetime {lifetime}s", ext_ip);
+                    } else {
+                        info!("PCP IPv6 mapping success, lifetime {lifetime}s");
+                    }
+                }
+                Err(e) => {
+                    warn!("PCP recv failed (router may not support PCP): {e}");
+                }
+            }
+        });
+    }
+
     pub fn x25519_to_ed25519(&self, their_x25519: [u8; 32]) -> Option<(Source, Ed25519Pub)> {
         let u = curve25519_dalek::MontgomeryPoint(their_x25519);
 
@@ -775,6 +887,111 @@ fn get_local_ip_for_gateway(gateway_ip: Ipv4Addr) -> Ipv4Addr {
         .to_string()
         .parse()
         .expect("parse failed")
+}
+
+// Find the IPv6 default gateway and its interface index via netlink RTM_GETROUTE.
+// This uses the kernel's routing socket API, which works on Linux and Android alike.
+fn pcp_find_ipv6_gateway() -> Option<(Ipv6Addr, u32)> {
+    use nix::sys::socket::{
+        bind, recvfrom, sendto, socket, AddressFamily, MsgFlags, NetlinkAddr, SockFlag, SockType,
+    };
+
+    const RTM_GETROUTE: u16 = 26;
+    const RTM_NEWROUTE: u16 = 24;
+    const NLM_F_REQUEST: u16 = 0x01;
+    // NLM_F_DUMP = NLM_F_ROOT | NLM_F_MATCH
+    const NLM_F_DUMP: u16 = 0x300;
+    const NLMSG_DONE: u16 = 3;
+    const AF_INET6: u8 = 10;
+    // rtattr types for routes
+    const RTA_OIF: u16 = 4;
+    const RTA_GATEWAY: u16 = 5;
+
+    let sock = socket(
+        AddressFamily::Netlink,
+        SockType::Raw,
+        SockFlag::SOCK_CLOEXEC,
+        None, // NETLINK_ROUTE = 0
+    )
+    .ok()?;
+
+    bind(sock.as_raw_fd(), &NetlinkAddr::new(0, 0)).ok()?;
+
+    // nlmsghdr (16 bytes) + rtmsg (12 bytes) = 28 bytes
+    let mut req = [0u8; 28];
+    req[0..4].copy_from_slice(&28u32.to_ne_bytes()); // nlmsg_len
+    req[4..6].copy_from_slice(&RTM_GETROUTE.to_ne_bytes()); // nlmsg_type
+    req[6..8].copy_from_slice(&(NLM_F_REQUEST | NLM_F_DUMP).to_ne_bytes()); // nlmsg_flags
+    req[8..12].copy_from_slice(&1u32.to_ne_bytes()); // nlmsg_seq
+                                                     // nlmsg_pid = 0 (kernel)
+    req[16] = AF_INET6; // rtm_family; rest of rtmsg = 0
+
+    sendto(
+        sock.as_raw_fd(),
+        &req,
+        &NetlinkAddr::new(0, 0),
+        MsgFlags::empty(),
+    )
+    .ok()?;
+
+    let mut best_gw: Option<Ipv6Addr> = None;
+    let mut best_oif: u32 = 0;
+
+    'recv: loop {
+        let mut buf = vec![0u8; 8192];
+        let (n, _) = recvfrom::<NetlinkAddr>(sock.as_raw_fd(), &mut buf).ok()?;
+
+        let mut pos = 0usize;
+        while pos + 16 <= n {
+            let nlmsg_len = u32::from_ne_bytes(buf[pos..pos + 4].try_into().unwrap()) as usize;
+            let nlmsg_type = u16::from_ne_bytes(buf[pos + 4..pos + 6].try_into().unwrap());
+
+            if nlmsg_type == NLMSG_DONE {
+                break 'recv;
+            }
+            if nlmsg_len < 16 || pos + nlmsg_len > n {
+                break;
+            }
+
+            if nlmsg_type == RTM_NEWROUTE && nlmsg_len >= 28 {
+                let rtm_family = buf[pos + 16];
+                let rtm_dst_len = buf[pos + 17]; // 0 = default route
+
+                if rtm_family == AF_INET6 && rtm_dst_len == 0 {
+                    let mut ap = pos + 28; // rtattrs start after nlmsghdr+rtmsg
+                    let end = pos + nlmsg_len;
+                    let mut gw: Option<Ipv6Addr> = None;
+                    let mut oif: u32 = 0;
+
+                    while ap + 4 <= end {
+                        let rta_len =
+                            u16::from_ne_bytes(buf[ap..ap + 2].try_into().unwrap()) as usize;
+                        let rta_type = u16::from_ne_bytes(buf[ap + 2..ap + 4].try_into().unwrap());
+                        if rta_len < 4 || ap + rta_len > end {
+                            break;
+                        }
+                        let data = &buf[ap + 4..ap + rta_len];
+                        if rta_type == RTA_GATEWAY && data.len() == 16 {
+                            let arr: [u8; 16] = data.try_into().unwrap();
+                            gw = Some(Ipv6Addr::from(arr));
+                        } else if rta_type == RTA_OIF && data.len() == 4 {
+                            oif = u32::from_ne_bytes(data.try_into().unwrap());
+                        }
+                        ap += (rta_len + 3) & !3; // align to 4 bytes
+                    }
+
+                    if let Some(g) = gw {
+                        best_gw = Some(g);
+                        best_oif = oif;
+                    }
+                }
+            }
+
+            pos += (nlmsg_len + 3) & !3;
+        }
+    }
+
+    best_gw.map(|gw| (gw, best_oif))
 }
 
 fn parse_args() -> (u16, u16, Vec<String>) {
@@ -2341,6 +2558,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         if dur > Duration::from_secs(1200) {
             ps.last_upnp = std::time::SystemTime::now();
             ps.upnp();
+            ps.pcp_ipv6();
         }
     }
     debug!("maintenance");
