@@ -369,7 +369,7 @@ impl PeerState {
         }
     }
     fn probe(&mut self) -> () {
-        let peers = self.best_peers(10, 3);
+        let peers = self.best_peers(10, 2);
         debug!("probing {} peers",peers.len());
         for sa in peers {
             let peer_info = self.peer_map.get_mut(&sa).unwrap();
@@ -454,6 +454,7 @@ impl PeerState {
         // anyway
         let mut rng = rand::rng();
         let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
+        if quality >= 3 {
         for i in self.peer_map_by_pub.values() {
             if let Source::S(sa) = i {
                 result.insert(sa.clone());
@@ -462,7 +463,7 @@ impl PeerState {
                     break;
                 }
             }
-        }
+        }}
         for _ in 0..how_many * 2 {
             let i = ((rng.random_range(0.0..1.0) as f64).powi(quality)
                 * (self.peer_vec.len() as f64)) as usize;
