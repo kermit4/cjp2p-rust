@@ -303,6 +303,7 @@ impl PeerState {
         }
         ps.upnp();
         ps.pcp_ipv6();
+        ps.upnp_ipv6();
         return ps;
     }
     fn hash_ip(&self, src: SocketAddr) -> String {
@@ -787,6 +788,72 @@ impl PeerState {
         });
     }
 
+    // UPnP IGD2 WANIPv6FirewallControl pinhole -- IPv6 equivalent of UPnP port mapping.
+    fn upnp_ipv6(&self) {
+        let local_port: u16 = self.lcdp_port;
+        let lease_duration: u32 = 3600;
+        thread::spawn(move || {
+            let control_url = match upnp_ipv6_find_service() {
+                Some(u) => u,
+                None => {
+                    info!("UPnP IPv6: no WANIPv6FirewallControl service found");
+                    return;
+                }
+            };
+            debug!("UPnP IPv6: control URL {control_url}");
+
+            let local_ipv6 = match pcp_find_ipv6_gateway().and_then(|(gw, oif)| {
+                let scope_id = if gw.is_unicast_link_local() { oif } else { 0 };
+                let gw_sock = SocketAddr::V6(std::net::SocketAddrV6::new(gw, 5351, 0, scope_id));
+                let s = UdpSocket::bind("[::]:0").ok()?;
+                s.connect(gw_sock).ok()?;
+                match s.local_addr().ok()?.ip() {
+                    IpAddr::V6(v6) => Some(v6),
+                    _ => None,
+                }
+            }) {
+                Some(ip) => ip,
+                None => {
+                    warn!("UPnP IPv6: could not determine local IPv6 address");
+                    return;
+                }
+            };
+            debug!("UPnP IPv6: local IPv6 {local_ipv6}");
+
+            let soap_body = format!(
+                concat!(
+                    r#"<?xml version="1.0"?>"#,
+                    r#"<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">"#,
+                    r#"<s:Body>"#,
+                    r#"<u:AddPinhole xmlns:u="urn:schemas-upnp-org:service:WANIPv6FirewallControl:1">"#,
+                    r#"<RemoteHost></RemoteHost><RemotePort>0</RemotePort>"#,
+                    r#"<Protocol>17</Protocol>"#,
+                    r#"<InternalPort>{}</InternalPort>"#,
+                    r#"<InternalClient>{}</InternalClient>"#,
+                    r#"<LeaseTime>{}</LeaseTime>"#,
+                    r#"</u:AddPinhole></s:Body></s:Envelope>"#,
+                ),
+                local_port, local_ipv6, lease_duration
+            );
+
+            let svc = "urn:schemas-upnp-org:service:WANIPv6FirewallControl:1";
+            match upnp_soap_post(&control_url, &format!("{svc}#AddPinhole"), &soap_body) {
+                Some(r) if r.contains("UniqueID") => {
+                    info!("UPnP IPv6: AddPinhole success");
+                }
+                Some(r) if r.contains("errorCode") || r.contains("faultstring") => {
+                    warn!("UPnP IPv6: AddPinhole error: {r}");
+                }
+                Some(_) => {
+                    info!("UPnP IPv6: AddPinhole sent");
+                }
+                None => {
+                    warn!("UPnP IPv6: AddPinhole HTTP request failed");
+                }
+            }
+        });
+    }
+
     pub fn x25519_to_ed25519(&self, their_x25519: [u8; 32]) -> Option<(Source, Ed25519Pub)> {
         let u = curve25519_dalek::MontgomeryPoint(their_x25519);
 
@@ -992,6 +1059,92 @@ fn pcp_find_ipv6_gateway() -> Option<(Ipv6Addr, u32)> {
     }
 
     best_gw.map(|gw| (gw, best_oif))
+}
+
+// SSDP M-SEARCH for WANIPv6FirewallControl, then parse the device description to get the
+// control URL. Returns the full absolute HTTP URL for the control endpoint.
+fn upnp_ipv6_find_service() -> Option<String> {
+    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.set_read_timeout(Some(Duration::from_secs(5))).ok();
+
+    let msearch = concat!(
+        "M-SEARCH * HTTP/1.1\r\n",
+        "HOST: 239.255.255.250:1900\r\n",
+        "MAN: \"ssdp:discover\"\r\n",
+        "MX: 3\r\n",
+        "ST: urn:schemas-upnp-org:service:WANIPv6FirewallControl:1\r\n",
+        "\r\n"
+    );
+    sock.send_to(msearch.as_bytes(), "239.255.255.250:1900")
+        .ok()?;
+
+    let mut buf = [0u8; 2048];
+    let (n, _) = sock.recv_from(&mut buf).ok()?;
+    let resp = std::str::from_utf8(&buf[..n]).unwrap_or("");
+
+    // Extract LOCATION header value (case-insensitive), preserving the full URL.
+    let location = resp
+        .lines()
+        .find(|l| l.to_ascii_lowercase().starts_with("location:"))?
+        .splitn(2, ' ')
+        .nth(1)
+        .map(|s| s.trim().to_string())?;
+    debug!("UPnP IPv6: device description at {location}");
+
+    let xml = upnp_http_get(&location)?;
+
+    // Find the WANIPv6FirewallControl service block and extract its controlURL.
+    let svc_idx = xml.find("WANIPv6FirewallControl:1")?;
+    let after = &xml[svc_idx..];
+    let cs = after.find("<controlURL>")? + "<controlURL>".len();
+    let ce = after[cs..].find("</controlURL>")?;
+    let ctrl_path = after[cs..cs + ce].trim();
+
+    // Build absolute URL from the description base URL.
+    let base = {
+        let rest = location.strip_prefix("http://")?;
+        let slash = rest.find('/').unwrap_or(rest.len());
+        format!("http://{}", &rest[..slash])
+    };
+
+    let control_url = if ctrl_path.starts_with("http://") {
+        ctrl_path.to_string()
+    } else if ctrl_path.starts_with('/') {
+        format!("{base}{ctrl_path}")
+    } else {
+        format!("{base}/{ctrl_path}")
+    };
+
+    Some(control_url)
+}
+
+fn upnp_http_get(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("http://")?;
+    let (host_port, path_rest) = rest.split_once('/').unwrap_or((rest, ""));
+    let path = format!("/{path_rest}");
+    let mut stream = TcpStream::connect(host_port).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    let req = format!("GET {path} HTTP/1.0\r\nHost: {host_port}\r\nConnection: close\r\n\r\n");
+    stream.write_all(req.as_bytes()).ok()?;
+    let mut resp = String::new();
+    stream.read_to_string(&mut resp).ok()?;
+    resp.find("\r\n\r\n").map(|i| resp[i + 4..].to_string())
+}
+
+fn upnp_soap_post(url: &str, action: &str, body: &str) -> Option<String> {
+    let rest = url.strip_prefix("http://")?;
+    let (host_port, path_rest) = rest.split_once('/').unwrap_or((rest, ""));
+    let path = format!("/{path_rest}");
+    let mut stream = TcpStream::connect(host_port).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    let req = format!(
+        "POST {path} HTTP/1.0\r\nHost: {host_port}\r\nContent-Type: text/xml\r\nSOAPAction: \"{action}\"\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(req.as_bytes()).ok()?;
+    let mut resp = String::new();
+    stream.read_to_string(&mut resp).ok()?;
+    resp.find("\r\n\r\n").map(|i| resp[i + 4..].to_string())
 }
 
 fn parse_args() -> (u16, u16, Vec<String>) {
@@ -2559,6 +2712,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
             ps.last_upnp = std::time::SystemTime::now();
             ps.upnp();
             ps.pcp_ipv6();
+            ps.upnp_ipv6();
         }
     }
     debug!("maintenance");
