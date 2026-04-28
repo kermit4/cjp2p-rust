@@ -760,21 +760,21 @@ impl PeerState {
             req[42..44].copy_from_slice(&external_port.to_be_bytes());
             // bytes 44-59: suggested external IP = all zeros (any)
 
-            let socket = match UdpSocket::bind("[::]:0") {
+            let pcp_socket = match UdpSocket::bind("[::]:0") {
                 Ok(s) => s,
                 Err(e) => {
                     warn!("PCP bind failed: {e}");
                     return;
                 }
             };
-            socket.set_read_timeout(Some(Duration::from_secs(5))).ok();
-            if let Err(e) = socket.send_to(&req, gw_sock) {
+            pcp_socket.set_read_timeout(Some(Duration::from_secs(5))).ok();
+            if let Err(e) = pcp_socket.send_to(&req, gw_sock) {
                 warn!("PCP send failed: {e}");
                 return;
             }
 
             let mut resp = [0u8; 60];
-            match socket.recv_from(&mut resp) {
+            match pcp_socket.recv_from(&mut resp) {
                 Ok((n, _)) => {
                     if n < 24 {
                         warn!("PCP response too short: {n} bytes");

@@ -97,5 +97,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - enable secure open https, just for untrusted websocket and already existing files but no autoget
 - xor pubs mod timer to improve nat punching.. for casual probes, do it this way
 - break apart functionality more and use different names and repos
-- upnp for ipv6
 - public gateway but dont initiate new downloads for foreign IPs
