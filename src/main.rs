@@ -402,7 +402,7 @@ impl PeerState {
             .as_secs();
         for p in &self.peer_vec {
             if let Some(ed25519) = self.peer_map[p].ed25519 {
-                if (ed25519.as_bytes()[3] ^ self.keypair.public.as_bytes()[3] ^ (now as u8 & 0xfe))
+                if (ed25519.as_bytes()[3] ^ self.keypair.public.as_bytes()[3] ^ (now as u8)) & 0xfe
                     == 0
                 {
                     peers.push(p);
