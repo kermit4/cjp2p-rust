@@ -606,6 +606,7 @@ dependencies = [
  "hex",
  "igd",
  "jni",
+ "libc",
  "log",
  "memmap2",
  "mimetype-detector",

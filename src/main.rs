@@ -1,5 +1,6 @@
 use igd::{search_gateway, PortMappingProtocol, SearchOptions};
-use socket2::SockRef;
+use libc;
+use socket2::{Domain, Protocol, SockAddr, SockRef, Socket, Type};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4};
 use std::thread;
 use tungstenite::{accept, WebSocket};
@@ -256,9 +257,27 @@ impl PeerState {
             recent_peers: HashSet::new(),
             recent_peer_timer: Instant::now(),
             recent_peer_counter_max: 0,
-            socket: UdpSocket::bind((Ipv6Addr::UNSPECIFIED, lcdp_port))
-                .or_else(|_| UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, lcdp_port)))
-                .unwrap(),
+            socket: (|| -> std::io::Result<UdpSocket> {
+                let sock = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+                unsafe {
+                    let val: libc::c_int = 0x0002; // IPV6_PREFER_SRC_PUBLIC
+                    libc::setsockopt(
+                        sock.as_raw_fd(),
+                        libc::IPPROTO_IPV6,
+                        libc::IPV6_ADDR_PREFERENCES,
+                        &val as *const _ as *const libc::c_void,
+                        std::mem::size_of_val(&val) as libc::socklen_t,
+                    );
+                }
+                let addr = SockAddr::from(std::net::SocketAddr::from((
+                    Ipv6Addr::UNSPECIFIED,
+                    lcdp_port,
+                )));
+                sock.bind(&addr)?;
+                Ok(sock.into())
+            })()
+            .or_else(|_| UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, lcdp_port)))
+            .unwrap(),
             lcdp_port,
             boot: Instant::now(),
             keypair: Keypair::load_key(),
