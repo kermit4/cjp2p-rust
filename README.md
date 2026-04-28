@@ -94,7 +94,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - if streaming video is a signed list of hashes, just sign the video itself, then i can multisource per packet, the encryption does hashing already i think?
 - dot file, env var, commmand line options..too many ways to pass options
 - the killer app for this i think is the drop in socket replacement that takes a pub
-- enable secure open https, just for untrusted websocket and already existing files but no autoget
-- xor pubs mod timer to improve nat punching.. for casual probes, do it this way
+- public websocket?
 - break apart functionality more and use different names and repos
-- public gateway but dont initiate new downloads for foreign IPs

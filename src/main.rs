@@ -6,7 +6,7 @@ use std::thread;
 use tungstenite::{accept, WebSocket};
 //use base64::{engine::general_purpose, Engine as _};
 use bitvec::prelude::*;
-use chrono::{Timelike, Utc};
+use chrono::Utc;
 use enum_dispatch::enum_dispatch;
 use env_logger::fmt::TimestampPrecision;
 use hex;
@@ -197,6 +197,7 @@ struct PeerState {
     list_time: Instant,
     p: PersistentState,
     next_maintenance: Instant,
+    next_save: Instant,
     last_upnp: std::time::SystemTime,
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
@@ -286,6 +287,7 @@ impl PeerState {
             list_time: Instant::now(),
             p: PersistentState::load(),
             next_maintenance: Instant::now() - Duration::from_secs(99999),
+            next_save: Instant::now() + Duration::from_secs(150),
             last_upnp: std::time::SystemTime::now(),
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
@@ -390,8 +392,46 @@ impl PeerState {
         }
     }
     fn probe(&mut self) -> () {
-        let peers = self.best_peers(10, 2);
-        debug!("probing {} peers",peers.len());
+        let mut peers = vec![]; //        self.best_peers(10, 2);
+
+        // some possibly pointless attempt to time peer probes to match NAT/firewall states on both
+        // sides
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        for p in &self.peer_vec {
+            if let Some(ed25519) = self.peer_map[p].ed25519 {
+                if (ed25519.as_bytes()[3] ^ self.keypair.public.as_bytes()[3] ^ (now as u8 & 0xfe))
+                    == 0
+                {
+                    peers.push(p);
+                }
+            }
+        }
+        if peers.len() >= 10 {
+            let mut rng = rand::rng();
+            let mut peers_trimmed: HashSet<&SocketAddr> = HashSet::new();
+            info!("PROBE too many xor peers {}, trimming",peers.len());
+            for _ in 0..10 * 2 {
+                let i =
+                    ((rng.random_range(0.0..1.0) as f64).powi(2) * (peers.len() as f64)) as usize;
+                if i >= peers.len() {
+                    continue;
+                }
+                let p = &self.peer_vec[i];
+                peers_trimmed.insert(p);
+                if peers_trimmed.len() >= 10 {
+                    break;
+                };
+            }
+            peers = peers_trimmed.into_iter().collect();
+        }
+        let more = self.best_peers(10 - peers.len(), 2);
+        debug!("PROBE probing xor peers {:?}",peers);
+        peers.append(&mut more.iter().collect());
+
+        trace!("PROBE probing {} peers",peers.len());
         for sa in peers {
             let peer_info = self.peer_map.get_mut(&sa).unwrap();
             peer_info.delay = peer_info
@@ -401,7 +441,7 @@ impl PeerState {
             message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
-            message_out.push(self.please_always_return(sa));
+            message_out.push(self.please_always_return(*sa));
             if let Some(v) = &self.p.i_just_saw_this {
                 message_out.push(Message::IJustSawThis(v.clone()));
             }
@@ -409,20 +449,21 @@ impl PeerState {
                 message_out.push(Message::YouSouldSeeThis(v.clone()));
             }
             message_out.push(MyPublicKey::new(self));
-            message_out.append(&mut self.always_returned(sa));
+            message_out.append(&mut self.always_returned(*sa));
             message_out.push(PleaseReturnThisMessage::new(self));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
 
-            trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+            trace!( "PROBE probing {sa}");
+            //            trace!( "PROBE sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             match self.socket.send_to(&message_out_bytes, sa) {
                 Ok(s) => trace!("sent {s}"),
                 Err(e) => {
                     if e.raw_os_error() == Some(11) {
-                        warn!("EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", message_out_bytes.len());
+                        warn!("PROBE EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", message_out_bytes.len());
                     } else {
                         // upnp can hang for 10 seconds so dont make faster, also ipv6 now causes this to happen a lot
                         // self.next_upnp = std::time::SystemTime::now();
-                        debug!("failed to send to {sa} {0} bytes: {e} ", message_out_bytes.len());
+                        trace!("PROBE failed to send to {sa} {0} bytes: {e} ", message_out_bytes.len());
                     }
                 }
             }
@@ -470,12 +511,12 @@ impl PeerState {
             .ok();
     }
 
-    fn best_peers(&self, mut how_many: i32, quality: i32) -> HashSet<SocketAddr> {
-        // this should be randomized, whenever there are enough peers that its not just all of them
-        // anyway
+    fn best_peers(&self, mut how_many: usize, quality: i32) -> HashSet<SocketAddr> {
         let mut rng = rand::rng();
         let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
         if quality >= 3 {
+            // this should be randomized, whenever there are enough peers that its not just all of them
+            // anyway
             for i in self.peer_map_by_pub.values() {
                 if let Source::S(sa) = i {
                     result.insert(sa.clone());
@@ -927,7 +968,7 @@ impl PeerState {
                         if e.raw_os_error() == Some(11) {
                             warn!("EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", msg_out.len());
                         } else {
-                            debug!("failed to send to {sa} {0} bytes: {e} ", msg_out.len());
+                            trace!("failed to send to {sa} {0} bytes: {e} ", msg_out.len());
                         },
                 }
                 if self.always_returned(*sa).len() > 0 {
@@ -1274,7 +1315,7 @@ pub fn run() -> Result<(), std::io::Error> {
         for ws in &ps.ws_vec {
             read_fds.insert(ws.get_ref().as_fd());
         }
-        let tv_1 = &mut (nix::sys::time::TimeVal::new(1, 0));
+        let tv_1 = &mut (nix::sys::time::TimeVal::new(0, 333));
         select(None, &mut read_fds, &mut write_fds, &mut error_fds, tv_1).unwrap();
 
         for (index, cg) in ps.content_gateways.iter().enumerate() {
@@ -2107,7 +2148,7 @@ impl Receive for PleaseSendPeers {
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        let p = ps.best_peers(1 + 45 * !*might_be_ip_spoofing as i32, 6);
+        let p = ps.best_peers(1 + 45 * !*might_be_ip_spoofing as usize, 6);
         trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
         let mut message_out = vec![Message::Peers(Peers { peers: p })];
         if *might_be_ip_spoofing {
@@ -2759,9 +2800,10 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         ps.content_gateways.remove(*tr);
     }
     ps.next_maintenance =
-        Instant::now() + Duration::from_millis(rand::rng().random_range(911..1234));
+        Instant::now() + Duration::from_millis(rand::rng().random_range(888..999));
     ps.sort();
-    if Utc::now().second() / 3 + (Utc::now().minute() % 5) == 0 {
+    if ps.next_save.elapsed() > Duration::ZERO {
+        ps.next_save = Instant::now() + Duration::from_secs(300);
         ps.save_peers();
         ps.p.save();
     }
@@ -2793,7 +2835,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         for _ in 0..(1 + try_harder / (1 + i.peers.len())) {
             i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
         }
-        let peers = ps.best_peers(50 * try_harder as i32, 6);
+        let peers = ps.best_peers(50 * try_harder, 6);
         info!("searching  {} peers",peers.len());
         i.request_blocks(ps, peers);
         // TODO the longer its been stuck, the more it should be ignored to try others, instead of
