@@ -3,7 +3,7 @@ SHELL = /bin/bash -ue
 default: debug release
 
 pins: 
-	for a in $$(ls cjp2p/origin/);do  curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/$$a;done > /dev/null
+	ls cjp2p/origin/|ssh azai.net 'cd src/lang/rust/cjp2p-rust;while read a;do  curl    -Ss http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/$$a;done > /dev/null'
 
 debug: target/debug/cjp2p
 target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs
@@ -18,7 +18,7 @@ target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs
 check: Makefile Cargo.toml src/*.rs src/bin/*.rs
 	BUILD_VERSION="check `git log --pretty=format:"Rust %ad %h %s" -1`" cargo check 
 
-pretty: check pins
+pretty: check 
 	cargo fmt --  --config skip_macro_invocations='["*"]' --config match_arm_blocks=false
 
 APK = android/app/build/outputs/apk/debug/app-debug.apk

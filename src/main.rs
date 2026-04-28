@@ -528,7 +528,7 @@ impl PeerState {
         inbound_states: &mut HashMap<String, InboundState>,
         cg_index: usize,
     ) {
-        let cg = &(self.content_gateways[cg_index]);
+        let cg = &mut (self.content_gateways[cg_index]);
         if cg.http_done {
             warn!("is this code ever called? why?");
             return;
@@ -557,6 +557,13 @@ impl PeerState {
         let i = match inbound_states.get_mut(&id) {
             Some(i) => i,
             _ => {
+                if !is_local(&cg.http_socket) {
+                    let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
+                    cg.http_socket.write_all(page.as_bytes()).ok();
+                    self.content_gateways.remove(cg_index);
+                    return;
+                }
+
                 let mut new_i = InboundState::new(&id);
                 info!("http scheduling inbound file {:?}", id);
                 for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
@@ -767,7 +774,9 @@ impl PeerState {
                     return;
                 }
             };
-            pcp_socket.set_read_timeout(Some(Duration::from_secs(5))).ok();
+            pcp_socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .ok();
             if let Err(e) = pcp_socket.send_to(&req, gw_sock) {
                 warn!("PCP send failed: {e}");
                 return;
@@ -1709,7 +1718,7 @@ fn handle_web_request(
             }
             return;
         }
-        if buf.starts_with(b"GET /wt") {
+        if is_local(&stream) && buf.starts_with(b"GET /wt") {
             let mut ws = accept(stream).unwrap();
             info!("websocket connected");
             let message_out_string = if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
@@ -1732,10 +1741,12 @@ fn handle_web_request(
             let mut start: usize = 0;
             let mut end: usize = 0;
             if req.path == "/" {
+                debug!("got http request for {:?}",req);
                 status_page(inbound_states, ps, stream);
                 return;
             }
             if req.path == "/status.json" {
+                debug!("got http request for {:?}",req);
                 status_json(ps, stream);
                 return;
             }
@@ -1751,15 +1762,7 @@ fn handle_web_request(
                     .ok();
             }
 
-            if req.path.starts_with("/chat/") {
-                if stream.peer_addr().unwrap().ip()
-                    != "127.0.0.1:1".parse::<SocketAddr>().unwrap().ip()
-                {
-                    let page = format!("HTTP/1.0 403 OK\r\n\n");
-                    stream.write_all(page.as_bytes()).ok();
-                    return;
-                }
-
+            if is_local(&stream) && req.path.starts_with("/chat/") {
                 let v = &req.path[6..];
                 let their_pub = v.split('?').next().unwrap();
                 page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ><title>cjp2p chat {}</title></head><body><pre>\n\
@@ -1830,7 +1833,7 @@ fn handle_web_request(
                             // Handle locally first (covers publisher case, updates cache)
                             let _local = gl.clone().receive(
                                 ps,
-                                &Source::None,
+                                &Source::S(stream.peer_addr().unwrap()),
                                 &mut false,
                                 inbound_states,
                                 None,
@@ -1855,6 +1858,11 @@ fn handle_web_request(
                             let pending = if sha256_opt.is_some() {
                                 None
                             } else {
+                                if !is_local(&stream) {
+                                    let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
+                                    stream.write_all(page.as_bytes()).ok();
+                                    return;
+                                }
                                 // Broadcast search to network peers
                                 let peers = ps.best_peers(250, 6);
                                 for sa in &peers {
@@ -1898,6 +1906,11 @@ fn handle_web_request(
                 return;
             }
             if req.path.starts_with("/?get=") {
+                if !is_local(&stream) {
+                    let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
+                    stream.write_all(page.as_bytes()).ok();
+                    return;
+                }
                 let v = &req.path[6..];
                 inbound_states.insert(v.to_string(), InboundState::new(v));
                 println!("http requested ordinary download of {}",v);
@@ -2742,7 +2755,7 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
         }
     }
     for tr in to_remove.iter().rev() {
-        warn!("removing cg");
+        warn!("CG garbage collection..this should be handled elsewhere already i think?");
         ps.content_gateways.remove(*tr);
     }
     ps.next_maintenance =
@@ -2961,18 +2974,19 @@ impl Receive for GetPubByEth {
             }
         }
         ps.socket.set_nonblocking(false).unwrap();
-        if let Source::None = src {
-            warn!("failed to find ed25519 of requested eth addr {}, searching..",self.eth_addr);
-            let peers = ps.best_peers(250, 6);
-            info!("searching {} peers for eth addr",peers.len());
-            for sa in peers {
-                let mut message_out = vec![Message::GetPubByEth(self.clone())];
-                message_out.push(ps.please_always_return(sa.clone()));
-                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                ps.socket.send_to(&message_out_bytes, sa).ok();
-            }
-            ps.socket.set_nonblocking(true).unwrap();
+        if let Source::S(_) = src {
+            return vec![];
         }
+        warn!("failed to find ed25519 of requested eth addr {}, searching..",self.eth_addr);
+        let peers = ps.best_peers(250, 6);
+        info!("searching {} peers for eth addr",peers.len());
+        for sa in peers {
+            let mut message_out = vec![Message::GetPubByEth(self.clone())];
+            message_out.push(ps.please_always_return(sa.clone()));
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            ps.socket.send_to(&message_out_bytes, sa).ok();
+        }
+        ps.socket.set_nonblocking(true).unwrap();
         return vec![];
     }
 }
@@ -3865,4 +3879,10 @@ pub mod android_jni {
                 let _ = super::run();
             });
     }
+}
+
+fn is_local(stream: &TcpStream) -> bool {
+    //let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
+    //stream.write_all(page.as_bytes()).ok();
+    stream.peer_addr().unwrap().ip() == "127.0.0.1:1".parse::<SocketAddr>().unwrap().ip()
 }
