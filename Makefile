@@ -3,6 +3,8 @@ SHELL = /bin/bash -ue
 default: debug release
 
 pins: 
+	git bundle create cjp2p/origin/cjp2p.bundle_ master
+	mv cjp2p/origin/cjp2p.bundle_ cjp2p/origin/cjp2p.bundle
 	ls cjp2p/origin/|ssh azai.net 'cd src/lang/rust/cjp2p-rust;while read a;do  curl    -Ss http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/$$a;done > /dev/null'
 
 debug: target/debug/cjp2p

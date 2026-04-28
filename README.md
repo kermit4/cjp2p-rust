@@ -7,6 +7,7 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 Files in ./cjp2p/origin/ will be shared by name by your pub, i.e. http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html
 
 - this repo is at at https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z3muoqLkU65QFyyJaVvCv9WiDEo21 and https://github.com/kermit4/cjp2p-rust/
+- this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle
 
 
 # building
@@ -81,18 +82,15 @@ or HTML pages with many page components, individually downloaded from the networ
 - polls, approval voting style..which need some kind of scarcity
 - drop in socket() replacement that takes public keys intead of ips(), in Rust crate?
 - group chat 
-- public websocket support? / gateway /  consider more the model where anyone can connect to any node but keep the identity and security browser side
-- put this as a git bundle in cjp2p/public
-- putting git files in cjp2p/public is breaking a git pull if the directory is beyond is a symlink
+- public websocket support/ browser light node, its easy, just treat non-localhost as network..easy, right? update Source enum
 - my putting plain names in public/ will go badly for anyone who doest have thetm and tries to get them ..just think of what i need to do for me and the fastest way to do it, htats how it will be done.. it doesnt have to be authenticated , as long as it CAN be later, just automate what i do, thats my specialtiy, and if a file is deleted and someone uses the URL it will have unpredictable results
 - lcdp crate now? send to ed25519 as the base theme with the big hash getter should be core?
 - more orderly chat with history on dashboard page, like make this a social focused space 
 - when people publish UIs to this, on this, there sholud be an easy directory of those, and with latest versions, and shown right on the status page
 - web of trust, reputation is not absolute, its from your point of view, that solves sybil attacks
 - any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
-- browser light node, its easy, just treat non-localhost as network..easy, right? hows routing work
 - if streaming video is a signed list of hashes, just sign the video itself, then i can multisource per packet, the encryption does hashing already i think?
 - dot file, env var, commmand line options..too many ways to pass options
 - the killer app for this i think is the drop in socket replacement that takes a pub
-- public websocket?
 - break apart functionality more and use different names and repos
+- focus on enabling devs, i've done enough demoning
