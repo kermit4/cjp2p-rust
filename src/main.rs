@@ -404,6 +404,7 @@ impl PeerState {
             if let Some(ed25519) = self.peer_map[p].ed25519 {
                 if (ed25519.as_bytes()[3] ^ self.keypair.public.as_bytes()[3] ^ (now as u8)) & 0xfe
                     == 0
+                    && ed25519 != self.keypair.public
                 {
                     peers.push(p);
                 }
