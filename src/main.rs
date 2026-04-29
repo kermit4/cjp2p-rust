@@ -1877,24 +1877,13 @@ fn handle_web_request(
                                 ed25519,
                                 name: name.clone(),
                             };
-                            // Handle locally first (covers publisher case, updates cache)
-                            let _local = gl.clone().receive(
+                            gl.clone().receive(
                                 ps,
                                 &Source::S(stream.peer_addr().unwrap()),
                                 &mut false,
                                 inbound_states,
                                 None,
                             );
-                            // Always send directly to the publisher if we know their address,
-                            // so they aren't missed when peer_map_by_pub has many entries.
-                            if let Some(Source::S(pa)) = ps.peer_map_by_pub.get(&ed25519) {
-                                let mut msg_out = vec![Message::GetLatest(gl.clone())];
-                                msg_out.append(&mut ps.always_returned(*pa));
-                                ps.socket
-                                    .send_to(&serde_json::to_vec(&msg_out).unwrap(), pa)
-                                    .ok();
-                            }
-                            // Parse Range header for partial content
                             let mut start: usize = 0;
                             let mut end: usize = 0;
                             if let Some(range) = req.headers.get("range") {
@@ -1910,8 +1899,13 @@ fn handle_web_request(
                                     stream.write_all(page.as_bytes()).ok();
                                     return;
                                 }
-                                // Broadcast search to network peers
-                                let peers = ps.best_peers(250, 6);
+                                Some((ed25519, name.clone()))
+                            };
+                            if is_local(&stream) {
+                                let mut peers = ps.best_peers(250, 6);
+                                if let Some(Source::S(origin)) = ps.peer_map_by_pub.get(&ed25519) {
+                                    peers.insert(*origin);
+                                }
                                 for sa in &peers {
                                     let mut msg_out = vec![Message::GetLatest(gl.clone())];
                                     msg_out.append(&mut ps.always_returned(*sa));
@@ -1919,8 +1913,7 @@ fn handle_web_request(
                                         .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
                                         .ok();
                                 }
-                                Some((ed25519, name.clone()))
-                            };
+                            }
                             let index = ps.content_gateways.len();
                             ps.content_gateways.push(ContentGateway {
                                 id: sha256_opt.unwrap_or_default(),
@@ -3714,7 +3707,11 @@ impl Receive for GetLatest {
 
         if ps.keypair.public == self.ed25519 {
             let origin_path = format!("./cjp2p/origin/{}", self.name);
-            if let Ok(origin_meta) = fs::metadata(&origin_path).ok().filter(|m| m.is_file()).ok_or(()) {
+            if let Ok(origin_meta) = fs::metadata(&origin_path)
+                .ok()
+                .filter(|m| m.is_file())
+                .ok_or(())
+            {
                 let origin_seq = origin_meta
                     .modified()
                     .ok()
