@@ -850,9 +850,12 @@ impl PeerState {
                         info!("PCP IPv6 mapping success, lifetime {lifetime}s");
                     }
                 }
-                Err(e) => {
-                    warn!("PCP recv failed (router may not support PCP): {e}");
-                }
+                Err(e) =>
+                    if e.raw_os_error() == Some(11) {
+                        debug!("PCP recv timeout (router may not support PCP): {e}");
+                    } else {
+                        info!("PCP recv error (router may not support PCP): {e}");
+                    },
             }
         });
     }
