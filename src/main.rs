@@ -1861,10 +1861,10 @@ fn handle_web_request(
                 if let Some(raw_pub) = parts.next() {
                     let name_raw = match parts.next() {
                         Some(p) =>
-                            if p.len() > 0 {
+                            if p.len() > 0 && !p.ends_with('/') {
                                 p
                             } else {
-                                "index.html"
+                                &(p.to_owned() + "index.html")
                             },
                         None => "index.html",
                     };
