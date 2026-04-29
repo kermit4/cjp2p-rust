@@ -1857,11 +1857,12 @@ fn handle_web_request(
             // /latest/<pub_hex>/<name> -- updatable named content via signed Latest message
             if req.path.starts_with("/latest/") {
                 let rest = &req.path[8..];
-                let mut parts = rest.splitn(2, '/');
-                let maybe_pub = parts.next();
-                let maybe_name_q = parts.next();
-                if let (Some(raw_pub), Some(name_with_q)) = (maybe_pub, maybe_name_q) {
-                    let name_raw = name_with_q.split('?').next().unwrap_or("");
+                let mut parts = rest.splitn(2, '?').next().unwrap().splitn(2, '/');
+                if let Some(raw_pub) = parts.next() {
+                    let name_raw = match parts.next() {
+                        Some(p) => p,
+                        None => "index.html",
+                    };
                     let name = urlencoding::decode(name_raw)
                         .unwrap_or_default()
                         .to_string();
