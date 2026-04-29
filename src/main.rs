@@ -147,7 +147,6 @@ impl Keypair {
             let f = file.as_ref().unwrap();
             return serde_json::from_reader(f).unwrap();
         }
-        // Generate a real ed25519 keypair; private = 32-byte seed, public = ed25519 verifying key
         let seed: [u8; 32] = rand::rng().random();
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
         let keypair = Self {
@@ -161,8 +160,6 @@ impl Keypair {
         return keypair;
     }
 
-    // Derives the x25519 private scalar from the ed25519 seed for use with Noise.
-    // Matches the standard ed25519->x25519 conversion: SHA-512 of seed, take first 32 bytes, clamp.
     fn x25519_private(&self) -> [u8; 32] {
         let hash = Sha512::digest(&self.private);
         let mut scalar = [0u8; 32];
@@ -458,15 +455,12 @@ impl PeerState {
             //            trace!( "PROBE sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             match self.socket.send_to(&message_out_bytes, sa) {
                 Ok(s) => trace!("sent {s}"),
-                Err(e) => {
+                Err(e) =>
                     if e.raw_os_error() == Some(11) {
                         warn!("PROBE EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", message_out_bytes.len());
                     } else {
-                        // upnp can hang for 10 seconds so dont make faster, also ipv6 now causes this to happen a lot
-                        // self.next_upnp = std::time::SystemTime::now();
                         trace!("PROBE failed to send to {sa} {0} bytes: {e} ", message_out_bytes.len());
-                    }
-                }
+                    },
             }
         }
     }
@@ -582,21 +576,19 @@ impl PeerState {
             cg.pending_latest = None;
         }
 
-        if !std::env::var("SKIP_LOCAL").is_ok() {
-            if let Ok(file) = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open("./cjp2p/public/".to_owned() + &cg.id)
-            {
-                let cg = &mut (self.content_gateways[cg_index]);
-                cg.serve_content_from_disk(&file);
+        if let Ok(file) = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("./cjp2p/public/".to_owned() + &cg.id)
+        {
+            let cg = &mut (self.content_gateways[cg_index]);
+            cg.serve_content_from_disk(&file);
 
-                if cg.http_done {
-                    let cg_ = self.content_gateways.remove(cg_index);
-                    self.http_clients.push(cg_.http_socket);
-                }
-                return;
+            if cg.http_done {
+                let cg_ = self.content_gateways.remove(cg_index);
+                self.http_clients.push(cg_.http_socket);
             }
+            return;
         }
         let id = cg.id.clone();
         let i = match inbound_states.get_mut(&id) {
@@ -1397,7 +1389,7 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             ps.p.save();
             std::process::exit(0);
         } else if sscanf!(line.as_str(), "/test {} {}",arg,arg2).is_ok() {
-            println!("this command is undocummmented because it will hang the node, your internet connection, and might piss off your ISP, don't use this");
+            println!("this command is undocummmented because it will hang the node, your internet connection, and probably piss off your ISP.  Hetzner sent me an abuse email demaning an explaination almost immediately after I tried it there. DO NOT USE THIS!!  (Though Hetzner did not lose any traffic, unlike my cheap home router)");
             // the issue is that, i have found, many cheap home "routers" top out at 1Mbps when talking to various IPs due to some sort of "Connection" tracking, even if you are the DMZ, or even if you use ipv6 to avoid NAT.
             // it's structural censorship, or "protocol discrimination"
             let rate: u64 = arg2.parse().unwrap();
@@ -1479,14 +1471,16 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
             }
             println!("{} total peers",ps.peer_map.len());
             let mut unique_ips = HashSet::new();
-            //            println!("========== all IPs");
             for (k, _) in &ps.peer_map {
-                if unique_ips.insert(k.ip()) {
-                    // this will hang everything doing rev dns
-                    //                    println!("{:21} {}",k.ip(),if let Ok(hn)= dns_lookup::lookup_addr(&k.ip()) { hn } else { k.ip().to_string()});
-                }
+                unique_ips.insert(k.ip());
             }
-            println!("{} total unique IP peers.  ",unique_ips.len());
+            thread::spawn(move || {
+                println!("========== all IPs");
+                for k in &unique_ips {
+                    println!("{:21} {}",k,if let Ok(hn)= dns_lookup::lookup_addr(&k) { hn } else { k.to_string()});
+                }
+                println!("{} total unique IP peers.  ",unique_ips.len());
+            });
         } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
             ps.p.you_should_see_this = Some(YouSouldSeeThis {
                 id: arg.to_owned(),
@@ -1794,8 +1788,6 @@ fn handle_web_request(
         }
 
         let mut page = format!("");
-        // just connecting to the http port and not saying anything DOS's this whole thing, and
-        // occationally browsers seem to do that.
         if let Some(req) = parse_header(&mut stream) {
             let mut start: usize = 0;
             let mut end: usize = 0;
@@ -1912,8 +1904,6 @@ fn handle_web_request(
                                 }
                                 None
                             } else if sha256_opt.is_none() {
-                                // Local request, no cache: block until a Latest arrives.
-                                // id will be "" (unwrap_or_default), which is the signal.
                                 Some(LatestData {
                                     pub_key: ed25519,
                                     name: name.clone(),
@@ -1923,7 +1913,6 @@ fn handle_web_request(
                                     ),
                                 })
                             } else {
-                                // Local request with cache: 300ms grace to receive a newer Latest.
                                 Some(LatestData {
                                     pub_key: ed25519,
                                     name: name.clone(),
@@ -2068,7 +2057,6 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
         }
     };
     let messages = messages.0;
-    // This ist a Vec<Value> because I don't know the structure of the Please*Returns
     let mut might_be_ip_spoofing = ps.check_key(&messages, src);
     let mut message_out = ps.handle_messages(
         messages,
@@ -2499,7 +2487,7 @@ impl Receive for Content {
         return vec![];
     }
 }
-//
+
 #[derive(Debug)]
 struct InboundState {
     mmap: Option<MmapMut>,
@@ -2767,8 +2755,9 @@ impl InboundState {
         })];
     }
     fn finished(&mut self) -> bool {
-        // yes this could sha as it goes, but then its not testing as much as it could, for
-        // little real improvement, so dont do that
+        // yes this could sha as it goes, but then its not testing as much as it could, 
+        // for little real improvement, so dont do that
+        // though this will hang the whole thing 
         if self.bytes_complete != self.eof {
             return false;
         }
@@ -3616,11 +3605,6 @@ impl Receive for SignedMessage {
     }
 }
 
-// ---- Latest / GetLatest helpers ----
-
-/// Returns true if `name` is a safe relative path that cannot escape the base directory.
-/// Allows subdirectories (e.g. "subdir/file.html") but rejects traversal (e.g. "../secret",
-/// "a/../../b"), hidden components (leading dot), backslashes, null bytes, and empty paths.
 fn is_safe_relative_path(name: &str) -> bool {
     !name.is_empty()
         && !name.contains('\\')
@@ -3952,8 +3936,6 @@ pub mod android_jni {
 }
 
 fn is_local(stream: &TcpStream) -> bool {
-    //let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
-    //stream.write_all(page.as_bytes()).ok();
     stream.peer_addr().unwrap().ip() == "127.0.0.1:1".parse::<SocketAddr>().unwrap().ip()
 }
 
