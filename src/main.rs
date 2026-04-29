@@ -575,8 +575,11 @@ impl PeerState {
             warn!("is this code ever called? why?");
             return;
         }
-        if cg.pending_latest.is_some() {
-            return; // still waiting for Latest resolution
+        if let Some(l) = &cg.pending_latest {
+            if cg.id.is_empty() || l.delay_for_newest_until.map_or(false, |t| !has_passed(t)) {
+                return;
+            }
+            cg.pending_latest = None;
         }
 
         if !std::env::var("SKIP_LOCAL").is_ok() {
@@ -948,15 +951,16 @@ impl PeerState {
         return None;
     }
     fn unstall_getlatests(&self) {
-        let stalled_latest: Vec<(Ed25519Pub, String)> = self
-            .content_gateways
-            .iter()
-            .filter_map(|cg| cg.pending_latest.clone())
-            .collect();
         let mut msg_out = vec![];
-        for (ed25519, name) in stalled_latest {
-            let gl = GetLatest { ed25519, name };
-            msg_out.push(Message::GetLatest(gl.clone()));
+        for cg in &self.content_gateways {
+            if let Some(pending_latest) = &cg.pending_latest {
+                if cg.id.is_empty() {
+                    msg_out.push(Message::GetLatest(GetLatest {
+                        ed25519: pending_latest.pub_key,
+                        name: pending_latest.name.clone(),
+                    }));
+                }
+            }
         }
         if msg_out.len() > 0 {
             let peers = self.best_peers(250, 6);
@@ -1327,6 +1331,16 @@ pub fn run() -> Result<(), std::io::Error> {
                 info!("handling cg {} {} {} ",cg.http_done,cg.waiting_for_browser,cg.sent_header);
                 ps.serve_http_content(&mut inbound_states, index);
                 continue 'main;
+            }
+        }
+
+        // Kick /latest/ gateways whose 300ms grace window has closed.
+        for (index, cg) in ps.content_gateways.iter().enumerate() {
+            if let Some(l) = &cg.pending_latest {
+                if !cg.id.is_empty() && l.delay_for_newest_until.map_or(true, |t| has_passed(t)) {
+                    ps.serve_http_content(&mut inbound_states, index);
+                    continue 'main;
+                }
             }
         }
 
@@ -1891,15 +1905,33 @@ fn handle_web_request(
                             }
                             let cache_path = latest_cache_path(&ed25519.to_string(), &name);
                             let sha256_opt = load_sha256_from_latest_cache(&cache_path);
-                            let pending = if sha256_opt.is_some() {
-                                None
-                            } else {
-                                if !is_local(&stream) {
-                                    let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
-                                    stream.write_all(page.as_bytes()).ok();
+                            let pending_latest = if !is_local(&stream) {
+                                if sha256_opt.is_none() {
+                                    stream.write_all(b"HTTP/1.0 403 Forbidden\r\n\n").ok();
                                     return;
                                 }
-                                Some((ed25519, name.clone()))
+                                None
+                            } else if sha256_opt.is_none() {
+                                // Local request, no cache: block until a Latest arrives.
+                                // id will be "" (unwrap_or_default), which is the signal.
+                                Some(LatestData {
+                                    pub_key: ed25519,
+                                    name: name.clone(),
+                                    highest_version: -1,
+                                    delay_for_newest_until: Some(
+                                        Instant::now() + Duration::from_millis(300),
+                                    ),
+                                })
+                            } else {
+                                // Local request with cache: 300ms grace to receive a newer Latest.
+                                Some(LatestData {
+                                    pub_key: ed25519,
+                                    name: name.clone(),
+                                    highest_version: load_seq_from_latest_cache(&cache_path) as i64,
+                                    delay_for_newest_until: Some(
+                                        Instant::now() + Duration::from_millis(300),
+                                    ),
+                                })
                             };
                             if is_local(&stream) && ed25519 != ps.keypair.public {
                                 let mut peers = ps.best_peers(250, 6);
@@ -1924,7 +1956,7 @@ fn handle_web_request(
                                 http_done: false,
                                 sent_header: false,
                                 eof: 0,
-                                pending_latest: pending,
+                                pending_latest,
                             });
                             if ps.content_gateways[index].pending_latest.is_none() {
                                 ps.serve_http_content(inbound_states, index);
@@ -2480,6 +2512,13 @@ struct InboundState {
     last_activity: Instant,
     hash_failures: i32,
 }
+struct LatestData {
+    pub_key: Ed25519Pub,
+    name: String,
+    highest_version: i64,
+    delay_for_newest_until: Option<Instant>,
+}
+
 struct ContentGateway {
     id: String,
     ///http_time: Instant,
@@ -2490,8 +2529,7 @@ struct ContentGateway {
     http_done: bool,
     sent_header: bool,
     eof: usize,
-    /// If Some((pub, name)), we are holding the connection open waiting for a Latest reply.
-    pending_latest: Option<(Ed25519Pub, String)>,
+    pending_latest: Option<LatestData>,
 }
 impl ContentGateway {
     fn serve_content_from_disk(&mut self, file: &File) {
@@ -3747,7 +3785,7 @@ impl Receive for Latest {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
-        inbound_states: &mut HashMap<String, InboundState>,
+        _: &mut HashMap<String, InboundState>,
         signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         // Caching is handled upstream in SignedMessage::receive; here we resolve waiting connections.
@@ -3759,36 +3797,17 @@ impl Receive for Latest {
             warn!("Latest has invalid sha256: {}", self.sha256);
             return vec![];
         }
-        // Find ContentGateways parked waiting for this (pub, name).
-        let pending: Vec<usize> = ps
-            .content_gateways
-            .iter()
-            .enumerate()
-            .filter_map(|(i, cg)| {
-                if let Some((pub_key, n)) = &cg.pending_latest {
-                    if *pub_key == self.ed25519 && n == &self.name {
-                        Some(i)
-                    } else {
-                        None
+        for cg in &mut ps.content_gateways {
+            if let Some(l) = &cg.pending_latest {
+                if l.pub_key == self.ed25519
+                    && l.name == self.name
+                    && cg.pending_latest.as_ref().map_or(0, |l| l.highest_version) < self.seq as i64
+                {
+                    if let Source::S(src_addr) = *src {
+                        InboundState::send_content_peers_from_disk(&self.sha256, 0, &src_addr);
                     }
-                } else {
-                    None
+                    cg.id = self.sha256.clone();
                 }
-            })
-            .collect();
-        if !pending.is_empty() {
-            // Seed peer metadata so InboundState knows where to fetch the content.
-            if let Source::S(src_addr) = *src {
-                InboundState::send_content_peers_from_disk(&self.sha256, 0, &src_addr);
-            }
-            for &idx in &pending {
-                ps.content_gateways[idx].id = self.sha256.clone();
-                ps.content_gateways[idx].pending_latest = None;
-            }
-            // Serve in reverse-index order so removals inside serve_http_content
-            // don't invalidate lower indices we haven't visited yet.
-            for idx in pending.into_iter().rev() {
-                ps.serve_http_content(inbound_states, idx);
             }
         }
         vec![]
@@ -3936,4 +3955,8 @@ fn is_local(stream: &TcpStream) -> bool {
     //let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
     //stream.write_all(page.as_bytes()).ok();
     stream.peer_addr().unwrap().ip() == "127.0.0.1:1".parse::<SocketAddr>().unwrap().ip()
+}
+
+fn has_passed(deadline: std::time::Instant) -> bool {
+    std::time::Instant::now() >= deadline
 }
