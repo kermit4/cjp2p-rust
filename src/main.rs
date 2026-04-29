@@ -1860,7 +1860,12 @@ fn handle_web_request(
                 let mut parts = rest.splitn(2, '?').next().unwrap().splitn(2, '/');
                 if let Some(raw_pub) = parts.next() {
                     let name_raw = match parts.next() {
-                        Some(p) => p,
+                        Some(p) =>
+                            if p.len() > 0 {
+                                p
+                            } else {
+                                "index.html"
+                            },
                         None => "index.html",
                     };
                     let name = urlencoding::decode(name_raw)
