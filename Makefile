@@ -2,13 +2,14 @@ SHELL = /bin/bash -ue
 
 default: debug release
 
-pins: 
+cjp2p/origin/cjp2p.bundle: .git/logs/refs/heads/master
 	git bundle create --quiet cjp2p/origin/cjp2p.bundle_ master
 	mv cjp2p/origin/cjp2p.bundle_ cjp2p/origin/cjp2p.bundle
-	: "your IP address can't do this on my server"
-	find cjp2p/origin/ -not -name '.*' -type f -printf "\%P\n"|while read a;do  curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/$$a |wc -c |grep -q '[1-9]' ;done 
-	sleep .3
-	ls cjp2p/origin/|while read a;do  curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/$$a |wc -c |grep -q '[1-9]' ;done 
+
+# "your IP address can't do this to my server"
+pins: cjp2p/origin/cjp2p.bundle
+	find cjp2p/origin/ -not -name '.*' -type f -not -path '*/.*' -exec cat {} \;|wc -c
+	for _x in . .;do find cjp2p/origin/ -not -name '.*' -type f -not -path '*/.*' -printf "%P\n"|xargs -P 0 -i curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/{}  |wc -c;sleep .3;done 
 
 debug: target/debug/cjp2p
 target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs
