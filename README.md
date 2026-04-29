@@ -96,3 +96,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - focus on enabling devs, i've done enough demoning
 - ethphone..and chat in it ..and pong
 - /latest/ should support subdirectories
+- need a delay to at least try to get latest latest

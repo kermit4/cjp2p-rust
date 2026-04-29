@@ -3,9 +3,12 @@ SHELL = /bin/bash -ue
 default: debug release
 
 pins: 
-	git bundle create cjp2p/origin/cjp2p.bundle_ master
+	git bundle create --quiet cjp2p/origin/cjp2p.bundle_ master
 	mv cjp2p/origin/cjp2p.bundle_ cjp2p/origin/cjp2p.bundle
-	ls cjp2p/origin/|ssh azai.net 'cd src/lang/rust/cjp2p-rust;while read a;do  curl    -Ss http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/$$a;done > /dev/null'
+	: "your IP address can't do this on my server"
+	find cjp2p/origin/ -not -name '.*' -type f -printf "\%P\n"|while read a;do  curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/$$a |wc -c |grep -q '[1-9]' ;done 
+	sleep .3
+	ls cjp2p/origin/|while read a;do  curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/$$a |wc -c |grep -q '[1-9]' ;done 
 
 debug: target/debug/cjp2p
 target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs

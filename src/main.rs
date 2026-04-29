@@ -3597,6 +3597,7 @@ fn is_safe_relative_path(name: &str) -> bool {
         && !name.contains("/.")
         && !name.starts_with('.')
         && !name.starts_with('/')
+        && !name.ends_with('/')
 }
 
 fn latest_cache_path(pub_hex: &str, name: &str) -> String {
@@ -3713,7 +3714,7 @@ impl Receive for GetLatest {
 
         if ps.keypair.public == self.ed25519 {
             let origin_path = format!("./cjp2p/origin/{}", self.name);
-            if let Ok(origin_meta) = fs::metadata(&origin_path) {
+            if let Ok(origin_meta) = fs::metadata(&origin_path).ok().filter(|m| m.is_file()).ok_or(()) {
                 let origin_seq = origin_meta
                     .modified()
                     .ok()
