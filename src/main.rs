@@ -1696,14 +1696,14 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
             public_key_hex);
 
         for (their_pub_hex, msg) in all_chats.iter().rev() {
-            page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat5.html?{} target=_blank>0x{}</a> {}</p>\n",
+            page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?{} target=_blank>0x{}</a> {}</p>\n",
                 their_pub_hex,
                 their_pub_hex,
                 msg);
         }
 
         page += &format!("</div>");
-        page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat5.html>chat interface</a>");
+        page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html>chat interface</a>");
         page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/dashboard.html>fancy Claude made dashboard</a>");
         page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
@@ -1817,7 +1817,7 @@ fn handle_web_request(
                     <br><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>click here</a> for high quality video call (just mute the video for audio only)</a>\n
                     <br><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>click here</a> to play pong</a>\n
                     send a message (type fast before the next page refresh) : <form><input name=line_chat_msg></form>\n\n\
-                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat5.html?{}>click here</a> to switch to character-by-character mode\n\
+                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?{}>click here</a> to switch to character-by-character mode\n\
                     "
                     ,their_pub
                     ,their_pub

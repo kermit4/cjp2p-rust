@@ -10,7 +10,7 @@ If you create .allow_remote_http in the directory you run this, the next time it
 
 this repo is at at https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z3muoqLkU65QFyyJaVvCv9WiDEo21 and https://github.com/kermit4/cjp2p-rust/
 
-this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle
+this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle  -- "make pull" to update with it instead of a centralized repo
 
 
 
@@ -94,3 +94,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - the killer app for this i think is the drop in socket replacement that takes a pub
 - break apart functionality more and use different names and repos
 - focus on enabling devs, i've done enough demoning
+- ethphone..and chat in it
+- non local /latest/ should give old version
