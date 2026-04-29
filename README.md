@@ -2,12 +2,16 @@ This uses the Lowest Common Denominator Protocol (LCDP) (at  https://app.radicle
 
 The current target audience is devs, so the UI IS minimal and not clearly documented.   
 
-This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it.
+This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it, except for /latest/ which are ordinary names that get checked for changes and published by hash in /public/, and the requester is sent the latest hash. (So you have distributed updateable content by your public key.  Make yourself a home page.)
 
 Files in ./cjp2p/origin/ will be shared by name by your pub, i.e. http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html
 
-- this repo is at at https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z3muoqLkU65QFyyJaVvCv9WiDEo21 and https://github.com/kermit4/cjp2p-rust/
-- this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle
+If you create .allow_remote_http in the directory you run this, the next time it starts it will allow any IP to connect to the HTTP port, but it will only serve files you already have, it can't cause it to download anything new, and doesn't have any of special access that localhost does. As of this writing that means it will refuse websockets, among other things.  I run it with  .allow_remote_http so I think its safe.
+
+this repo is at at https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z3muoqLkU65QFyyJaVvCv9WiDEo21 and https://github.com/kermit4/cjp2p-rust/
+
+this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle
+
 
 
 # building
@@ -56,6 +60,7 @@ or HTML pages with many page components, individually downloaded from the networ
 - make it easy for other people to build on, make easy for UI devs on websockets
 ## UI
 -   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
+- public websocket support/ browser light node, its easy, just treat non-localhost as network..easy, right? update Source enum
 ## cryptography or scarcity related
 - trust 
 - valuable numbers? (PoW?  or valuable just because the issuer, based on their public key, limits the issuance.  every person their own "coin" as value derived from their reputation?  reputation granting fungible negotiable scarcity? be your own CENTRAL bank!)
@@ -72,17 +77,12 @@ or HTML pages with many page components, individually downloaded from the networ
 ## public collaboration
 - reviews of content
 -  some equivalent of wikipedia
-## updateable content
-- for distirbuting latest versions of things, maybe a homepageish thing for key, generally avaliable with a seq number, signed home page, with which newer content can be linked?  or just any pages signed by pubs, its how to find the newest thats the trick.. oh just give people latest urls that always pull from me not by hash..and dont error in the app about it
-- content NAMES..updateable only be the pub who initially issued it, (i.e. chat5, by me)
 ## unnsorted
 - make it do what i actually do each day, check for news basically, from friends or weigthed by importance/distance. like /trending but scoped/weighted.  user defined algorithm. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
 - need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming)
 - reputation, ip-time? web of trust (people approve other people)? 
 - polls, approval voting style..which need some kind of scarcity
 - drop in socket() replacement that takes public keys intead of ips(), in Rust crate?
-- group chat 
-- public websocket support/ browser light node, its easy, just treat non-localhost as network..easy, right? update Source enum
 - my putting plain names in public/ will go badly for anyone who doest have thetm and tries to get them ..just think of what i need to do for me and the fastest way to do it, htats how it will be done.. it doesnt have to be authenticated , as long as it CAN be later, just automate what i do, thats my specialtiy, and if a file is deleted and someone uses the URL it will have unpredictable results
 - lcdp crate now? send to ed25519 as the base theme with the big hash getter should be core?
 - more orderly chat with history on dashboard page, like make this a social focused space 
