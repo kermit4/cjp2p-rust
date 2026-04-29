@@ -44,6 +44,7 @@ public class MainActivity extends Activity {
     private TextView tvLastUpdate;
     private boolean running = true;
     private File filesDir;
+    private String fullPubkey = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +62,21 @@ public class MainActivity extends Activity {
         tvUniqueIps  = findViewById(R.id.tv_unique_ips);
         llPeers      = findViewById(R.id.ll_peers);
         tvLastUpdate = findViewById(R.id.tv_last_update);
+
+        tvPubkey.setOnLongClickListener(v -> {
+            if (!fullPubkey.isEmpty()) {
+                ClipboardManager cm = getSystemService(ClipboardManager.class);
+                cm.setPrimaryClip(ClipData.newPlainText("cjp2p key", fullPubkey));
+                Toast.makeText(this, "Key copied", Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        });
+
+        findViewById(R.id.btn_menu).setOnClickListener(v -> {
+            Intent browser = new Intent(Intent.ACTION_VIEW,
+                Uri.parse("http://127.0.0.1:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/index.html"));
+            startActivity(browser);
+        });
 
         findViewById(R.id.btn_share_file).setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -182,6 +198,7 @@ public class MainActivity extends Activity {
             tvVersion.setText(j.optString("version", ""));
 
             String pk = j.optString("public_key", "");
+            fullPubkey = pk;
             if (pk.length() > 28) {
                 tvPubkey.setText(pk.substring(0, 20) + "…" + pk.substring(pk.length() - 8));
             } else {
