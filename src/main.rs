@@ -1871,11 +1871,7 @@ fn handle_web_request(
                     let name = urlencoding::decode(name_raw)
                         .unwrap_or_default()
                         .to_string();
-                    if !name.is_empty()
-                        && !name.contains('/')
-                        && !name.contains('\\')
-                        && !name.starts_with('.')
-                    {
+                    if is_safe_relative_path(&name) {
                         if let Ok(ed25519) = raw_pub.parse::<Ed25519Pub>() {
                             let gl = GetLatest {
                                 ed25519,
@@ -3535,10 +3531,7 @@ impl Receive for SignedMessage {
         for msg in &messages {
             if let Message::Latest(latest) = msg {
                 if latest.ed25519 == self.ed25519
-                    && !latest.name.contains('/')
-                    && !latest.name.contains('\\')
-                    && !latest.name.starts_with('.')
-                    && !latest.name.is_empty()
+                    && is_safe_relative_path(&latest.name)
                     && latest.sha256.len() == 64
                     && hex::decode(&latest.sha256).is_ok()
                 {
@@ -3593,6 +3586,18 @@ impl Receive for SignedMessage {
 }
 
 // ---- Latest / GetLatest helpers ----
+
+/// Returns true if `name` is a safe relative path that cannot escape the base directory.
+/// Allows subdirectories (e.g. "subdir/file.html") but rejects traversal (e.g. "../secret",
+/// "a/../../b"), hidden components (leading dot), backslashes, null bytes, and empty paths.
+fn is_safe_relative_path(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains('\\')
+        && !name.contains('\0')
+        && !name.contains("/.")
+        && !name.starts_with('.')
+        && !name.starts_with('/')
+}
 
 fn latest_cache_path(pub_hex: &str, name: &str) -> String {
     format!("./cjp2p/metadata/latest/{}/{}.json", pub_hex, name)
@@ -3700,11 +3705,7 @@ impl Receive for GetLatest {
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        if self.name.contains('/')
-            || self.name.contains('\\')
-            || self.name.starts_with('.')
-            || self.name.is_empty()
-        {
+        if !is_safe_relative_path(&self.name) {
             return vec![];
         }
         let pub_hex = self.ed25519.to_string();

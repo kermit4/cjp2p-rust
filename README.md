@@ -2,7 +2,7 @@ This uses the Lowest Common Denominator Protocol (LCDP) (at  https://app.radicle
 
 The current target audience is devs, so the UI IS minimal and not clearly documented.   
 
-This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it, except for /latest/ which are ordinary names that get checked for changes and published by hash in /public/, and the requester is sent the latest hash. (So you have distributed updateable content by your public key.  Make yourself a home page.)
+This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it, except for /latest/ which are ordinary names that get checked for changes and published by hash in /public/, and the requester is sent the latest hash. (So you have distributed updateable content by your public key.  Make yourself a home page, call it index.html .)
 
 Files in ./cjp2p/origin/ will be shared by name by your pub, i.e. http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html
 
@@ -94,5 +94,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - the killer app for this i think is the drop in socket replacement that takes a pub
 - break apart functionality more and use different names and repos
 - focus on enabling devs, i've done enough demoning
-- ethphone..and chat in it
-- non local /latest/ should give old version
+- ethphone..and chat in it ..and pong
+- /latest/ should support subdirectories
