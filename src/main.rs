@@ -1901,7 +1901,7 @@ fn handle_web_request(
                                 }
                                 Some((ed25519, name.clone()))
                             };
-                            if is_local(&stream) {
+                            if is_local(&stream) && ed25519 != ps.keypair.public {
                                 let mut peers = ps.best_peers(250, 6);
                                 if let Some(Source::S(origin)) = ps.peer_map_by_pub.get(&ed25519) {
                                     peers.insert(*origin);
