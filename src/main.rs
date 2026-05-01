@@ -1284,10 +1284,31 @@ pub fn run() -> Result<(), std::io::Error> {
     }
     println!("your ed25519 public key, stored in cjp2p/state/key.v2.json, is:  0x{}", ps.keypair.public);
     println!("web console at        http://127.0.0.1:{http_port}/");
+    let pub_hex = ps.keypair.public.to_string();
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     for v in file_args {
-        info!("queing inbound file {:?}", v);
-        inbound_states.insert(v.to_string(), InboundState::new(&v));
+        let path = Path::new(&v);
+        if path.is_dir() {
+            let dir_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("directory argument has no usable name");
+            let link = format!("./cjp2p/origin/{}", dir_name);
+            let abs = fs::canonicalize(path).expect("could not resolve directory path");
+            if Path::new(&link).exists() {
+                println!("symlink already exists: {}", link);
+            } else {
+                std::os::unix::fs::symlink(&abs, &link)
+                    .expect("failed to create symlink in cjp2p/origin/");
+                println!("symlinked {} -> {}", link, abs.display());
+            }
+            println!(
+                "serve files from this directory at:  http://127.0.0.1:{http_port}/latest/0x{pub_hex}/{dir_name}/<filename>"
+            );
+        } else {
+            info!("queing inbound file {:?}", v);
+            inbound_states.insert(v.to_string(), InboundState::new(&v));
+        }
     }
 
     'main: loop {
