@@ -1470,13 +1470,14 @@ fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbound
                 if let Some(their_pub) = &pi.ed25519 {
                     message_out = vec![
                         EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
+                        //FastEncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
                         ];
+                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                    trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
+                    ps.socket.send_to(&message_out_bytes, arg).ok();
+                } else {
+                    warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
                 }
-            }
-            if let Message::EncryptedMessages(_) = message_out[0] {
-                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
-                ps.socket.send_to(&message_out_bytes, arg).ok();
             } else {
                 warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
             }
@@ -2103,10 +2104,14 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
     // slow, even big blocks is 4x slower user time, with sys time 3x
     // 4k blocks 8x slower user, 5x net
-    /*    if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
+    // EncryptedMessages
+    // for a 1GB, cpu user/sys, to/from itself
+    // /get c7dce40a2af023d2ab7d4bc26fac78cba7f7cb7854f67f9fb5bf72b14d9931d8
+    // # 21/7 unencrypted 253/10 old encrypted (on everything, i.e. here) vs 120/10 new encrypted
+    /*        if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
         message_out_bytes = serde_json::to_vec(
             &(vec![
-                          EncryptedMessages::new(ps,their_pub, message_out_bytes),
+                          FastEncryptedMessages::new(ps,their_pub, message_out_bytes),
                           ]),
         )
         .unwrap();
@@ -2776,9 +2781,9 @@ impl InboundState {
         })];
     }
     fn finished(&mut self) -> bool {
-        // yes this could sha as it goes, but then its not testing as much as it could, 
+        // yes this could sha as it goes, but then its not testing as much as it could,
         // for little real improvement, so dont do that
-        // though this will hang the whole thing 
+        // though this will hang the whole thing
         if self.bytes_complete != self.eof {
             return false;
         }
@@ -3511,6 +3516,134 @@ impl Receive for EncryptedMessages {
     }
 }
 
+// Static-static X25519 ECDH + AES-256-GCM. No ephemeral keys, no handshake, no RTT.
+// Not forward-secret by design -- the shared secret is stable between any two peers.
+#[serde_as]
+#[derive(Serialize, Deserialize, Debug)]
+struct FastEncryptedMessages {
+    #[serde_as(as = "Base64")]
+    nonce: [u8; 12],
+    sender: Ed25519Pub,
+    #[serde_as(as = "Base64")]
+    ciphertext: Vec<u8>,
+}
+impl FastEncryptedMessages {
+    fn new(ps: &PeerState, their_pub: &Ed25519Pub, message: Vec<u8>) -> Message {
+        use aes_gcm::{aead::Aead, Aes256Gcm, NewAead, Nonce};
+        use curve25519_dalek::{edwards::CompressedEdwardsY, montgomery::MontgomeryPoint};
+
+        let their_x25519 = CompressedEdwardsY(*their_pub.as_bytes())
+            .decompress()
+            .expect("valid ed25519 public key")
+            .to_montgomery()
+            .to_bytes();
+
+        let shared = MontgomeryPoint(their_x25519)
+            .mul_clamped(ps.keypair.x25519_private())
+            .to_bytes();
+
+        let aes_key = Sha256::digest(shared);
+        let nonce: [u8; 12] = rand::rng().random();
+        let cipher = Aes256Gcm::new(&aes_key.into());
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), message.as_ref())
+            .unwrap();
+
+        Message::FastEncryptedMessages(Self {
+            nonce,
+            sender: ps.keypair.public,
+            ciphertext,
+        })
+    }
+}
+impl Receive for FastEncryptedMessages {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src_: &Source,
+        might_be_ip_spoofing: &mut bool,
+        inbound_states: &mut HashMap<String, InboundState>,
+        _signer: Option<Ed25519Pub>,
+    ) -> Vec<Message> {
+        use aes_gcm::{aead::Aead, Aes256Gcm, NewAead, Nonce};
+        use curve25519_dalek::{edwards::CompressedEdwardsY, montgomery::MontgomeryPoint};
+
+        let FastEncryptedMessages {
+            nonce,
+            sender,
+            ciphertext,
+        } = self;
+        if let Source::S(src) = *src_ {
+            let sender_x25519 = CompressedEdwardsY(*sender.as_bytes())
+                .decompress()
+                .expect("valid ed25519 public key")
+                .to_montgomery()
+                .to_bytes();
+            let shared = MontgomeryPoint(sender_x25519)
+                .mul_clamped(ps.keypair.x25519_private())
+                .to_bytes();
+            let aes_key = Sha256::digest(shared);
+            let cipher = Aes256Gcm::new(&aes_key.into());
+            match cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
+                Ok(plaintext) => {
+                    ps.peer_map_by_pub.insert(sender, src_.clone());
+                    let pi = ps.peer_map.get_mut(&src).unwrap();
+                    pi.ed25519 = Some(sender);
+
+                    trace!("handling fast-decrypted message from {src} {}: {}",
+                        sender.to_string(),
+                        String::from_utf8_lossy(&plaintext));
+
+                    let messages: Messages = match serde_json::from_slice(&plaintext) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            debug!("could not deserialize fast-encrypted messages from {} {e}: {}",
+                                src, String::from_utf8_lossy(&plaintext));
+                            return vec![];
+                        }
+                    };
+                    let messages = messages.0;
+                    *might_be_ip_spoofing &= ps.check_key(&messages, src);
+
+                    let message_out_string = serde_json::to_string(&json![
+                        [Message::Forwarded(Forwarded {
+                            src: src,
+                            from_ed25519: Some(sender),
+                            maybe_ed25519: None,
+                            messages: String::from_utf8_lossy(&plaintext).to_string(),
+                        })]
+                    ])
+                    .unwrap();
+                    if ps.ws_vec.len() > 0 {
+                        trace!("sending fast-decrypted message {} to {} websockets", message_out_string, ps.ws_vec.len());
+                    }
+                    for ws in &mut ps.ws_vec {
+                        if ws
+                            .write(tungstenite::Message::Text(
+                                message_out_string.clone().into(),
+                            ))
+                            .is_ok()
+                        {
+                            ws.flush().ok();
+                        }
+                    }
+                    return ps.handle_messages(
+                        messages,
+                        &Source::S(src),
+                        might_be_ip_spoofing,
+                        inbound_states,
+                        _signer,
+                    );
+                }
+                Err(_) => {
+                    info!("failed to fast-decrypt a message from {src}");
+                }
+            }
+        }
+        return vec![];
+    }
+}
+
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct SignedMessage {
@@ -3834,6 +3967,7 @@ enum Message {
     MyPublicKey(MyPublicKey),
     ChatMessage(ChatMessage),
     EncryptedMessages(EncryptedMessages),
+    FastEncryptedMessages(FastEncryptedMessages),
     SignedMessage(SignedMessage),
     PleaseListContent(PleaseListContent),
     ContentList(ContentList),
