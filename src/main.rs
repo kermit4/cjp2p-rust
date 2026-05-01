@@ -1820,6 +1820,7 @@ fn handle_web_request(
                     try /ping or /version. \n\
                 If they can't find you through main page, the URL they need to get here (not the same as yours) is 
                 <a href=http://127.0.0.1:24255/chat/{}>http://127.0.0.1:24255/chat/{}</a>
+                    <br><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>click here</a> for high quality video call (just mute the video for audio only)</a>\n
                     <br><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>click here</a> to play pong</a>\n
                     send a message (type fast before the next page refresh) : <form><input name=line_chat_msg></form>\n\n\
                     <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?{}>click here</a> to switch to character-by-character mode\n\
