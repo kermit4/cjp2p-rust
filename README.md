@@ -1,6 +1,6 @@
-This uses the Lowest Common Denominator Protocol (LCDP) (at  https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z4NaokAHdQyjkF562Cj9PpHpGH5f1 ) .   The primary purpose of this repo, is to demonstrate sample use cases of connectionless JSON (externally tagged) P2P aka the Lowest Common Denominator Protocol messaging, however there are some users of it now, usually using web interfaces over the websocket that speaks the same protocol though is handled somewhat differently as it's intended only for the node operator's browser.
+This uses the Lowest Common Denominator Protocol (LCDP) (at  https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z4NaokAHdQyjkF562Cj9PpHpGH5f1 ) .   The primary purpose of this repo is to demonstrate a few basic examples of how one could do write p2p interoperable applications using LCDP (externally taggged JSON arrays).  Some browser side applications (relaying through a node over a websocket) are at http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/index.html
 
-The current target audience is devs, so the UI IS minimal and not clearly documented.   
+The current target audience is devs, so the UI IS minimal and not clearly documented.   If you don't want to read source, you're not the this repo's target audience.
 
 This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it, except for /latest/ which are ordinary names that get checked for changes and published by hash in /public/, and the requester is sent the latest hash. (So you have distributed updateable content by your public key.  Make yourself a home page, call it index.html .)
 
