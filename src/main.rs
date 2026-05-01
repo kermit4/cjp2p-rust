@@ -2104,11 +2104,35 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
     // slow, even big blocks is 4x slower user time, with sys time 3x
     // 4k blocks 8x slower user, 5x net
-    // EncryptedMessages
-    // for a 1GB, cpu user/sys, to/from itself
-    // /get c7dce40a2af023d2ab7d4bc26fac78cba7f7cb7854f67f9fb5bf72b14d9931d8
-    // # 21/7 unencrypted 253/10 old encrypted (on everything, i.e. here) vs 120/10 new encrypted
-    /*        if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
+    //
+    // 256M cb407d7355bb63929d7f4b282684f5a2884a0c3fb73d56642455600569a6888b
+    //NO IFTOP NO TCPDUMP NO IPV6
+    // Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz
+    // 5/2 unencrypted
+    // 68/3 old encrypted
+    // 30/3 fast encrypted
+    // # receiving : 
+    // 4/3 unencrypted
+    // 38/2 old encrypted
+    // 20/2 fast encrypted
+    // # sending : 
+    // 3/3 unencrypted
+    // 32/4 old encrypted 
+    // 16/4 fast encrypted
+    //
+    // AMD EPYC-Rome-v4 Processor
+    // 3/2 unencrypted
+    // 53/4 old encrypted
+    // 27/2 fast encrypted
+    // # receiving : 
+    // 3/4 unencrypted
+    // 32/4 old encrypted
+    // 17/5 fast encrypted
+    // # sending : 
+    // 3/6 unencrypted
+    // 32/4 old encrypted
+    // 15/4 fast encrypted
+/*if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
         message_out_bytes = serde_json::to_vec(
             &(vec![
                           FastEncryptedMessages::new(ps,their_pub, message_out_bytes),

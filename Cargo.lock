@@ -592,6 +592,7 @@ dependencies = [
 name = "cjp2p"
 version = "0.3.0"
 dependencies = [
+ "aes-gcm",
  "alloy",
  "base64",
  "bincode",
