@@ -1330,7 +1330,6 @@ pub fn run() -> Result<(), std::io::Error> {
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if let Some(l) = &cg.pending_latest {
                 if !cg.id.is_empty() && l.delay_for_newest_until.map_or(true, |t| has_passed(t)) {
-                    cg.pending_latest = None;
                     ps.serve_http_content(&mut inbound_states, index);
                     continue 'main;
                 }
