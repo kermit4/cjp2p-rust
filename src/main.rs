@@ -1823,6 +1823,14 @@ fn handle_web_request(
                 status_json(ps, stream);
                 return;
             }
+
+            let id = &req.path[1..].split('?').next().unwrap();
+            let id = &id.split('/').next().unwrap();
+            let id = id.strip_prefix("0x").unwrap_or(id);
+            if id.find("\\") != None || id == "favicon.ico" || id.starts_with(".") {
+                return;
+            }
+
             info!("got http request for {:?}",req);
             if let Ok(mut file) = OpenOptions::new()
                 .create(true)
@@ -1978,14 +1986,7 @@ fn handle_web_request(
                 }
                 return;
             }
-            let id = &req.path[1..].split('?').next().unwrap();
-            let id = &id.split('/').next().unwrap();
-            let id = id.strip_prefix("0x").unwrap_or(id);
-            if id.find("/") != None
-                || id.find("\\") != None
-                || id == "favicon.ico"
-                || id.starts_with(".")
-            {
+            if id.find("/") != None {
                 return;
             }
             if req.path.starts_with("/?get=") {
