@@ -2111,28 +2111,28 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
     // 5/2 unencrypted
     // 68/3 old encrypted
     // 30/3 fast encrypted
-    // # receiving : 
+    // # receiving :
     // 4/3 unencrypted
     // 38/2 old encrypted
     // 20/2 fast encrypted
-    // # sending : 
+    // # sending :
     // 3/3 unencrypted
-    // 32/4 old encrypted 
+    // 32/4 old encrypted
     // 16/4 fast encrypted
     //
     // AMD EPYC-Rome-v4 Processor
     // 3/2 unencrypted
     // 53/4 old encrypted
     // 27/2 fast encrypted
-    // # receiving : 
+    // # receiving :
     // 3/4 unencrypted
     // 32/4 old encrypted
     // 17/5 fast encrypted
-    // # sending : 
+    // # sending :
     // 3/6 unencrypted
     // 32/4 old encrypted
     // 15/4 fast encrypted
-/*if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
+    /*if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
         message_out_bytes = serde_json::to_vec(
             &(vec![
                           FastEncryptedMessages::new(ps,their_pub, message_out_bytes),
@@ -3171,7 +3171,10 @@ impl Receive for Forwarded {
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct Forward {
-    to_ed25519: Ed25519Pub,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to_ed25519: Option<Ed25519Pub>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    src: Option<SocketAddr>,
     messages: Vec<Value>,
 }
 impl Receive for Forward {
@@ -3192,10 +3195,17 @@ impl Receive for Forward {
             // is always a trusted localhost or a random
             return vec![];
         }
-        debug!("websocket asked me to forward {:?} to {} ",
-            &self.messages
-            ,&self.to_ed25519);
-        msgs_to_pub(ps, self.to_ed25519, &self.messages);
+        // Reply directly to a UDP src (e.g. browser recorder responding to a forwarded PleaseSendContent)
+        if let Some(to) = self.src {
+            debug!("websocket asked me to forward {:?} to {to}", &self.messages);
+            let message_out_bytes = serde_json::to_vec(&self.messages).unwrap();
+            ps.socket.send_to(&message_out_bytes, to).ok();
+            return vec![];
+        }
+        if let Some(to) = self.to_ed25519 {
+            debug!("websocket asked me to forward {:?} to {to}", &self.messages);
+            msgs_to_pub(ps, to, &self.messages);
+        }
         return vec![];
     }
 }
