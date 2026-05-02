@@ -3176,6 +3176,8 @@ struct Forward {
     to_ed25519: Option<Ed25519Pub>,
     #[serde(skip_serializing_if = "Option::is_none")]
     src: Option<SocketAddr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sign: Option<bool>,
     messages: Vec<Value>,
 }
 impl Receive for Forward {
@@ -3196,16 +3198,21 @@ impl Receive for Forward {
             // is always a trusted localhost or a random
             return vec![];
         }
-        // Reply directly to a UDP src (e.g. browser recorder responding to a forwarded PleaseSendContent)
+        debug!("websocket asked me to forward {:?}", &self.messages);
+        let messages: Vec<Value> = if self.sign == Some(true) {
+            let inner = serde_json::to_vec(&self.messages).unwrap();
+            let signed = SignedMessage::new(ps, inner);
+            vec![serde_json::to_value(&signed).unwrap()]
+        } else {
+            self.messages
+        };
         if let Some(to) = self.src {
-            debug!("websocket asked me to forward {:?} to {to}", &self.messages);
-            let message_out_bytes = serde_json::to_vec(&self.messages).unwrap();
+            let message_out_bytes = serde_json::to_vec(&messages).unwrap();
             ps.socket.send_to(&message_out_bytes, to).ok();
             return vec![];
         }
         if let Some(to) = self.to_ed25519 {
-            debug!("websocket asked me to forward {:?} to {to}", &self.messages);
-            msgs_to_pub(ps, to, &self.messages);
+            msgs_to_pub(ps, to, &messages);
         }
         return vec![];
     }
