@@ -3170,20 +3170,8 @@ fn maintenance(
     if ps.next_maintenance.elapsed() <= Duration::ZERO {
         return;
     }
-    let maint_timer = Instant::now();
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    let nowi = Instant::now();
+    log_if_slow(nowi, line!().to_string());
     if ps.recent_peer_timer.elapsed() > Duration::from_secs(5 * 60) {
         if ps.recent_peers.len() < ps.recent_peer_counter_max * 4 / 5 {
             error!("only {} peers in 5 minutes, vs max (since last notice) of {}",ps.recent_peers.len(),ps.recent_peer_counter_max);
@@ -3195,19 +3183,7 @@ fn maintenance(
         ps.recent_peer_timer = Instant::now();
         ps.recent_peers = HashSet::new();
     }
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     if let Ok(dur) = ps.last_upnp.elapsed() {
         if dur > Duration::from_secs(1200) {
             ps.last_upnp = std::time::SystemTime::now();
@@ -3218,117 +3194,33 @@ fn maintenance(
     }
     debug!("maintenance");
     let mut to_remove = vec![];
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     for (index, cg) in ps.content_gateways.iter().enumerate() {
         if cg.http_done {
             to_remove.push(index);
         }
     }
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     for tr in to_remove.iter().rev() {
         warn!("CG garbage collection..this should be handled elsewhere already i think?");
         ps.content_gateways.remove(*tr);
     }
     ps.next_maintenance =
         Instant::now() + Duration::from_millis(rand::rng().random_range(888..999));
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     ps.sort();
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     if ps.next_save.elapsed() > Duration::ZERO {
         ps.next_save = Instant::now() + Duration::from_secs(300);
         ps.save_peers();
         ps.p.save();
     }
-    let prof = maint_timer.elapsed();
-    let txt = format!("c maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     ps.probe_interfaces();
-    let prof = maint_timer.elapsed();
-    let txt = format!("d maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     ps.probe();
     ps.open_file_cache = HashMap::new(); // clear the cache
-    let prof = maint_timer.elapsed();
-    let txt = format!("e maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     for (_, i) in inbound_states.iter_mut() {
         if i.last_activity.elapsed() <= Duration::from_secs(1) {
             continue;
@@ -3338,19 +3230,7 @@ fn maintenance(
         }
         i.next_block = 0;
     }
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     for (_, i) in inbound_states.iter_mut() {
         if i.last_activity.elapsed() <= Duration::from_secs(1) {
             continue;
@@ -3377,33 +3257,9 @@ fn maintenance(
         }
     }
 
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
     ps.unstall_getlatests();
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
 
     // Drop stream_states with no viewers and stale activity
     stream_states
@@ -3425,19 +3281,7 @@ fn maintenance(
         }
         ps.list_time += Duration::from_secs(60 * 60 * 24 * 365 * 99);
     }
-    let prof = maint_timer.elapsed();
-    let txt = format!("maintenance took {:?}\x1b[m",prof);
-    if prof > Duration::from_millis(80) {
-        error!("\x1b[7;31m {} ",txt);
-    } else if prof > Duration::from_millis(40) {
-        warn!("{}",txt);
-    } else if prof > Duration::from_millis(20) {
-        info!("{}",txt);
-    } else if prof > Duration::from_millis(10) {
-        debug!("{}",txt);
-    } else {
-        trace!("{}",txt);
-    }
+    log_if_slow(nowi, line!().to_string());
 }
 
 #[derive(Serialize, Deserialize, Debug)]
