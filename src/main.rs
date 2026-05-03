@@ -12,6 +12,7 @@ use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
 use memmap2::MmapMut;
+use mmap_bitvec::{BitVector, MmapBitVec};
 use serde_with::hex::Hex;
 use std::net::IpAddr;
 //use nix::NixPath;
@@ -544,6 +545,7 @@ impl PeerState {
         messages: Vec<Message>,
         src: &Source,
         might_be_ip_spoofing: &mut bool,
+        stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -553,6 +555,7 @@ impl PeerState {
                 self,
                 &src,
                 might_be_ip_spoofing,
+                stream_states,
                 inbound_states,
                 signer,
             ));
@@ -561,6 +564,7 @@ impl PeerState {
     }
     fn serve_http_content(
         &mut self,
+        stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         cg_index: usize,
     ) {
@@ -581,7 +585,6 @@ impl PeerState {
             .write(true)
             .open("./cjp2p/public/".to_owned() + &cg.id)
         {
-            let cg = &mut (self.content_gateways[cg_index]);
             cg.serve_content_from_disk(&file);
 
             if cg.http_done {
@@ -591,6 +594,16 @@ impl PeerState {
             return;
         }
         let id = cg.id.clone();
+
+        if let Some(ss) = stream_states.get_mut(&id) {
+            cg.serve_content_from_stream_state(ss);
+            if cg.http_done {
+                let cg_ = self.content_gateways.remove(cg_index);
+                self.http_clients.push(cg_.http_socket);
+            }
+            return;
+        }
+
         let i = match inbound_states.get_mut(&id) {
             Some(i) => i,
             _ => {
@@ -616,7 +629,6 @@ impl PeerState {
 
         let cg = &mut (self.content_gateways[cg_index]);
         cg.serve_content_from_inbound_state(i);
-        let cg = &mut (self.content_gateways[cg_index]);
         if cg.http_done {
             let cg_ = self.content_gateways.remove(cg_index);
             self.http_clients.push(cg_.http_socket);
@@ -626,6 +638,7 @@ impl PeerState {
     fn handle_websocket2(
         &mut self,
         index: usize,
+        stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
     ) {
         debug!("handling {} websockets",self.ws_vec.len());
@@ -649,6 +662,7 @@ impl PeerState {
                         messages,
                         &Source::None,
                         &mut false,
+                        stream_states,
                         inbound_states,
                         None,
                     );
@@ -1286,6 +1300,7 @@ pub fn run() -> Result<(), std::io::Error> {
     println!("web console at        http://127.0.0.1:{http_port}/");
     let pub_hex = ps.keypair.public.to_string();
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
+    let mut stream_states: HashMap<String, StreamState> = HashMap::new();
     for v in file_args {
         let path = Path::new(&v);
         if path.is_dir() {
@@ -1314,7 +1329,7 @@ pub fn run() -> Result<(), std::io::Error> {
     'main: loop {
         let mut read_fds = FdSet::new();
         let mut write_fds = FdSet::new();
-        maintenance(&mut inbound_states, &mut ps);
+        maintenance(&mut stream_states, &mut inbound_states, &mut ps);
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
         let stdin = std::io::stdin();
@@ -1342,7 +1357,7 @@ pub fn run() -> Result<(), std::io::Error> {
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if write_fds.contains(cg.http_socket.as_fd()) {
                 info!("handling cg {} {} {} ",cg.http_done,cg.waiting_for_browser,cg.sent_header);
-                ps.serve_http_content(&mut inbound_states, index);
+                ps.serve_http_content(&mut stream_states, &mut inbound_states, index);
                 continue 'main;
             }
         }
@@ -1351,7 +1366,7 @@ pub fn run() -> Result<(), std::io::Error> {
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if let Some(l) = &cg.pending_latest {
                 if !cg.id.is_empty() && l.delay_for_newest_until.map_or(true, |t| has_passed(t)) {
-                    ps.serve_http_content(&mut inbound_states, index);
+                    ps.serve_http_content(&mut stream_states, &mut inbound_states, index);
                     continue 'main;
                 }
             }
@@ -1360,14 +1375,14 @@ pub fn run() -> Result<(), std::io::Error> {
         for (k, ws) in ps.ws_vec.iter().enumerate() {
             if read_fds.contains(ws.get_ref().as_fd()) {
                 debug!("handling ws vec");
-                ps.handle_websocket2(k, &mut inbound_states);
+                ps.handle_websocket2(k, &mut stream_states, &mut inbound_states);
                 continue 'main;
             }
         }
 
         if stdin_is_tty && read_fds.contains(stdin.as_fd()) {
             info!("handling stdin");
-            handle_stdin(&mut ps, &mut inbound_states);
+            handle_stdin(&mut ps, &mut stream_states, &mut inbound_states);
             continue 'main;
         }
         if read_fds.contains(web_server.as_fd()) {
@@ -1381,18 +1396,22 @@ pub fn run() -> Result<(), std::io::Error> {
         for (k, hc) in ps.http_clients.iter().enumerate() {
             if read_fds.contains(hc.as_fd()) {
                 debug!("handling http");
-                handle_web_request(k, &mut inbound_states, &mut ps);
+                handle_web_request(k, &mut stream_states, &mut inbound_states, &mut ps);
                 continue 'main;
             }
         }
         if read_fds.contains(ps.socket.as_fd()) || error_fds.contains(ps.socket.as_fd()) {
             trace!("handling network");
-            handle_network(&mut ps, &mut inbound_states);
+            handle_network(&mut ps, &mut stream_states, &mut inbound_states);
         }
     }
 }
 
-fn handle_stdin(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
+fn handle_stdin(
+    ps: &mut PeerState,
+    _stream_states: &mut HashMap<String, StreamState>,
+    inbound_states: &mut HashMap<String, InboundState>,
+) {
     let mut line = String::new();
     io::stdin().read_line(&mut line).unwrap();
     if line.len() > 1 {
@@ -1781,6 +1800,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
 }
 fn handle_web_request(
     index: usize,
+    stream_states: &mut HashMap<String, StreamState>,
     inbound_states: &mut HashMap<String, InboundState>,
     ps: &mut PeerState,
 ) {
@@ -1917,6 +1937,7 @@ fn handle_web_request(
                                 ps,
                                 &Source::S(stream.peer_addr().unwrap()),
                                 &mut false,
+                                stream_states,
                                 inbound_states,
                                 None,
                             );
@@ -1978,14 +1999,50 @@ fn handle_web_request(
                                 pending_latest,
                             });
                             if ps.content_gateways[index].pending_latest.is_none() {
-                                ps.serve_http_content(inbound_states, index);
+                                ps.serve_http_content(stream_states, inbound_states, index);
                             }
-                            return;
                         }
                     }
                 }
                 return;
             }
+            // /stream/{pubkey_hex}/{stream_id} route
+            if req.path.starts_with("/stream/") {
+                let rest = &req.path[8..];
+                let mut parts = rest.splitn(2, '/');
+                if let (Some(pubkey_hex), Some(stream_id)) = (parts.next(), parts.next()) {
+                    let stream_id = stream_id.split('?').next().unwrap_or("");
+                    if !stream_id.is_empty() && !stream_id.contains('/') && !stream_id.contains('.')
+                    {
+                        if let Ok(origin_pubkey) = pubkey_hex.parse::<Ed25519Pub>() {
+                            if !stream_states.contains_key(stream_id) {
+                                let new_ss = StreamState::new(origin_pubkey, stream_id);
+                                stream_states.insert(stream_id.to_string(), new_ss);
+                            }
+                            // Send initial PleaseSendContent to best peers
+                            let peers = ps.best_peers(250, 6);
+                            if let Some(ss) = stream_states.get_mut(stream_id) {
+                                ss.request_blocks(ps, peers);
+                            }
+                            let index = ps.content_gateways.len();
+                            ps.content_gateways.push(ContentGateway {
+                                id: stream_id.to_string(),
+                                http_start: start,
+                                http_end: if end != 0 { end } else { 1 << 62 },
+                                http_socket: stream,
+                                waiting_for_browser: false,
+                                http_done: false,
+                                sent_header: false,
+                                eof: 0,
+                                pending_latest: None,
+                            });
+                            ps.serve_http_content(stream_states, inbound_states, index);
+                        }
+                    }
+                }
+                return;
+            }
+
             if id.find("/") != None {
                 return;
             }
@@ -2027,11 +2084,15 @@ fn handle_web_request(
                 pending_latest: None,
             };
             ps.content_gateways.push(cg);
-            ps.serve_http_content(inbound_states, index);
+            ps.serve_http_content(stream_states, inbound_states, index);
         }
     }
 }
-fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
+fn handle_network(
+    ps: &mut PeerState,
+    stream_states: &mut HashMap<String, StreamState>,
+    inbound_states: &mut HashMap<String, InboundState>,
+) {
     let mut buf = [0; 0x10000];
 
     let (message_in_len, src) = ps.socket.recv_from(&mut buf).unwrap();
@@ -2085,6 +2146,7 @@ fn handle_network(ps: &mut PeerState, inbound_states: &mut HashMap<String, Inbou
         messages,
         &Source::S(src),
         &mut might_be_ip_spoofing,
+        stream_states,
         inbound_states,
         None,
     );
@@ -2175,6 +2237,7 @@ impl Receive for AlwaysReturned {
         _: &mut PeerState,
         _: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -2193,6 +2256,7 @@ impl Receive for PleaseAlwaysReturnThisMessage {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -2215,6 +2279,7 @@ impl Receive for PleaseSendPeers {
         ps: &mut PeerState,
         src: &Source,
         might_be_ip_spoofing: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -2235,6 +2300,7 @@ impl Receive for Peers {
         ps: &mut PeerState,
         _: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -2261,6 +2327,7 @@ impl Receive for IJustSawThis {
         ps: &mut PeerState,
         src: &Source,
         might_be_ip_spoofing: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -2295,6 +2362,7 @@ impl Receive for YouSouldSeeThis {
         ps: &mut PeerState,
         src: &Source,
         might_be_ip_spoofing: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -2323,6 +2391,8 @@ struct PleaseSendContent {
     id: String,
     length: usize,
     offset: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_ed25519: Option<Ed25519Pub>,
 }
 
 #[serde_as]
@@ -2375,6 +2445,7 @@ impl PleaseSendContent {
             id: i.id.to_owned(),
             offset: i.next_block * BLOCK_SIZE!(),
             length: BLOCK_SIZE!(),
+            source_ed25519: None,
         })];
     }
 }
@@ -2384,14 +2455,11 @@ impl Receive for PleaseSendContent {
         ps: &mut PeerState,
         src: &Source,
         might_be_ip_spoofing: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        if self.id.find("/") != None
-            || self.id.find("\\") != None
-            || self.id.starts_with(".")
-            || self.id.len() == 0
-        {
+        if !is_safe_relative_path(&self.id) {
             return vec![];
         };
         let mut message_out: Vec<Message> = Vec::new();
@@ -2427,20 +2495,76 @@ impl Content {
         ps: &mut PeerState,
     ) -> Vec<Message> {
         if *might_be_ip_spoofing && rand::rng().random::<u32>() % 27 == 0 {
-            info!("randomly ignoring unverified source IPs for {} so ba dumb client doesn't get stuck in a loop",req.id);
+            info!("randomly ignoring unverified source IPs for {} so a dumb client doesn't get stuck in a loop",req.id);
+            return vec![];
+        }
+
+        if std::env::var("SKIP_LOCAL").is_ok() {
+            return vec![];
+        }
+
+        if let Some((data_path, sig_path, bitmap_path, source_ed25519)) =
+            req.source_ed25519.map(|pk| {
+                let dir = StreamState::stream_dir(&pk.to_string());
+                (
+                    dir.clone() + &req.id,
+                    dir.clone() + &req.id + ".signatures",
+                    dir.clone() + &req.id + ".bitmap",
+                    pk,
+                )
+            })
+        {
+            let block_number = req.offset / BLOCK_SIZE!();
+            let block_offset = block_number * BLOCK_SIZE!();
+            if !MmapBitVec::open(&bitmap_path, None, true)
+                .map(|bv| block_number < bv.size() && bv.get(block_number))
+                .unwrap_or(false)
+            {
+                return vec![];
+            }
+            let data_file = match File::open(&data_path) {
+                Ok(f) => f,
+                Err(_) => return vec![],
+            };
+            let file_len = data_file.metadata().map_or(0, |m| m.len() as usize);
+            let block_len = BLOCK_SIZE!().min(file_len.saturating_sub(block_offset));
+            if block_len == 0 {
+                return vec![];
+            }
+            let mut buf = vec![0u8; block_len];
+            let n = data_file
+                .read_at(&mut buf, block_offset as u64)
+                .unwrap_or(0);
+            buf.truncate(n);
+            if buf.is_empty() {
+                return vec![];
+            }
+            if let Ok(sig_file) = File::open(&sig_path) {
+                let mut arr = [0u8; 64];
+                if sig_file
+                    .read_at(&mut arr, (block_number * 64) as u64)
+                    .map_or(false, |n| n == 64)
+                    && arr != [0u8; 64]
+                {
+                    let payload = serde_json::to_vec(&vec![Message::Content(Self {
+                            id: req.id.clone(), offset: block_offset, base64: buf, eof: None,
+                        })])
+                    .unwrap();
+                    return vec![Message::SignedMessage(SignedMessage {
+                            ed25519: source_ed25519, signature: arr.to_vec(), payload,
+                        })];
+                }
+            }
             return vec![];
         }
 
         let length = if *might_be_ip_spoofing {
-            1
+            32
         } else if req.length > 0xa000 {
             0xa000
         } else {
             req.length
         };
-        if std::env::var("SKIP_LOCAL").is_ok() {
-            return vec![];
-        }
         let ofr = if let Some(ofr) = ps.open_file_cache.get(&req.id) {
             ofr
         } else if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &req.id) {
@@ -2471,71 +2595,110 @@ impl Receive for Content {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
-        _signer: Option<Ed25519Pub>,
+        signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        if let Source::S(src) = *src {
-            if !inbound_states.contains_key(&self.id) {
-                debug!( "unwanted content, probably dups -- the tail still in flight after completion, for {0} block {1}",
-                self.id, self.offset / BLOCK_SIZE!());
+        let src = match *src {
+            Source::S(src) => src,
+            _ => return vec![],
+        };
+        if let Some(ss) = stream_states.get_mut(&self.id) {
+            if let Some(pk) = signer {
+                if pk != ss.origin_pubkey {
+                    warn!("stream content from wrong signer: expected {} got {}", ss.origin_pubkey, pk);
+                    return vec![];
+                }
+            } else {
+                warn!("unsigned stream Content");
                 return vec![];
             }
-            //if (rand::rng().random::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
-            if (rand::rng().random::<u32>() % 101) == 0 {
-                for (_, i) in inbound_states.iter_mut() {
-                    if i.next_block * BLOCK_SIZE!() >= i.eof {
-                        continue;
-                    }
-                    debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
-                    i.request_blocks(ps, HashSet::from([src]));
-                    i.next_block += 1;
-                    break;
-                }
+            ss.peers.insert(src);
+            let block_end = self.offset + self.base64.len();
+            let new_eof = (block_end + (1 << 20)).max(ss.eof);
+            if new_eof > ss.eof {
+                ss.resize_to(new_eof);
             }
-            let i = inbound_states.get_mut(&self.id).unwrap();
-            i.peers.insert(src);
             let block_number = self.offset / BLOCK_SIZE!();
-            debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
-            let mut message_out = i.receive_content(&self, ps);
-            if self.eof.is_some() && hex::decode(self.id.to_owned()).is_ok() {
-                ps.p.i_just_saw_this = Some(IJustSawThis {
-                    id: self.id.to_owned(),
-                    length: self.eof.unwrap() as u64,
-                });
+            if !ss.block_bit(block_number) && self.base64.len() > 0 {
+                let end = block_end.min(ss.mmap.len());
+                ss.mmap[self.offset..end].copy_from_slice(&self.base64[..end - self.offset]);
+                ss.set_block_bit(block_number);
             }
-            if i.finished() {
-                for (index, cg) in (&mut (ps.content_gateways)).into_iter().enumerate() {
-                    if cg.id == self.id {
-                        cg.serve_content_from_inbound_state(i);
-                        if cg.http_done {
-                            let cg = ps.content_gateways.remove(index);
-                            ps.http_clients.push(cg.http_socket);
-                            break;
-                        }
-                    }
+            ss.last_activity = Instant::now();
+            for idx in 0..ps.content_gateways.len() {
+                if ps.content_gateways[idx].id != self.id || ps.content_gateways[idx].http_done {
+                    continue;
                 }
-                inbound_states.remove(&self.id);
-            }
-            if message_out.len() == 0 {
-                for (_, i) in inbound_states.iter_mut() {
-                    if i.next_block * BLOCK_SIZE!() >= i.eof {
-                        continue;
-                    }
-                    message_out = PleaseSendContent::new_messages(i, ps);
-                    i.next_block += 1;
+                ps.content_gateways[idx].serve_content_from_stream_state(ss);
+                if ps.content_gateways[idx].http_done {
+                    let cg = ps.content_gateways.remove(idx);
+                    ps.http_clients.push(cg.http_socket);
                     break;
                 }
             }
-            if message_out.len() == 0 {
-                if let Some(i) = inbound_states.get_mut(&self.id) {
-                    i.next_block = 0;
-                    message_out = PleaseSendContent::new_messages(i, ps);
-                    i.next_block += 1;
+            return StreamState::new_messages(ss, ps);
+        }
+
+        if !inbound_states.contains_key(&self.id) {
+            debug!( "unwanted content, probably dups -- the tail still in flight after completion, for {0} block {1}",
+                self.id, self.offset / BLOCK_SIZE!());
+            return vec![];
+        }
+        //if (rand::rng().random::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
+        if (rand::rng().random::<u32>() % 101) == 0 {
+            for (_, i) in inbound_states.iter_mut() {
+                if i.next_block * BLOCK_SIZE!() >= i.eof {
+                    continue;
+                }
+                debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
+                i.request_blocks(ps, HashSet::from([src]));
+                i.next_block += 1;
+                break;
+            }
+        }
+        let i = inbound_states.get_mut(&self.id).unwrap();
+        i.peers.insert(src);
+        let block_number = self.offset / BLOCK_SIZE!();
+        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
+        let mut message_out = i.receive_content(&self, ps);
+        if self.eof.is_some() && hex::decode(self.id.to_owned()).is_ok() {
+            ps.p.i_just_saw_this = Some(IJustSawThis {
+                id: self.id.to_owned(),
+                length: self.eof.unwrap() as u64,
+            });
+        }
+        if i.finished() {
+            for (index, cg) in (&mut (ps.content_gateways)).into_iter().enumerate() {
+                if cg.id == self.id {
+                    cg.serve_content_from_inbound_state(i);
+                    if cg.http_done {
+                        let cg = ps.content_gateways.remove(index);
+                        ps.http_clients.push(cg.http_socket);
+                        break;
+                    }
                 }
             }
-            return message_out;
+            inbound_states.remove(&self.id);
         }
-        return vec![];
+        if message_out.len() == 0 {
+            for (_, i) in inbound_states.iter_mut() {
+                if i.next_block * BLOCK_SIZE!() >= i.eof {
+                    continue;
+                }
+                message_out = PleaseSendContent::new_messages(i, ps);
+                i.next_block += 1;
+                break;
+            }
+        }
+        if message_out.len() == 0 {
+            if let Some(i) = inbound_states.get_mut(&self.id) {
+                i.next_block = 0;
+                message_out = PleaseSendContent::new_messages(i, ps);
+                i.next_block += 1;
+            }
+        }
+        return message_out;
     }
 }
 
@@ -2551,6 +2714,145 @@ struct InboundState {
     last_activity: Instant,
     hash_failures: i32,
 }
+
+struct StreamState {
+    mmap: MmapMut,
+    sig_mmap: MmapMut,
+    bitmap: MmapBitVec,
+    id: String,
+    origin_pubkey: Ed25519Pub,
+    eof: usize,
+    next_block: usize,
+    peers: HashSet<SocketAddr>,
+    last_activity: Instant,
+}
+impl StreamState {
+    fn stream_dir(pubkey: &str) -> String {
+        "./cjp2p/streams/".to_owned() + pubkey + "/"
+    }
+    fn new(origin_pubkey: Ed25519Pub, id: &str) -> Self {
+        let dir = StreamState::stream_dir(&origin_pubkey.to_string());
+        fs::create_dir_all(&dir).ok();
+        let initial_eof: usize = 1 << 18;
+        let n_blocks = (initial_eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
+        let data_file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(dir.clone() + id)
+            .unwrap();
+        data_file.set_len(initial_eof as u64).unwrap();
+        let mmap = unsafe { MmapMut::map_mut(&data_file).unwrap() };
+
+        let sig_file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(dir.clone() + id + ".signatures")
+            .unwrap();
+        sig_file.set_len((n_blocks * 64) as u64).unwrap();
+        let sig_mmap = unsafe { MmapMut::map_mut(&sig_file).unwrap() };
+
+        let bitmap = MmapBitVec::create(dir.clone() + id + ".bitmap", n_blocks, None, &[]).unwrap();
+
+        Self {
+            mmap,
+            sig_mmap,
+            bitmap,
+            id: id.to_string(),
+            origin_pubkey,
+            eof: initial_eof,
+            next_block: 0,
+            peers: HashSet::new(),
+            last_activity: Instant::now() - Duration::from_secs(999),
+        }
+    }
+    fn resize_to(&mut self, new_eof: usize) {
+        let n_blocks = (new_eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
+        let dir = StreamState::stream_dir(&self.origin_pubkey.to_string());
+        let data_file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(dir.clone() + &self.id)
+            .unwrap();
+        data_file.set_len(new_eof as u64).unwrap();
+        self.mmap = unsafe { MmapMut::map_mut(&data_file).unwrap() };
+
+        let sig_file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(dir.clone() + &self.id + ".signatures")
+            .unwrap();
+        sig_file.set_len((n_blocks * 64) as u64).unwrap();
+        self.sig_mmap = unsafe { MmapMut::map_mut(&sig_file).unwrap() };
+
+        self.bitmap =
+            MmapBitVec::create(dir.clone() + &self.id + ".bitmap", n_blocks, None, &[]).unwrap();
+
+        self.eof = new_eof;
+    }
+    fn block_bit(&self, n: usize) -> bool {
+        n < self.bitmap.size() && self.bitmap.get(n)
+    }
+    fn set_block_bit(&mut self, n: usize) {
+        if n < self.bitmap.size() {
+            self.bitmap.set(n, true);
+        }
+    }
+    fn first_zero_from(&self, start_block: usize) -> Option<usize> {
+        let n_blocks = (self.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
+        let end = n_blocks.min(self.bitmap.size());
+        (start_block..end).find(|&i| !self.bitmap.get(i))
+    }
+    fn has_viewers(&self, ps: &PeerState) -> bool {
+        ps.content_gateways.iter().any(|cg| cg.id == self.id)
+    }
+    fn new_messages(ss: &mut StreamState, ps: &PeerState) -> Vec<Message> {
+        for cg in &ps.content_gateways {
+            let new_next_block = cg.http_start / BLOCK_SIZE!();
+            if !cg.http_done && !cg.waiting_for_browser && cg.id == ss.id {
+                if new_next_block != ss.next_block
+                    && (ss.next_block * BLOCK_SIZE!() < cg.http_start
+                        || ss.next_block * BLOCK_SIZE!() >= cg.http_start + 0x400000)
+                {
+                    ss.next_block = new_next_block;
+                }
+                break;
+            }
+        }
+        // skip already-received blocks
+        while ss.next_block * BLOCK_SIZE!() < ss.eof && ss.block_bit(ss.next_block) {
+            ss.next_block += 1;
+        }
+        if ss.next_block * BLOCK_SIZE!() >= ss.eof {
+            return vec![];
+        }
+        ss.last_activity = Instant::now();
+        vec![Message::PleaseSendContent(PleaseSendContent {
+            id: ss.id.clone(),
+            offset: ss.next_block * BLOCK_SIZE!(),
+            length: BLOCK_SIZE!(),
+            source_ed25519: Some(ss.origin_pubkey),
+        })]
+    }
+    fn request_blocks(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
+        for sa in some_peers {
+            let mut message_out: Vec<Message> = Vec::new();
+            for m in StreamState::new_messages(self, ps) {
+                message_out.push(m);
+            }
+            if message_out.is_empty() {
+                return;
+            }
+            message_out.append(&mut ps.always_returned(sa));
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            ps.socket.send_to(&message_out_bytes, sa).ok();
+        }
+    }
+}
+
 struct LatestData {
     pub_key: Ed25519Pub,
     name: String,
@@ -2604,6 +2906,19 @@ impl ContentGateway {
             return;
         }
         let mmap = &i.mmap.as_mut().unwrap();
+        self.serve_mmap(mmap, available_end);
+    }
+    fn serve_content_from_stream_state(&mut self, ss: &mut StreamState) {
+        let start_block = self.http_start / BLOCK_SIZE!();
+        let available_end = match ss.first_zero_from(start_block) {
+            Some(zero_block) => zero_block * BLOCK_SIZE!(),
+            None => ss.eof,
+        };
+        if available_end <= self.http_start {
+            self.waiting_for_browser = false;
+            return;
+        }
+        let mmap = &mut ss.mmap;
         self.serve_mmap(mmap, available_end);
     }
     fn serve_mmap(&mut self, mmap: &MmapMut, available_end: usize) {
@@ -2841,7 +3156,11 @@ impl InboundState {
     }
 }
 
-fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut PeerState) -> () {
+fn maintenance(
+    stream_states: &mut HashMap<String, StreamState>,
+    inbound_states: &mut HashMap<String, InboundState>,
+    ps: &mut PeerState,
+) -> () {
     if ps.next_maintenance.elapsed() <= Duration::ZERO {
         return;
     }
@@ -2924,6 +3243,18 @@ fn maintenance(inbound_states: &mut HashMap<String, InboundState>, ps: &mut Peer
 
     ps.unstall_getlatests();
 
+    // Drop stream_states with no viewers and stale activity
+    stream_states
+        .retain(|_, ss| ss.has_viewers(ps) || ss.last_activity.elapsed() < Duration::from_secs(30));
+    // Stall detection: restart next_block for active streams
+    for (_, ss) in stream_states.iter_mut() {
+        if ss.last_activity.elapsed() > Duration::from_secs(1) && ss.has_viewers(ps) {
+            //            ss.next_block = 0;
+            let peers = ss.peers.clone();
+            ss.request_blocks(ps, peers);
+        }
+    }
+
     if ps.list_time + Duration::from_secs(1) < Instant::now() {
         let mut sorted_list_results: Vec<_> = ps.list_results.iter().collect();
         sorted_list_results.sort_by_key(|&(_, b)| b.0);
@@ -2959,6 +3290,7 @@ impl Receive for MaybeTheyHaveSome {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -2986,6 +3318,7 @@ impl Receive for PleaseReturnThisMessage {
         _: &mut PeerState,
         _: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3010,6 +3343,7 @@ impl Receive for ReturnedMessage {
         ps: &mut PeerState,
         src: &Source,
         might_be_ip_spoofing: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3036,6 +3370,7 @@ impl Receive for WhereAreThey {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3068,6 +3403,7 @@ impl Receive for GetPubByEth {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3121,6 +3457,7 @@ impl Receive for SignedPub {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3147,6 +3484,7 @@ impl Receive for Forwarded {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3164,6 +3502,7 @@ impl Receive for Forwarded {
             messages,
             &Source::S(self.src),
             &mut true,
+            stream_states,
             inbound_states,
             None,
         );
@@ -3186,6 +3525,7 @@ impl Receive for Forward {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3237,6 +3577,7 @@ impl Receive for MyPublicKey {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3307,6 +3648,7 @@ impl Receive for ChatMessage {
         ps: &mut PeerState,
         src: &Source,
         might_be_ip_spoofing: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3378,6 +3720,7 @@ impl Receive for PleaseListContent {
         _: &mut PeerState,
         _: &Source,
         might_be_ip_spoofing: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3420,6 +3763,7 @@ impl Receive for ContentList {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3455,6 +3799,8 @@ impl Receive for ContentList {
         return vec![];
     }
 }
+
+// forward secrecy, 2x the CPU as FastEncryptedMessages
 #[serde_as]
 #[derive(Serialize, Deserialize, Debug)]
 struct EncryptedMessages {
@@ -3490,6 +3836,7 @@ impl Receive for EncryptedMessages {
         ps: &mut PeerState,
         src_: &Source,
         might_be_ip_spoofing: &mut bool,
+        stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3546,6 +3893,7 @@ impl Receive for EncryptedMessages {
                         messages,
                         &Source::S(src),
                         might_be_ip_spoofing,
+                        stream_states,
                         inbound_states,
                         _signer,
                     );
@@ -3604,6 +3952,7 @@ impl Receive for FastEncryptedMessages {
         ps: &mut PeerState,
         src_: &Source,
         might_be_ip_spoofing: &mut bool,
+        stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3673,6 +4022,7 @@ impl Receive for FastEncryptedMessages {
                         messages,
                         &Source::S(src),
                         might_be_ip_spoofing,
+                        stream_states,
                         inbound_states,
                         _signer,
                     );
@@ -3711,6 +4061,7 @@ impl Receive for SignedMessage {
         ps: &mut PeerState,
         src: &Source,
         might_be_ip_spoofing: &mut bool,
+        stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3767,6 +4118,27 @@ impl Receive for SignedMessage {
                     }
                 }
             }
+            if let Message::Content(c) = msg {
+                let sig_bytes = match <[u8; 64]>::try_from(self.signature.as_slice()) {
+                    Ok(s) => s,
+                    _ => continue,
+                };
+                let ss = match stream_states.get_mut(&c.id) {
+                    Some(s) => s,
+                    _ => continue,
+                };
+                if ss.origin_pubkey != self.ed25519 || c.base64.len() == 0 {
+                    continue;
+                }
+                let block_number = c.offset / BLOCK_SIZE!();
+                let sig_offset = block_number * 64;
+                let block_end = c.offset + c.base64.len();
+                let new_eof = (block_end + (1 << 20)).max(ss.eof);
+                if new_eof > ss.eof {
+                    ss.resize_to(new_eof);
+                }
+                ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sig_bytes);
+            }
         }
         if ps.ws_vec.len() > 0 {
             let message_out_string = serde_json::to_string(&json![
@@ -3795,6 +4167,7 @@ impl Receive for SignedMessage {
             messages,
             src,
             might_be_ip_spoofing,
+            stream_states,
             inbound_states,
             Some(self.ed25519),
         );
@@ -3914,6 +4287,7 @@ impl Receive for GetLatest {
         ps: &mut PeerState,
         _src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -3965,6 +4339,7 @@ impl Receive for Latest {
         ps: &mut PeerState,
         src: &Source,
         _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
@@ -4044,6 +4419,7 @@ trait Receive {
         ps: &mut PeerState,
         src: &Source,
         might_be_ip_spoofing: &mut bool,
+        stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
         signer: Option<Ed25519Pub>,
     ) -> Vec<Message>;

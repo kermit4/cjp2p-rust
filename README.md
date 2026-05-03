@@ -99,4 +99,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - kind of heavy on bandwith forever if someone requests something that just plain doesnt exist, static or /latest
 - the /ping chat should really do the please reply in advance somehow
 - make useful chat interface, for me
-- i cant tell if this noise IK is forward secret or not anyway, if not, just prefer FastEncrypted
+- better logggin of cpu usage during maintenance
+- it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?
