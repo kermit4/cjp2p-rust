@@ -1,4 +1,4 @@
-This uses the Lowest Common Denominator Protocol (LCDP) (at  https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z4NaokAHdQyjkF562Cj9PpHpGH5f1 ) .   The primary purpose of this repo is to demonstrate a few basic examples of how one could do write p2p interoperable applications using LCDP (externally taggged JSON arrays).  Some browser side applications (relaying through a node over a websocket) are at http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/index.html
+This uses the Lowest Common Denominator Protocol (LCDP) .   The primary purpose of this repo is to demonstrate a few basic examples of how one could do write p2p interoperable applications using LCDP (externally taggged JSON arrays).  Some browser side applications (relaying through a node over a websocket) are at http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/index.html
 
 The current target audience is devs, so the UI is minimal and not well documented.   If you don't intend to develop p2p software, this repo is not for you.  This is not an end-user application.  This is sample code.
 
@@ -7,8 +7,6 @@ This will make available any files in the directory ./cj2p/public  It will ignor
 Files in ./cjp2p/origin/ will be shared by name by your pub, i.e. http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html
 
 If you create .allow_remote_http in the directory you run this, the next time it starts it will allow any IP to connect to the HTTP port, but it will only serve files you already have, it can't cause it to download anything new, and doesn't have any of special access that localhost does. As of this writing that means it will refuse websockets, among other things.  I run it with  .allow_remote_http so I think its safe.
-
-this repo is at at https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z3muoqLkU65QFyyJaVvCv9WiDEo21 and https://github.com/kermit4/cjp2p-rust/
 
 this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle  -- "make pull" to update with it instead of a centralized repo
 
@@ -95,3 +93,10 @@ or HTML pages with many page components, individually downloaded from the networ
 - break apart functionality more and use different names and repos
 - focus on enabling devs, i've done enough demoning
 - ethphone..and chat in it ..and pong
+- the final sha256 should be a thread..this is in git stash but not reviewed
+- /update
+- make pull git stash
+- kind of heavy on bandwith forever if someone requests something that just plain doesnt exist, static or /latest
+- the /ping chat should really do the please reply in advance somehow
+- make useful chat interface, for me
+- i cant tell if this noise IK is forward secret or not anyway, if not, just prefer FastEncrypted
