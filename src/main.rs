@@ -1414,7 +1414,7 @@ pub fn run() -> Result<(), std::io::Error> {
 
 fn handle_stdin(
     ps: &mut PeerState,
-    _stream_states: &mut HashMap<String, StreamState>,
+    stream_states: &mut HashMap<String, StreamState>,
     inbound_states: &mut HashMap<String, InboundState>,
 ) {
     let mut line = String::new();
@@ -1539,7 +1539,10 @@ fn handle_stdin(
         } else if line == "/pending\n" {
             println!("{} pending",inbound_states.len());
             for (_, i) in inbound_states.iter_mut() {
-                println!("pending {} {}/{}",i.id,i.bytes_complete,i.eof);
+                println!("pending download {} {}/{}",i.id,i.bytes_complete,i.eof);
+            }
+            for (_, i) in stream_states.iter_mut() {
+                println!("streaming {} ???/{}",i.id,i.eof);
             }
         } else if line == "/trending\n" {
             let mut trending: HashMap<String, (i32, u64)> = HashMap::new();

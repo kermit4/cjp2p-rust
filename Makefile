@@ -2,6 +2,8 @@ SHELL = /bin/bash -ue
 
 default: debug release
 
+bundle: cjp2p/origin/cjp2p.bundle
+
 cjp2p/origin/cjp2p.bundle: .git/logs/refs/heads/master
 	git bundle create --quiet cjp2p/origin/cjp2p.bundle_ master
 	mv cjp2p/origin/cjp2p.bundle_ cjp2p/origin/cjp2p.bundle

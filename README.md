@@ -101,3 +101,7 @@ or HTML pages with many page components, individually downloaded from the networ
 - make useful chat interface, for me
 - better logggin of cpu usage during maintenance
 - it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?
+- why is signed messsage base64, we know its json, thats just harder to read on a tcpdump
+- use is_safe_relative_path in more places
+- ok it willl be easier ot pass the signature through the stack i think
+- use dev branch
