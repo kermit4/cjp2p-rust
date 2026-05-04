@@ -2509,10 +2509,8 @@ impl Content {
         }
 
         if req.id.starts_with("stream/") {
-            dbg!();
             let mut id_parts = req.id.splitn(3, '/');
             id_parts.next();
-            dbg!();
             let (source_ed25519, file_name) = match (
                 id_parts.next().map(|a| a.parse::<Ed25519Pub>()),
                 id_parts.next(),
@@ -2520,7 +2518,6 @@ impl Content {
                 (Some(Ok(pk)), Some(b)) => (pk, b),
                 _ => return vec![],
             };
-            dbg!();
             let dir = StreamState::stream_dir(&source_ed25519.to_string());
             if !is_safe_relative_path(file_name) {
                 return vec![];
@@ -2530,35 +2527,29 @@ impl Content {
             let bitmap_path = dir.clone() + file_name + ".bitmap";
             let block_number = req.offset / BLOCK_SIZE!();
             let block_offset = block_number * BLOCK_SIZE!();
-            dbg!();
             if !MmapBitVec::open(&bitmap_path, None, true)
                 .map(|bv| block_number < bv.size() && bv.get(block_number))
                 .unwrap_or(false)
             {
                 return vec![];
             }
-            dbg!();
-            let (sig_file,data_file) = match (File::open(&sig_path), File::open(&data_path)) {
+            let (sig_file, data_file) = match (File::open(&sig_path), File::open(&data_path)) {
                 (Ok(a), Ok(b)) => (a, b),
                 _ => return vec![],
             };
-            dbg!();
             let file_len = data_file.metadata().map_or(0, |m| m.len() as usize);
             let block_len = BLOCK_SIZE!().min(file_len.saturating_sub(block_offset));
             if block_len == 0 {
                 return vec![];
             }
-            dbg!();
             let mut buf = vec![0u8; block_len];
             let n = data_file
                 .read_at(&mut buf, block_offset as u64)
                 .unwrap_or(0);
             buf.truncate(n);
-            dbg!();
             if buf.is_empty() {
                 return vec![];
             }
-            dbg!();
             let mut arr = [0u8; 64];
             if !sig_file
                 .read_at(&mut arr, (block_number * 64) as u64)
@@ -2567,7 +2558,6 @@ impl Content {
             {
                 return vec![];
             }
-            dbg!();
             let payload = serde_json::to_vec(&[Message::Content(Self {
                 id: req.id.clone(),
                 offset: block_offset,
@@ -2575,10 +2565,6 @@ impl Content {
                 eof: None,
             })])
             .unwrap();
-            if block_number == 0 {
-                info!("stream block0 SEND sig={} payload={}", hex::encode(&arr), String::from_utf8_lossy(&payload));
-            }
-            dbg!();
             return vec![Message::SignedMessage(SignedMessage {
                             ed25519: source_ed25519, signature: arr.to_vec(),
                             payload: Some(payload), payload_json: None,
@@ -2658,7 +2644,6 @@ impl Receive for Content {
                     .unwrap();
                     let signed_msg = SignedMessage::new(ps, payload);
                     if let Message::SignedMessage(ref sm) = signed_msg {
-                if block_number == 0 { info!("stream block0 RECV from websocket sig={} payload={}", hex::encode(&sm.signature), String::from_utf8_lossy(sm.payload.as_ref().unwrap())); }
                         let sig_offset = block_number * 64;
                         if sig_offset + 64 <= ss.sig_mmap.len() {
                             ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sm.signature);
@@ -4244,7 +4229,6 @@ impl Receive for SignedMessage {
                     ss.resize_to(new_eof);
                 }
                 ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sig_bytes);
-                if block_number == 0 { info!("stream block0 RECV from network sig={} payload={}", hex::encode(&sig_bytes), String::from_utf8_lossy(payload_bytes)); }
             }
         }
         if ps.ws_vec.len() > 0 {
