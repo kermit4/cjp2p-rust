@@ -244,7 +244,9 @@ impl PeerState {
         fs::create_dir("./cjp2p/state").ok();
         fs::create_dir("./cjp2p/origin").ok();
         fs::create_dir("./cjp2p/log").ok();
-        fs::create_dir_all("./cjp2p/metadata/latest").ok();
+        fs::create_dir("./cjp2p/metadata/latest").ok();
+        fs::create_dir("./cjp2p/stream").ok();
+        fs::create_dir("./cjp2p/incoming").ok();
         use std::net::Ipv6Addr;
         let mut ps = Self {
             peer_map: PeerState::load_peers(),
@@ -3026,7 +3028,6 @@ impl ContentGateway {
 }
 impl InboundState {
     fn new(id: &str) -> Self {
-        fs::create_dir("./cjp2p/incoming").ok();
         let mut peers: HashSet<SocketAddr> = HashSet::new();
         let peers_from_disk = InboundState::send_content_peers_from_disk(
             &id.to_string(),
@@ -3136,7 +3137,15 @@ impl InboundState {
             .ok();
     }
     fn send_content_peers_from_disk(id: &String, at_most: usize, src: &SocketAddr) -> Vec<Message> {
-        let filename = "./cjp2p/metadata/".to_owned() + &id + ".json";
+        if !is_safe_relative_path(id) {
+            return vec![];
+        }
+        let path = "./cjp2p/metadata/".to_owned() + &id + ".json";
+        let filename = Path::new(&path);
+        if let Some(parent) = filename.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+
         let mut file = OpenOptions::new()
             .create(true)
             .write(true)
