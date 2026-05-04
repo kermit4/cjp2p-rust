@@ -1815,7 +1815,7 @@ fn handle_web_request(
     if let Ok(len) = stream.peek(&mut buf) {
         if len < 7 {
             if len > 0 {
-                warn!("got short http request, {len} bytes, discarding");
+                debug!("got short http request, {len} bytes, discarding");
             }
             return;
         }
@@ -2013,38 +2013,41 @@ fn handle_web_request(
                 return;
             }
             // /stream/{pubkey_hex}/{stream_id} route
-            if req.path.starts_with("/stream/") {
+            if req.path.starts_with("/stream/") && is_local(&stream) {
                 let rest = &req.path[8..];
                 let mut parts = rest.splitn(2, '/');
                 if let (Some(pubkey_hex), Some(stream_id)) = (parts.next(), parts.next()) {
                     let stream_id = stream_id.split('?').next().unwrap_or("");
-                    if !stream_id.is_empty() && !stream_id.contains('/') && !stream_id.contains('.')
-                    {
-                        if let Ok(origin_pubkey) = pubkey_hex.parse::<Ed25519Pub>() {
-                            if !stream_states.contains_key(stream_id) {
-                                let new_ss = StreamState::new(origin_pubkey, stream_id);
-                                stream_states.insert(stream_id.to_string(), new_ss);
-                            }
-                            // Send initial PleaseSendContent to best peers
-                            let peers = ps.best_peers(250, 6);
-                            if let Some(ss) = stream_states.get_mut(stream_id) {
-                                ss.request_blocks(ps, peers);
-                            }
-                            let index = ps.content_gateways.len();
-                            ps.content_gateways.push(ContentGateway {
-                                id: stream_id.to_string(),
-                                http_start: start,
-                                http_end: if end != 0 { end } else { 1 << 62 },
-                                http_socket: stream,
-                                waiting_for_browser: false,
-                                http_done: false,
-                                sent_header: false,
-                                eof: 0,
-                                pending_latest: None,
-                            });
-                            ps.serve_http_content(stream_states, inbound_states, index);
-                        }
+                    if !is_safe_relative_path(&stream_id) {
+                        return;
                     }
+                    let origin_pubkey = match pubkey_hex.parse::<Ed25519Pub>() {
+                        Ok(p) => p,
+                        _ => return,
+                    };
+                    let full_id = format!("stream/{}/{}", pubkey_hex, stream_id);
+                    if !stream_states.contains_key(&full_id) {
+                        let new_ss = StreamState::new(origin_pubkey, &full_id);
+                        stream_states.insert(full_id.clone(), new_ss);
+                    }
+                    // Send initial PleaseSendContent to best peers
+                    if let Some(ss) = stream_states.get_mut(&full_id) {
+                        let peers = ps.best_peers(250, 6);
+                        ss.request_blocks(ps, peers);
+                    }
+                    let index = ps.content_gateways.len();
+                    ps.content_gateways.push(ContentGateway {
+                        id: full_id,
+                        http_start: start,
+                        http_end: if end != 0 { end } else { 1 << 62 },
+                        http_socket: stream,
+                        waiting_for_browser: false,
+                        http_done: false,
+                        sent_header: false,
+                        eof: 0,
+                        pending_latest: None,
+                    });
+                    ps.serve_http_content(stream_states, inbound_states, index);
                 }
                 return;
             }
@@ -2397,8 +2400,6 @@ struct PleaseSendContent {
     id: String,
     length: usize,
     offset: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source_ed25519: Option<Ed25519Pub>,
 }
 
 #[serde_as]
@@ -2451,7 +2452,6 @@ impl PleaseSendContent {
             id: i.id.to_owned(),
             offset: i.next_block * BLOCK_SIZE!(),
             length: BLOCK_SIZE!(),
-            source_ed25519: None,
         })];
     }
 }
@@ -2509,17 +2509,23 @@ impl Content {
             return vec![];
         }
 
-        if let Some((data_path, sig_path, bitmap_path, source_ed25519)) =
-            req.source_ed25519.map(|pk| {
-                let dir = StreamState::stream_dir(&pk.to_string());
-                (
-                    dir.clone() + &req.id,
-                    dir.clone() + &req.id + ".signatures",
-                    dir.clone() + &req.id + ".bitmap",
-                    pk,
-                )
-            })
-        {
+        if req.id.starts_with("stream/") {
+            let mut id_parts = req.id.splitn(3, '/');
+            id_parts.next();
+            let (source_ed25519, file_name) = match (
+                id_parts.next().map(|a| a.parse::<Ed25519Pub>()),
+                id_parts.next(),
+            ) {
+                (Some(Ok(pk)), Some(b)) => (pk, b),
+                _ => return vec![],
+            };
+            let dir = StreamState::stream_dir(&source_ed25519.to_string());
+            if !is_safe_relative_path(file_name) {
+                return vec![];
+            }
+            let data_path = dir.clone() + file_name;
+            let sig_path = dir.clone() + file_name + ".signatures";
+            let bitmap_path = dir.clone() + file_name + ".bitmap";
             let block_number = req.offset / BLOCK_SIZE!();
             let block_offset = block_number * BLOCK_SIZE!();
             if !MmapBitVec::open(&bitmap_path, None, true)
@@ -2528,9 +2534,9 @@ impl Content {
             {
                 return vec![];
             }
-            let data_file = match File::open(&data_path) {
-                Ok(f) => f,
-                Err(_) => return vec![],
+            let (data_file, sig_file) = match (File::open(&sig_path), File::open(&data_path)) {
+                (Ok(a), Ok(b)) => (a, b),
+                _ => return vec![],
             };
             let file_len = data_file.metadata().map_or(0, |m| m.len() as usize);
             let block_len = BLOCK_SIZE!().min(file_len.saturating_sub(block_offset));
@@ -2545,23 +2551,28 @@ impl Content {
             if buf.is_empty() {
                 return vec![];
             }
-            if let Ok(sig_file) = File::open(&sig_path) {
-                let mut arr = [0u8; 64];
-                if sig_file
-                    .read_at(&mut arr, (block_number * 64) as u64)
-                    .map_or(false, |n| n == 64)
-                    && arr != [0u8; 64]
-                {
-                    let payload = serde_json::to_vec(&vec![Message::Content(Self {
-                            id: req.id.clone(), offset: block_offset, base64: buf, eof: None,
-                        })])
-                    .unwrap();
-                    return vec![Message::SignedMessage(SignedMessage {
-                            ed25519: source_ed25519, signature: arr.to_vec(), payload,
-                        })];
-                }
+            let mut arr = [0u8; 64];
+            if !sig_file
+                .read_at(&mut arr, (block_number * 64) as u64)
+                .map_or(false, |n| n == 64)
+                || arr == [0u8; 64]
+            {
+                return vec![];
             }
-            return vec![];
+            let payload = serde_json::to_vec(&[Message::Content(Self {
+                id: req.id.clone(),
+                offset: block_offset,
+                base64: buf,
+                eof: None,
+            })])
+            .unwrap();
+            if block_number == 0 {
+                info!("stream block0 SEND sig={} payload={}", hex::encode(&arr), String::from_utf8_lossy(&payload));
+            }
+            return vec![Message::SignedMessage(SignedMessage {
+                            ed25519: source_ed25519, signature: arr.to_vec(),
+                            payload: Some(payload), payload_json: None,
+                        })];
         }
 
         let length = if *might_be_ip_spoofing {
@@ -2603,12 +2614,60 @@ impl Receive for Content {
         _: &mut bool,
         stream_states: &mut HashMap<String, StreamState>,
         inbound_states: &mut HashMap<String, InboundState>,
-        signer: Option<Ed25519Pub>,
+        mut signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
+        let parts: Vec<&str> = self.id.splitn(3, '/').collect();
+        if matches!(src, Source::None)
+            && parts.len() == 3
+            && parts[0] == "stream"
+            && is_safe_relative_path(parts[2])
+        {
+            if let Ok(origin_pubkey) = parts[1].parse::<Ed25519Pub>() {
+                let full_id = self.id.clone();
+                if !stream_states.contains_key(&full_id) {
+                    let new_ss = StreamState::new(origin_pubkey, &full_id);
+                    stream_states.insert(full_id.clone(), new_ss);
+                }
+                if let Some(ss) = stream_states.get_mut(&full_id) {
+                    let block_number = self.offset / BLOCK_SIZE!();
+                    /*                    let block_end = self.offset + self.base64.len();
+                    let new_eof = (block_end + (1 << 20)).max(ss.eof);
+                    if new_eof > ss.eof {
+                        ss.resize_to(new_eof);
+                    }
+                    ss.mmap[self.offset..block_end]
+                        .copy_from_slice(&self.base64[..self.base64.len()]);
+                    ss.set_block_bit(block_number); */
+                    signer = Some(ps.keypair.public);
+                    let payload = serde_json::to_vec(&[Message::Content(Self {
+                        id: self.id.clone(),
+                        offset: self.offset,
+                        base64: self.base64.clone(),
+                        eof: self.eof,
+                    })])
+                    .unwrap();
+                    let signed_msg = SignedMessage::new(ps, payload);
+                    if let Message::SignedMessage(ref sm) = signed_msg {
+                        let sig_offset = block_number * 64;
+                        if sig_offset + 64 <= ss.sig_mmap.len() {
+                            ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sm.signature);
+                        }
+                    }
+                    ss.last_activity = Instant::now();
+                }
+            }
+            //            return vec![];
+        }
         let src = match *src {
             Source::S(src) => src,
             _ => return vec![],
         };
+        if self.eof.is_some() {
+            ps.p.i_just_saw_this = Some(IJustSawThis {
+                id: self.id.to_owned(),
+                length: self.eof.unwrap() as u64,
+            });
+        }
         if let Some(ss) = stream_states.get_mut(&self.id) {
             if let Some(pk) = signer {
                 if pk != ss.origin_pubkey {
@@ -2626,9 +2685,8 @@ impl Receive for Content {
                 ss.resize_to(new_eof);
             }
             let block_number = self.offset / BLOCK_SIZE!();
-            if !ss.block_bit(block_number) && self.base64.len() > 0 {
-                let end = block_end.min(ss.mmap.len());
-                ss.mmap[self.offset..end].copy_from_slice(&self.base64[..end - self.offset]);
+            if self.base64.len() > 0 {
+                ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
                 ss.set_block_bit(block_number);
             }
             ss.last_activity = Instant::now();
@@ -2643,7 +2701,13 @@ impl Receive for Content {
                     break;
                 }
             }
-            return StreamState::new_messages(ss, ps);
+            if (rand::rng().random::<u32>() % 101) == 0 {
+                ss.request_blocks(ps, HashSet::from([src]));
+                ss.next_block += 1;
+            }
+            let message_out = StreamState::PleaseSendContent__new_messages(ss, ps);
+            ss.next_block += 1;
+            return message_out;
         }
 
         if !inbound_states.contains_key(&self.id) {
@@ -2668,12 +2732,6 @@ impl Receive for Content {
         let block_number = self.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
         let mut message_out = i.receive_content(&self, ps);
-        if self.eof.is_some() && hex::decode(self.id.to_owned()).is_ok() {
-            ps.p.i_just_saw_this = Some(IJustSawThis {
-                id: self.id.to_owned(),
-                length: self.eof.unwrap() as u64,
-            });
-        }
         if i.finished() {
             for (index, cg) in (&mut (ps.content_gateways)).into_iter().enumerate() {
                 if cg.id == self.id {
@@ -2739,28 +2797,12 @@ impl StreamState {
     fn new(origin_pubkey: Ed25519Pub, id: &str) -> Self {
         let dir = StreamState::stream_dir(&origin_pubkey.to_string());
         fs::create_dir_all(&dir).ok();
-        let initial_eof: usize = 1 << 18;
-        let n_blocks = (initial_eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
-        let data_file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(dir.clone() + id)
-            .unwrap();
-        data_file.set_len(initial_eof as u64).unwrap();
-        let mmap = unsafe { MmapMut::map_mut(&data_file).unwrap() };
-
-        let sig_file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(dir.clone() + id + ".signatures")
-            .unwrap();
-        sig_file.set_len((n_blocks * 64) as u64).unwrap();
-        let sig_mmap = unsafe { MmapMut::map_mut(&sig_file).unwrap() };
-
-        let bitmap = MmapBitVec::create(dir.clone() + id + ".bitmap", n_blocks, None, &[]).unwrap();
-
+        let file_name = id.rsplit('/').next().unwrap_or(id);
+        let existing_eof = fs::metadata(dir.clone() + file_name)
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
+        let initial_eof = (1usize << 18).max(existing_eof);
+        let (mmap, sig_mmap, bitmap) = Self::open_files(&dir, id, initial_eof);
         Self {
             mmap,
             sig_mmap,
@@ -2773,30 +2815,44 @@ impl StreamState {
             last_activity: Instant::now() - Duration::from_secs(999),
         }
     }
-    fn resize_to(&mut self, new_eof: usize) {
+    fn open_files(dir: &str, id: &str, new_eof: usize) -> (MmapMut, MmapMut, MmapBitVec) {
         let n_blocks = (new_eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
-        let dir = StreamState::stream_dir(&self.origin_pubkey.to_string());
+        let file_name = id.rsplit('/').next().unwrap_or(id);
         let data_file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
-            .open(dir.clone() + &self.id)
+            .open(dir.to_owned() + file_name)
             .unwrap();
-        data_file.set_len(new_eof as u64).unwrap();
-        self.mmap = unsafe { MmapMut::map_mut(&data_file).unwrap() };
+        if data_file.metadata().map_or(0, |m| m.len()) < new_eof as u64 {
+            data_file.set_len(new_eof as u64).unwrap();
+        }
+        let mmap = unsafe { MmapMut::map_mut(&data_file).unwrap() };
 
         let sig_file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
-            .open(dir.clone() + &self.id + ".signatures")
+            .open(dir.to_owned() + file_name + ".signatures")
             .unwrap();
-        sig_file.set_len((n_blocks * 64) as u64).unwrap();
-        self.sig_mmap = unsafe { MmapMut::map_mut(&sig_file).unwrap() };
+        let sig_target = (n_blocks * 64) as u64;
+        if sig_file.metadata().map_or(0, |m| m.len()) < sig_target {
+            sig_file.set_len(sig_target).unwrap();
+        }
+        let sig_mmap = unsafe { MmapMut::map_mut(&sig_file).unwrap() };
 
-        self.bitmap =
-            MmapBitVec::create(dir.clone() + &self.id + ".bitmap", n_blocks, None, &[]).unwrap();
+        let bitmap =
+            MmapBitVec::create(dir.to_owned() + file_name + ".bitmap", n_blocks, None, &[])
+                .unwrap();
 
+        (mmap, sig_mmap, bitmap)
+    }
+    fn resize_to(&mut self, new_eof: usize) {
+        let dir = StreamState::stream_dir(&self.origin_pubkey.to_string());
+        let (mmap, sig_mmap, bitmap) = Self::open_files(&dir, &self.id, new_eof);
+        self.mmap = mmap;
+        self.sig_mmap = sig_mmap;
+        self.bitmap = bitmap;
         self.eof = new_eof;
     }
     fn block_bit(&self, n: usize) -> bool {
@@ -2815,7 +2871,7 @@ impl StreamState {
     fn has_viewers(&self, ps: &PeerState) -> bool {
         ps.content_gateways.iter().any(|cg| cg.id == self.id)
     }
-    fn new_messages(ss: &mut StreamState, ps: &PeerState) -> Vec<Message> {
+    fn PleaseSendContent__new_messages(ss: &mut StreamState, ps: &PeerState) -> Vec<Message> {
         for cg in &ps.content_gateways {
             let new_next_block = cg.http_start / BLOCK_SIZE!();
             if !cg.http_done && !cg.waiting_for_browser && cg.id == ss.id {
@@ -2840,20 +2896,21 @@ impl StreamState {
             id: ss.id.clone(),
             offset: ss.next_block * BLOCK_SIZE!(),
             length: BLOCK_SIZE!(),
-            source_ed25519: Some(ss.origin_pubkey),
         })]
     }
     fn request_blocks(&mut self, ps: &mut PeerState, some_peers: HashSet<SocketAddr>) {
         for sa in some_peers {
             let mut message_out: Vec<Message> = Vec::new();
-            for m in StreamState::new_messages(self, ps) {
+            for m in StreamState::PleaseSendContent__new_messages(self, ps) {
                 message_out.push(m);
             }
-            if message_out.is_empty() {
+            if message_out.len() < 1 {
                 return;
             }
             message_out.append(&mut ps.always_returned(sa));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            debug!( "requesting additional blocks {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes)
+            );
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
     }
@@ -3059,7 +3116,6 @@ impl InboundState {
                 return;
             }
             message_out.append(&mut ps.always_returned(sa));
-
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             debug!( "requesting additional blocks {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes)
             );
@@ -3268,8 +3324,17 @@ fn maintenance(
     for (_, ss) in stream_states.iter_mut() {
         if ss.last_activity.elapsed() > Duration::from_secs(1) && ss.has_viewers(ps) {
             //            ss.next_block = 0;
-            let peers = ss.peers.clone();
+            for _ in 0..(1 + 5 / (1 + ss.peers.len())) {
+                ss.request_blocks(ps, ss.peers.clone());
+            }
+            let peers = ps.best_peers(50 * 5, 6);
+            info!("searching {} peers",peers.len());
             ss.request_blocks(ps, peers);
+            // TODO the longer its been stuck, the more it should be ignored to try others, instead of
+            // this pure random
+            if rand::rng().random::<u32>() % 2 == 0 {
+                break;
+            }
         }
     }
 
@@ -3521,8 +3586,6 @@ struct Forward {
     to_ed25519: Option<Ed25519Pub>,
     #[serde(skip_serializing_if = "Option::is_none")]
     src: Option<SocketAddr>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sign: Option<bool>,
     messages: Vec<Value>,
 }
 impl Receive for Forward {
@@ -3545,13 +3608,7 @@ impl Receive for Forward {
             return vec![];
         }
         debug!("websocket asked me to forward {:?}", &self.messages);
-        let messages: Vec<Value> = if self.sign == Some(true) {
-            let inner = serde_json::to_vec(&self.messages).unwrap();
-            let signed = SignedMessage::new(ps, inner);
-            vec![serde_json::to_value(&signed).unwrap()]
-        } else {
-            self.messages
-        };
+        let messages = self.messages;
         if let Some(to) = self.src {
             let message_out_bytes = serde_json::to_vec(&messages).unwrap();
             ps.socket.send_to(&message_out_bytes, to).ok();
@@ -4048,8 +4105,11 @@ struct SignedMessage {
     ed25519: Ed25519Pub,
     #[serde_as(as = "Base64")]
     signature: Vec<u8>,
-    #[serde_as(as = "Base64")]
-    payload: Vec<u8>,
+    #[serde_as(as = "Option<Base64>")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    payload: Option<Vec<u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    payload_json: Option<String>,
 }
 impl SignedMessage {
     fn new(ps: &PeerState, messages: Vec<u8>) -> Message {
@@ -4057,8 +4117,15 @@ impl SignedMessage {
         Message::SignedMessage(Self {
             ed25519: ps.keypair.public,
             signature,
-            payload: messages,
+            payload: Some(messages),
+            payload_json: None,
         })
+    }
+    fn payload_bytes(&self) -> Option<&[u8]> {
+        if let Some(s) = &self.payload_json {
+            return Some(s.as_bytes());
+        }
+        self.payload.as_deref()
     }
 }
 impl Receive for SignedMessage {
@@ -4086,11 +4153,18 @@ impl Receive for SignedMessage {
                 return vec![];
             }
         };
-        if verifying_key.verify(&self.payload, &signature).is_err() {
+        let payload_bytes = match self.payload_bytes() {
+            Some(b) => b,
+            None => {
+                warn!("SignedMessage: no payload from {:?}", src);
+                return vec![];
+            }
+        };
+        if verifying_key.verify(payload_bytes, &signature).is_err() {
             warn!("SignedMessage: invalid signature from {:?}", src);
             return vec![];
         }
-        let messages: Messages = match serde_json::from_slice(&self.payload) {
+        let messages: Messages = match serde_json::from_slice(payload_bytes) {
             Ok(r) => r,
             Err(e) => {
                 debug!("could not deserialize signed messages from {:?}: {e}", src);
@@ -4103,25 +4177,26 @@ impl Receive for SignedMessage {
         // without passing the signature and the payload down the handling chain so its special case either way, but maybe this should be in a different function in Latest
         for msg in &messages {
             if let Message::Latest(latest) = msg {
-                if latest.ed25519 == self.ed25519
-                    && is_safe_relative_path(&latest.name)
-                    && latest.sha256.len() == 64
-                    && hex::decode(&latest.sha256).is_ok()
+                if latest.ed25519 != self.ed25519
+                    || !is_safe_relative_path(&latest.name)
+                    || latest.sha256.len() != 64
+                    || !hex::decode(&latest.sha256).is_ok()
                 {
-                    let pub_hex = self.ed25519.to_string();
-                    let cache_path = latest_cache_path(&pub_hex, &latest.name);
-                    let cached_seq = load_seq_from_latest_cache(&cache_path);
-                    if latest.seq > cached_seq {
-                        if let Some(dir) = Path::new(&cache_path).parent() {
-                            fs::create_dir_all(dir).ok();
-                        }
-                        if let Ok(json) =
-                            serde_json::to_vec_pretty(&Message::SignedMessage(self.clone()))
-                        {
-                            fs::write(&cache_path, json).ok();
-                        }
-                        info!("cached latest {}/{} seq={} sha256={}", pub_hex, latest.name, latest.seq, latest.sha256);
+                    continue;
+                }
+                let pub_hex = self.ed25519.to_string();
+                let cache_path = latest_cache_path(&pub_hex, &latest.name);
+                let cached_seq = load_seq_from_latest_cache(&cache_path);
+                if latest.seq > cached_seq {
+                    if let Some(dir) = Path::new(&cache_path).parent() {
+                        fs::create_dir_all(dir).ok();
                     }
+                    if let Ok(json) =
+                        serde_json::to_vec_pretty(&Message::SignedMessage(self.clone()))
+                    {
+                        fs::write(&cache_path, json).ok();
+                    }
+                    info!("cached latest {}/{} seq={} sha256={}", pub_hex, latest.name, latest.seq, latest.sha256);
                 }
             }
             if let Message::Content(c) = msg {
@@ -4144,6 +4219,9 @@ impl Receive for SignedMessage {
                     ss.resize_to(new_eof);
                 }
                 ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sig_bytes);
+                if block_number == 0 {
+                    info!("stream block0 RECV sig={} payload={}", hex::encode(&sig_bytes), String::from_utf8_lossy(payload_bytes));
+                }
             }
         }
         if ps.ws_vec.len() > 0 {
@@ -4152,7 +4230,7 @@ impl Receive for SignedMessage {
                     src: if let Source::S(s) = src { *s } else { "0.0.0.0:0".parse().unwrap() },
                     from_ed25519: Some(self.ed25519),
                     maybe_ed25519: None,
-                    messages: String::from_utf8_lossy(&self.payload).to_string(),
+                    messages: String::from_utf8_lossy(payload_bytes).to_string(),
                 })]])
             .unwrap();
             trace!("sending signed message from ed25519={} to {} websockets", 
@@ -4204,7 +4282,11 @@ fn load_seq_from_latest_cache(cache_path: &str) -> u64 {
     let Message::SignedMessage(sm) = msg else {
         return 0;
     };
-    let Ok(msgs) = serde_json::from_slice::<Vec<Message>>(&sm.payload) else {
+    let Ok(msgs) = sm
+        .payload_bytes()
+        .and_then(|b| serde_json::from_slice::<Vec<Message>>(b).ok())
+        .ok_or(())
+    else {
         return 0;
     };
     for inner in msgs {
@@ -4221,7 +4303,9 @@ fn load_sha256_from_latest_cache(cache_path: &str) -> Option<String> {
     let Message::SignedMessage(sm) = msg else {
         return None;
     };
-    let msgs = serde_json::from_slice::<Vec<Message>>(&sm.payload).ok()?;
+    let msgs = sm
+        .payload_bytes()
+        .and_then(|b| serde_json::from_slice::<Vec<Message>>(b).ok())?;
     for inner in msgs {
         if let Message::Latest(l) = inner {
             return Some(l.sha256);
@@ -4524,7 +4608,7 @@ fn has_passed(deadline: std::time::Instant) -> bool {
 
 fn log_if_slow(nowi: Instant, line: String) {
     let prof = nowi.elapsed();
-    let txt = format!("line {} probe took {:?}\x1b[m",line,prof);
+    let txt = format!("line {} took {:?} since timer set \x1b[m",line,prof);
     if prof > Duration::from_millis(80) {
         error!("\x1b[7;31m {} ",txt);
     } else if prof > Duration::from_millis(40) {
