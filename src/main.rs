@@ -105,7 +105,7 @@ struct PeerInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     ed25519_eth_signer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    you_should_see_this: Option<YouSouldSeeThis>,
+    you_should_see_this: Option<YouShouldSeeThis>,
     #[serde(skip_serializing_if = "Option::is_none")]
     i_just_saw_this: Option<IJustSawThis>,
 }
@@ -117,10 +117,7 @@ impl PeerInfo {
             ed25519: None,
             ed25519_eth_signed: None,
             ed25519_eth_signer: None,
-            you_should_see_this: Some(YouSouldSeeThis {
-                id: "43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1".to_owned(),
-                length: 105277987,
-            }),
+            you_should_see_this: None,
             i_just_saw_this: None,
         };
     }
@@ -205,7 +202,7 @@ struct PeerState {
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
-    you_should_see_this: Option<YouSouldSeeThis>,
+    you_should_see_this: Option<YouShouldSeeThis>,
     i_just_saw_this: Option<IJustSawThis>,
     #[serde(default)]
     my_ed25519_signed_by_web_wallet: Option<String>,
@@ -450,7 +447,7 @@ impl PeerState {
                 message_out.push(Message::IJustSawThis(v.clone()));
             }
             if let Some(v) = &self.p.you_should_see_this {
-                message_out.push(Message::YouSouldSeeThis(v.clone()));
+                message_out.push(Message::YouShouldSeeThis(v.clone()));
             }
             message_out.push(MyPublicKey::new(self));
             message_out.append(&mut self.always_returned(*sa));
@@ -1529,7 +1526,7 @@ fn handle_stdin(
                 println!("{} total unique IP peers.  ",unique_ips.len());
             });
         } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
-            ps.p.you_should_see_this = Some(YouSouldSeeThis {
+            ps.p.you_should_see_this = Some(YouShouldSeeThis {
                 id: arg.to_owned(),
                 length: File::open("./cjp2p/public/".to_owned() + &arg)
                     .unwrap()
@@ -2361,11 +2358,11 @@ impl Receive for IJustSawThis {
     }
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
-struct YouSouldSeeThis {
+struct YouShouldSeeThis {
     id: String,
     length: u64,
 }
-impl Receive for YouSouldSeeThis {
+impl Receive for YouShouldSeeThis {
     fn receive(
         self,
         ps: &mut PeerState,
@@ -3491,8 +3488,8 @@ impl Receive for GetPubByEth {
                         let maybe_ed25519 = None;
 
                         let messages = serde_json::to_string(&message_out).unwrap();
-                        trace!("sending {:?} ed25519 {} to ",src,ed25519);
-                        info!("sending {:?} ed25519 {} for eth addr {} to ",src,ed25519,signer);
+                        trace!("sending {:?} ed25519 {}",src,ed25519);
+                        info!("sending {:?} ed25519 {} for eth addr {}",src,ed25519,signer);
                         let src = *k;
                         return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
                     }
@@ -3509,6 +3506,7 @@ impl Receive for GetPubByEth {
         for sa in peers {
             let mut message_out = vec![Message::GetPubByEth(self.clone())];
             message_out.push(ps.please_always_return(sa.clone()));
+            message_out.append(&mut ps.always_returned(sa));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
@@ -3608,8 +3606,12 @@ impl Receive for Forward {
             return vec![];
         }
         debug!("websocket asked me to forward {:?}", &self.messages);
-        let messages = self.messages;
+        let mut messages = self.messages;
         if let Some(to) = self.src {
+            let c = ps.always_returned(to);
+            if c.len() > 0 {
+                messages.push(serde_json::to_value(&c[0]).unwrap());
+            }
             let message_out_bytes = serde_json::to_vec(&messages).unwrap();
             ps.socket.send_to(&message_out_bytes, to).ok();
             return vec![];
@@ -4478,7 +4480,7 @@ enum Message {
     SignedMessage(SignedMessage),
     PleaseListContent(PleaseListContent),
     ContentList(ContentList),
-    YouSouldSeeThis(YouSouldSeeThis),
+    YouShouldSeeThis(YouShouldSeeThis),
     IJustSawThis(IJustSawThis),
     Forward(Forward),
     Forwarded(Forwarded),
