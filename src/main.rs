@@ -2167,7 +2167,7 @@ fn handle_network(
         trim_reply(&mut message_out, message_in_len);
     }
     if message_out.len() == 0 {
-        warn!("ratio: none left!");
+        debug!("ratio: none left!");
         return;
     }
     let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
