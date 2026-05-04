@@ -2670,12 +2670,15 @@ impl Receive for Content {
                 warn!("unsigned stream Content");
                 return vec![];
             }
+            let mut message_out = vec![];
             if let Source::S(src) = *src {
                 ss.peers.insert(src);
                 if (rand::rng().random::<u32>() % 101) == 0 {
                     ss.request_blocks(ps, HashSet::from([src]));
                     ss.next_block += 1;
                 }
+                message_out = StreamState::PleaseSendContent__new_messages(ss, ps);
+                ss.next_block += 1;
             }
             let block_end = self.offset + self.base64.len();
             let new_eof = (block_end + (1 << 20)).max(ss.eof);
@@ -2699,8 +2702,6 @@ impl Receive for Content {
                     break;
                 }
             }
-            let message_out = StreamState::PleaseSendContent__new_messages(ss, ps);
-            ss.next_block += 1;
             return message_out;
         }
         let src = match *src {
