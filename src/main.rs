@@ -2222,7 +2222,7 @@ fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
         ratio = // 20 is IP header, 8 is UDP header
             (message_out_bytes.len() as f64 + 20.0 + 8.0) / (message_in_length  as f64 + 20.0 + 8.0);
         trace!("ratio: {ratio}");
-        message_out.len() > 0 && ratio > 2.5
+        message_out.len() > 0 && ratio > rand::rng().random_range(1.0..5.0)
     } {
         let popped = message_out.pop();
         debug!("{ratio}x ratio: dropping part of response to unverified source IP, so that you are not used as a flood/stressor/DDOS. {:?}", popped);
