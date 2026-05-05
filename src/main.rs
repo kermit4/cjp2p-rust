@@ -2814,6 +2814,7 @@ struct StreamState {
     next_block: usize,
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
+    last_viewed: Instant,
 }
 impl StreamState {
     fn stream_dir(pubkey: &str) -> String {
@@ -2838,6 +2839,7 @@ impl StreamState {
             next_block: 0,
             peers: HashSet::new(),
             last_activity: Instant::now() - Duration::from_secs(999),
+            last_viewed: Instant::now(),
         }
     }
     fn open_files(dir: &str, id: &str, new_eof: usize) -> (MmapMut, MmapMut, MmapBitVec) {
@@ -2893,8 +2895,8 @@ impl StreamState {
         let end = n_blocks.min(self.bitmap.size());
         (start_block..end).find(|&i| !self.bitmap.get(i))
     }
-    fn has_viewers(&self, ps: &PeerState) -> bool {
-        ps.content_gateways.iter().any(|cg| cg.id == self.id)
+    fn has_viewers(&self) -> bool {
+        self.last_viewed.elapsed() <= Duration::from_secs(30)
     }
     #[allow(non_snake_case)]
     fn PleaseSendContent__new_messages(ss: &mut StreamState, ps: &PeerState) -> Vec<Message> {
@@ -2999,6 +3001,7 @@ impl ContentGateway {
         self.serve_mmap(mmap, available_end);
     }
     fn serve_content_from_stream_state(&mut self, ss: &mut StreamState) {
+        ss.last_viewed = Instant::now();
         let start_block = self.http_start / BLOCK_SIZE!();
         let available_end = match ss.first_zero_from(start_block) {
             Some(zero_block) => zero_block * BLOCK_SIZE!(),
@@ -3371,22 +3374,24 @@ fn maintenance(
     log_if_slow(nowi, line!().to_string());
 
     // Drop stream_states with no viewers and stale activity
-    stream_states.retain(|_, ss| ss.has_viewers(ps));
+    stream_states.retain(|_, ss| ss.has_viewers());
     // Stall detection: restart next_block for active streams
     for (_, ss) in stream_states.iter_mut() {
-        if ss.last_activity.elapsed() > Duration::from_secs(1) && ss.has_viewers(ps) {
-            //            ss.next_block = 0;
-            for _ in 0..(1 + 5 / (1 + ss.peers.len())) {
-                ss.request_blocks(ps, ss.peers.clone());
-            }
-            let peers = ps.best_peers(50 * 5, 6);
-            info!("searching  {} peers for {}",peers.len(),ss.id);
-            ss.request_blocks(ps, peers);
-            // TODO the longer its been stuck, the more it should be ignored to try others, instead of
-            // this pure random
-            if rand::rng().random::<u32>() % 2 == 0 {
-                break;
-            }
+        if ss.last_activity.elapsed() <= Duration::from_secs(1) || !ss.has_viewers() {
+            continue;
+        }
+
+        //            ss.next_block = 0;
+        for _ in 0..(1 + 5 / (1 + ss.peers.len())) {
+            ss.request_blocks(ps, ss.peers.clone());
+        }
+        let peers = ps.best_peers(50 * 5, 6);
+        info!("searching  {} peers for {}",peers.len(),ss.id);
+        ss.request_blocks(ps, peers);
+        // TODO the longer its been stuck, the more it should be ignored to try others, instead of
+        // this pure random
+        if rand::rng().random::<u32>() % 2 == 0 {
+            break;
         }
     }
 
