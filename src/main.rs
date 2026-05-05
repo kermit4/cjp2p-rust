@@ -2061,7 +2061,7 @@ fn handle_web_request(
                     ps.content_gateways.push(ContentGateway {
                         id: full_id,
                         http_start: start,
-                        http_end: if end != 0 { end } else { 0x7fffffff },
+                        http_end: if end != 0 { end } else { 0x7fffffffff },
                         http_socket: stream,
                         ranged: ranged,
                         waiting_for_browser: false,
@@ -3025,7 +3025,7 @@ impl ContentGateway {
                                  Accept-Range: bytes\r\n\
                                  Content-Range: bytes {}-{}/{}\r\n\
                                  Content-Type: {}\r\n\r\n"
-            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffff), mime_type.mime())
+            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffffff), mime_type.mime())
             } else {
                 format!(
                                 "HTTP/1.1 200 OK\r\n\
