@@ -2897,6 +2897,7 @@ impl StreamState {
     fn has_viewers(&self, ps: &PeerState) -> bool {
         ps.content_gateways.iter().any(|cg| cg.id == self.id)
     }
+    #[allow(non_snake_case)]
     fn PleaseSendContent__new_messages(ss: &mut StreamState, ps: &PeerState) -> Vec<Message> {
         for cg in &ps.content_gateways {
             let new_next_block = cg.http_start / BLOCK_SIZE!();
@@ -3015,6 +3016,9 @@ impl ContentGateway {
         if !self.sent_header {
             let mime_type = mimetype_detector::detect(&mmap[0..]);
             let response = if self.ranged {
+                if self.http_end - self.http_start > 0x100000 {
+                    self.http_end = self.http_start + 0x100000;
+                } // seems to improve seeking in Brave
                 format!(
                                 "HTTP/1.1 206 Partial Content\r\n\
                                  Content-Length: {}\r\n\
@@ -3049,11 +3053,16 @@ impl ContentGateway {
             .write(&mmap[self.http_start..available_end])
         {
             Ok(sent) => self.http_start += sent,
-            Err(err) => {
-                warn!("http client error {err}");
-                self.http_done = true;
-                self.waiting_for_browser = false;
-                return;
+            Err(e) => {
+                if e.raw_os_error() == Some(11) {
+                    debug!("EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {e}");
+                    // failed to send (your wifi/mobile connection is probably backing up) {0} {e}", msg_out.len());
+                } else {
+                    warn!("http client error {e}");
+                    self.http_done = true;
+                    self.waiting_for_browser = false;
+                    return;
+                }
             }
         }
         if self.http_start != available_end {
@@ -3303,7 +3312,7 @@ fn maintenance(
     }
     log_if_slow(nowi, line!().to_string());
     for tr in to_remove.iter().rev() {
-        warn!("CG garbage collection..this should be handled elsewhere already i think?");
+        warn!("CG garbage collection..this should be handled elsewhere already i think? oh not if it errors i think like if the browser hangs up");
         ps.content_gateways.remove(*tr);
     }
     ps.next_maintenance =
@@ -3349,7 +3358,7 @@ fn maintenance(
             i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
         }
         let peers = ps.best_peers(50 * try_harder, 6);
-        info!("searching  {} peers fo9 {}",peers.len(),i.id);
+        info!("searching  {} peers for {}",peers.len(),i.id);
         i.request_blocks(ps, peers);
         // TODO the longer its been stuck, the more it should be ignored to try others, instead of
         // this pure random
@@ -3372,7 +3381,7 @@ fn maintenance(
                 ss.request_blocks(ps, ss.peers.clone());
             }
             let peers = ps.best_peers(50 * 5, 6);
-            info!("searching  {} peers fo9 {}",peers.len(),ss.id);
+            info!("searching  {} peers for {}",peers.len(),ss.id);
             ss.request_blocks(ps, peers);
             // TODO the longer its been stuck, the more it should be ignored to try others, instead of
             // this pure random
@@ -4031,6 +4040,7 @@ struct FastEncryptedMessages {
     ciphertext: Vec<u8>,
 }
 impl FastEncryptedMessages {
+    #[allow(dead_code)]
     fn new(ps: &PeerState, their_pub: &Ed25519Pub, message: Vec<u8>) -> Message {
         use aes_gcm::{aead::Aead, Aes256Gcm, NewAead, Nonce};
         use curve25519_dalek::{edwards::CompressedEdwardsY, montgomery::MontgomeryPoint};
