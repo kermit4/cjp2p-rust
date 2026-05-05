@@ -1951,13 +1951,14 @@ fn handle_web_request(
                             );
                             let mut start: usize = 0;
                             let mut end: usize = 0;
-                            let mut ranged=false;
+                            let mut ranged = false;
                             if let Some(range) = req.headers.get("range") {
                                 sscanf!(range, "bytes={}-{}", start, end).ok();
-                info!("got ranged http req {} range {:?}",req.path,range);
-                                ranged=true;
+                                info!("got ranged http req {} range {:?}",req.path,range);
+                                ranged = true;
+                            } else {
+                                info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
                             }
-                else { info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers); }
                             let cache_path = latest_cache_path(&ed25519.to_string(), &name);
                             let sha256_opt = load_sha256_from_latest_cache(&cache_path);
                             let pending_latest = if !is_local(&stream) {
@@ -2042,16 +2043,16 @@ fn handle_web_request(
                         let peers = ps.best_peers(250, 6);
                         ss.request_blocks(ps, peers);
                     }
-            let mut ranged=false;
-            if let Some(range) = req.headers.get("range") {
-                info!("got ranged http req {} range {:?}",req.path,range);
-                sscanf!(range, "bytes={}-{}",start,end).ok();
-                ranged=true;
-            } else {
-                info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
-            }
+                    let mut ranged = false;
+                    if let Some(range) = req.headers.get("range") {
+                        info!("got ranged http req {} range {:?}",req.path,range);
+                        sscanf!(range, "bytes={}-{}",start,end).ok();
+                        ranged = true;
+                    } else {
+                        info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
+                    }
 
-            info!("http start end {start} {end}");
+                    info!("http start end {start} {end}");
                     let index = ps.content_gateways.len();
                     ps.content_gateways.push(ContentGateway {
                         id: full_id,
@@ -2089,11 +2090,11 @@ fn handle_web_request(
                 return;
             }
 
-            let mut ranged=false;
+            let mut ranged = false;
             if let Some(range) = req.headers.get("range") {
                 info!("got ranged http req {} range {:?}",req.path,range);
                 sscanf!(range, "bytes={}-{}",start,end).ok();
-                ranged=true;
+                ranged = true;
             } else {
                 info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
             }
@@ -3009,8 +3010,7 @@ impl ContentGateway {
     fn serve_mmap(&mut self, mmap: &MmapMut, available_end: usize) {
         if !self.sent_header {
             let mime_type = mimetype_detector::detect(&mmap[0..]);
-            let response = 
-                                if self.ranged {
+            let response = if self.ranged {
                 format!(
                                 "HTTP/1.1 206 Partial Content\r\n\
                                  Content-Length: {}\r\n\
@@ -3019,14 +3019,15 @@ impl ContentGateway {
                                  Content-Range: bytes {}-{}/{}\r\n\
                                  Content-Type: {}\r\n\r\n"
             ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffff), mime_type.mime())
-                                } else { format!(
+            } else {
+                format!(
                                 "HTTP/1.1 200 OK\r\n\
                                  Content-Length: {}\r\n\
                                  Content-Disposition: inline\r\n\
                                  Accept-Range: bytes\r\n\
                                  Content-Type: {}\r\n\r\n"
             ,self.http_end-self.http_start, mime_type.mime())
-                                };  
+            };
             info!("sending http client {}",response);
             match self.http_socket.write_all(response.as_bytes()) {
                 Ok(_) => (),
@@ -3358,8 +3359,7 @@ fn maintenance(
     log_if_slow(nowi, line!().to_string());
 
     // Drop stream_states with no viewers and stale activity
-    stream_states
-        .retain(|_, ss| ss.has_viewers(ps) || ss.last_activity.elapsed() < Duration::from_secs(30));
+    stream_states.retain(|_, ss| ss.has_viewers(ps));
     // Stall detection: restart next_block for active streams
     for (_, ss) in stream_states.iter_mut() {
         if ss.last_activity.elapsed() > Duration::from_secs(1) && ss.has_viewers(ps) {
