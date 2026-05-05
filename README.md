@@ -105,3 +105,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - use is_safe_relative_path in more places
 - ok it willl be easier ot pass the signature through the stack i think
 - use dev branch
+- only link to / not home page without slash because of relative links
+- link to my home page on the status page..need cleaner user flow for it all
