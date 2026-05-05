@@ -1361,7 +1361,7 @@ pub fn run() -> Result<(), std::io::Error> {
 
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if write_fds.contains(cg.http_socket.as_fd()) {
-                info!("handling cg {} {} {} ",cg.http_done,cg.waiting_for_browser,cg.sent_header);
+                debug!("handling cg {} {} {} ",cg.http_done,cg.waiting_for_browser,cg.sent_header);
                 ps.serve_http_content(&mut stream_states, &mut inbound_states, index);
                 continue 'main;
             }
@@ -1951,9 +1951,13 @@ fn handle_web_request(
                             );
                             let mut start: usize = 0;
                             let mut end: usize = 0;
+                            let mut ranged=false;
                             if let Some(range) = req.headers.get("range") {
                                 sscanf!(range, "bytes={}-{}", start, end).ok();
+                info!("got ranged http req {} range {:?}",req.path,range);
+                                ranged=true;
                             }
+                else { info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers); }
                             let cache_path = latest_cache_path(&ed25519.to_string(), &name);
                             let sha256_opt = load_sha256_from_latest_cache(&cache_path);
                             let pending_latest = if !is_local(&stream) {
@@ -1999,11 +2003,12 @@ fn handle_web_request(
                                 id: sha256_opt.unwrap_or_default(),
                                 http_start: start,
                                 http_end: end,
+                                ranged: ranged,
                                 http_socket: stream,
                                 waiting_for_browser: false,
                                 http_done: false,
                                 sent_header: false,
-                                eof: 0,
+                                eof: None,
                                 pending_latest,
                             });
                             if ps.content_gateways[index].pending_latest.is_none() {
@@ -2037,16 +2042,27 @@ fn handle_web_request(
                         let peers = ps.best_peers(250, 6);
                         ss.request_blocks(ps, peers);
                     }
+            let mut ranged=false;
+            if let Some(range) = req.headers.get("range") {
+                info!("got ranged http req {} range {:?}",req.path,range);
+                sscanf!(range, "bytes={}-{}",start,end).ok();
+                ranged=true;
+            } else {
+                info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
+            }
+
+            info!("http start end {start} {end}");
                     let index = ps.content_gateways.len();
                     ps.content_gateways.push(ContentGateway {
                         id: full_id,
                         http_start: start,
-                        http_end: if end != 0 { end } else { 1 << 62 },
+                        http_end: if end != 0 { end } else { 0x7fffffff },
                         http_socket: stream,
+                        ranged: ranged,
                         waiting_for_browser: false,
                         http_done: false,
                         sent_header: false,
-                        eof: 0,
+                        eof: None,
                         pending_latest: None,
                     });
                     ps.serve_http_content(stream_states, inbound_states, index);
@@ -2073,9 +2089,11 @@ fn handle_web_request(
                 return;
             }
 
+            let mut ranged=false;
             if let Some(range) = req.headers.get("range") {
                 info!("got ranged http req {} range {:?}",req.path,range);
                 sscanf!(range, "bytes={}-{}",start,end).ok();
+                ranged=true;
             } else {
                 info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
             }
@@ -2087,11 +2105,12 @@ fn handle_web_request(
                 //                http_time: Instant::now(),
                 http_start: start,
                 http_end: end,
+                ranged: ranged,
                 http_socket: stream,
                 waiting_for_browser: false,
                 http_done: false,
                 sent_header: false,
-                eof: 0,
+                eof: None,
                 pending_latest: None,
             };
             ps.content_gateways.push(cg);
@@ -2930,20 +2949,21 @@ struct ContentGateway {
     ///http_time: Instant,
     http_start: usize,
     http_end: usize,
+    ranged: bool,
     http_socket: TcpStream,
     waiting_for_browser: bool,
     http_done: bool,
     sent_header: bool,
-    eof: usize,
+    eof: Option<usize>,
     pending_latest: Option<LatestData>,
 }
 impl ContentGateway {
     fn serve_content_from_disk(&mut self, file: &File) {
-        if self.eof == 0 {
-            self.eof = file.metadata().unwrap().len() as usize;
+        if self.eof.is_none() {
+            self.eof = Some(file.metadata().unwrap().len() as usize);
         }
-        if self.http_end == 0 || self.eof < self.http_end {
-            self.http_end = self.eof;
+        if self.http_end == 0 || self.eof.unwrap() < self.http_end {
+            self.http_end = self.eof.unwrap();
         }
         // i couldnt figure out how to get serve_mmap to take both Mmap or MmapMut.
         let mmap = unsafe { MmapMut::map_mut(file).unwrap() };
@@ -2955,9 +2975,9 @@ impl ContentGateway {
             self.waiting_for_browser = false;
             return;
         }
-        self.eof = i.eof;
-        if self.http_end == 0 || self.eof < self.http_end {
-            self.http_end = self.eof;
+        self.eof = Some(i.eof);
+        if self.http_end == 0 || self.eof.unwrap() < self.http_end {
+            self.http_end = self.eof.unwrap();
         }
         let mut available_end = self.http_end;
         if let Some(not_available) = i.bitmap[(self.http_start / BLOCK_SIZE!())
@@ -2989,14 +3009,25 @@ impl ContentGateway {
     fn serve_mmap(&mut self, mmap: &MmapMut, available_end: usize) {
         if !self.sent_header {
             let mime_type = mimetype_detector::detect(&mmap[0..]);
-            let response = format!(
+            let response = 
+                                if self.ranged {
+                format!(
                                 "HTTP/1.1 206 Partial Content\r\n\
                                  Content-Length: {}\r\n\
                                  Content-Disposition: inline\r\n\
                                  Accept-Range: bytes\r\n\
                                  Content-Range: bytes {}-{}/{}\r\n\
                                  Content-Type: {}\r\n\r\n"
-            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof, mime_type.mime());
+            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffff), mime_type.mime())
+                                } else { format!(
+                                "HTTP/1.1 200 OK\r\n\
+                                 Content-Length: {}\r\n\
+                                 Content-Disposition: inline\r\n\
+                                 Accept-Range: bytes\r\n\
+                                 Content-Type: {}\r\n\r\n"
+            ,self.http_end-self.http_start, mime_type.mime())
+                                };  
+            info!("sending http client {}",response);
             match self.http_socket.write_all(response.as_bytes()) {
                 Ok(_) => (),
                 Err(e) => {
@@ -3313,7 +3344,7 @@ fn maintenance(
             i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
         }
         let peers = ps.best_peers(50 * try_harder, 6);
-        info!("searching  {} peers",peers.len());
+        info!("searching  {} peers fo9 {}",peers.len(),i.id);
         i.request_blocks(ps, peers);
         // TODO the longer its been stuck, the more it should be ignored to try others, instead of
         // this pure random
@@ -3337,7 +3368,7 @@ fn maintenance(
                 ss.request_blocks(ps, ss.peers.clone());
             }
             let peers = ps.best_peers(50 * 5, 6);
-            info!("searching {} peers",peers.len());
+            info!("searching  {} peers fo9 {}",peers.len(),ss.id);
             ss.request_blocks(ps, peers);
             // TODO the longer its been stuck, the more it should be ignored to try others, instead of
             // this pure random
