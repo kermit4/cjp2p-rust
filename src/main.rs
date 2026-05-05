@@ -513,8 +513,10 @@ impl PeerState {
     }
 
     fn best_peers(&self, mut how_many: usize, quality: i32) -> HashSet<SocketAddr> {
+        let nowi = Instant::now();
         let mut rng = rand::rng();
         let result: &mut HashSet<SocketAddr> = &mut HashSet::new();
+        log_if_slow(nowi, line!().to_string());
         if quality >= 3 {
             // this should be randomized, whenever there are enough peers that its not just all of them
             // anyway
@@ -528,6 +530,7 @@ impl PeerState {
                 }
             }
         }
+        log_if_slow(nowi, line!().to_string());
         for _ in 0..how_many * 2 {
             let i = ((rng.random_range(0.0..1.0) as f64).powi(quality)
                 * (self.peer_vec.len() as f64)) as usize;
@@ -543,7 +546,8 @@ impl PeerState {
             }
             trace!( "best peer(q:{quality}) {0} {1} {2}", i, p, self.peer_map[p].delay.as_secs_f64());
         }
-        result.clone()
+        log_if_slow(nowi, line!().to_string());
+        return result.clone();
     }
     fn handle_messages(
         &mut self,
@@ -1542,7 +1546,7 @@ fn handle_stdin(
                 println!("pending download {} {}/{}",i.id,i.bytes_complete,i.eof);
             }
             for (_, i) in stream_states.iter_mut() {
-                println!("streaming {} ???/{}",i.id,i.eof);
+                println!("streaming {} {}",i.id,i.eof);
             }
         } else if line == "/trending\n" {
             let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
@@ -3378,6 +3382,7 @@ fn maintenance(
         }
     }
 
+    log_if_slow(nowi, line!().to_string());
     if ps.list_time + Duration::from_secs(1) < Instant::now() {
         let mut sorted_list_results: Vec<_> = ps.list_results.iter().collect();
         sorted_list_results.sort_by_key(|&(_, b)| b.0);

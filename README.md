@@ -107,3 +107,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - use dev branch
 - only link to / not home page without slash because of relative links
 - link to my home page on the status page..need cleaner user flow for it all
+- just default stream url for people not dated
