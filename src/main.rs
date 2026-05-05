@@ -2105,7 +2105,7 @@ fn handle_web_request(
 
             info!("http start end {start} {end}");
             let index = ps.content_gateways.len();
-            let cg = ContentGateway {
+            ps.content_gateways.push(ContentGateway {
                 id: id.to_string(),
                 //                http_time: Instant::now(),
                 http_start: start,
@@ -2117,8 +2117,7 @@ fn handle_web_request(
                 sent_header: false,
                 eof: None,
                 pending_latest: None,
-            };
-            ps.content_gateways.push(cg);
+            });
             ps.serve_http_content(stream_states, inbound_states, index);
         }
     }
@@ -3000,6 +2999,7 @@ impl ContentGateway {
         self.serve_mmap(mmap, available_end);
     }
     fn serve_content_from_stream_state(&mut self, ss: &mut StreamState) {
+
         let start_block = self.http_start / BLOCK_SIZE!();
         let available_end = match ss.first_zero_from(start_block) {
             Some(zero_block) => zero_block * BLOCK_SIZE!(),
