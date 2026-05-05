@@ -2239,7 +2239,7 @@ fn handle_network(
     } */
     match ps.socket.send_to(&message_out_bytes, src) {
         Ok(s) => trace!("sent {s}"),
-        Err(e) => warn!("failed to reply to {0} {e}", message_out_bytes.len()),
+        Err(e) => warn!("failed to reply {} bytes to {src} {e}", message_out_bytes.len()),
     }
 }
 fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
