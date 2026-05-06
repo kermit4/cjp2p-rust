@@ -108,3 +108,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - only link to / not home page without slash because of relative links
 - link to my home page on the status page..need cleaner user flow for it all
 - just default stream url for people not dated
+- have AI write my presentation, include delays, i have a screen to show things, ill do screenshots but not generate stuff
+- are streams growing the window
