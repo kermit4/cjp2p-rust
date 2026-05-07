@@ -2700,6 +2700,7 @@ impl Receive for Content {
             if let Source::S(src) = *src {
                 ss.peers.insert(src);
                 if (rand::rng().random::<u32>() % 101) == 0 {
+                debug!("growing window ({}) for {} at {}", ss.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),ss.id,ss.next_block);
                     ss.request_blocks(ps, HashSet::from([src]));
                     ss.next_block += 1;
                 }
@@ -2712,6 +2713,7 @@ impl Receive for Content {
                 ss.resize_to(new_eof);
             }
             let block_number = self.offset / BLOCK_SIZE!();
+        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
             if self.base64.len() > 0 {
                 ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
                 ss.set_block_bit(block_number);
@@ -2920,6 +2922,7 @@ impl StreamState {
             return vec![];
         }
         ss.last_activity = Instant::now();
+        debug!( "\x1b[32;7mPleaseSendContent {} {} {} \x1b[m", ss.id, ss.next_block, ss.next_block * BLOCK_SIZE!());
         vec![Message::PleaseSendContent(PleaseSendContent {
             id: ss.id.clone(),
             offset: ss.next_block * BLOCK_SIZE!(),
