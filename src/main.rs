@@ -1938,7 +1938,15 @@ fn handle_web_request(
                             } else {
                                 &(p.to_owned() + "index.html")
                             },
-                        None => "index.html",
+                        None => {
+                            let qs = req.path.splitn(2, '?').nth(1)
+                                .map_or(String::new(), |q| format!("?{}", q));
+                            let redirect = format!(
+                                "HTTP/1.0 301 Moved Permanently\r\nLocation: /latest/{}/{}\r\n\r\n",
+                                raw_pub, qs);
+                            stream.write_all(redirect.as_bytes()).ok();
+                            return;
+                        }
                     };
                     let name = urlencoding::decode(name_raw)
                         .unwrap_or_default()
