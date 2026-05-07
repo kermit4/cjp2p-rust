@@ -4660,7 +4660,18 @@ pub mod android_jni {
 }
 
 fn is_local(stream: &TcpStream) -> bool {
-    stream.peer_addr().unwrap().ip() == "127.0.0.1:1".parse::<SocketAddr>().unwrap().ip()
+    stream.peer_addr()
+        .map(|a| {
+            let local = a.ip().is_loopback();
+            if !local {
+                warn!("remote websocket from {}", a);
+            }
+            local
+        })
+        .unwrap_or_else(|e| {
+            trace!("peer_addr race: {e}"); // Transport endpoint not connected
+            false
+        })
 }
 
 fn has_passed(deadline: std::time::Instant) -> bool {
