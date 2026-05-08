@@ -1741,7 +1741,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
         .peer_vec
         .iter()
         .map(|v| (ps.peer_map[v].delay, *v))
-        .filter(|(d, _)| *d < Duration::from_millis(119))
+        .filter(|(d, _)| *d < Duration::from_millis(250))
         .collect();
 
     thread::spawn(move || {
@@ -1764,8 +1764,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
         }
 
         page += &format!("</div>");
-        page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html>chat interface</a>");
-        page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/dashboard.html>fancy Claude made dashboard</a>");
+        page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>decentralized home page of this program's author, which includes many various HTML front-ends/apps to this like chat, pong, video calling, AI made dashboard, more</a>");
         page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
         for (id, bytes_complete, eof) in &inbound_info {
@@ -1788,21 +1787,26 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
 
         page += &format!("\n{} total peers\n", total_peers);
         page += &format!("--- active public keys (recently responding in under than 250ms).  Click on one to open an encrypted 2-way chat.\n\
-            Note that unless they have a tab open with you, they'll only see it in the console or status page: \n");
+            Note that unless they have a tab open with you, they'll only see it in the console or status page: \n</pre>");
         for (sa, pub_) in &active_peers {
-            page += &format!("{:21} <a href=/chat/{} target=_blank>0x{}</a> {}\n", sa.ip(),
+            page += &format!("<p>0x{} 
+                    <a href=/latest/{}/>home</a>
+                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>call</a>
+                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>pong</a>
+                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?{}>chat</a>", 
+                pub_.to_string(),
+                pub_.to_string(),
                 pub_.to_string(),
                 pub_.to_string(),
                 if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
             );
         }
-        page += &format!("--- all IPs: <table>\n");
+        page += &format!("<pre>--- all IPs: <table>\n");
         for ip in &all_ips {
             page += &format!("<tr><td align=right>{:21}</td><td width=30px></td><td>{}</td></tr>\n", ip,
                 if let Ok(hn) = dns_lookup::lookup_addr(ip) { hn } else { ip.to_string() });
         }
-        page +=
-            &format!("</table>{} total unique IP peers\n--- active peers: \n", unique_ips_count);
+        page += &format!("</table>{} total unique IP peers\n--- fast peers: \n", unique_ips_count);
         for (d, v) in &fast_peers {
             page += &format!("{:21?} {:21}\n", d, v);
         }
@@ -2700,7 +2704,7 @@ impl Receive for Content {
             if let Source::S(src) = *src {
                 ss.peers.insert(src);
                 if (rand::rng().random::<u32>() % 101) == 0 {
-                debug!("growing window ({}) for {} at {}", ss.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),ss.id,ss.next_block);
+                    debug!("growing window ({}) for {} at {}", ss.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),ss.id,ss.next_block);
                     ss.request_blocks(ps, HashSet::from([src]));
                     ss.next_block += 1;
                 }
@@ -2713,7 +2717,7 @@ impl Receive for Content {
                 ss.resize_to(new_eof);
             }
             let block_number = self.offset / BLOCK_SIZE!();
-        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
+            debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
             if self.base64.len() > 0 {
                 ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
                 ss.set_block_bit(block_number);
@@ -4663,7 +4667,8 @@ pub mod android_jni {
 }
 
 fn is_local(stream: &TcpStream) -> bool {
-    stream.peer_addr()
+    stream
+        .peer_addr()
         .map(|a| {
             let local = a.ip().is_loopback();
             if !local {
