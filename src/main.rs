@@ -1667,7 +1667,7 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
     let fast_peer_count = ps
         .peer_vec
         .iter()
-        .filter(|v| ps.peer_map[*v].delay < Duration::from_millis(119))
+        .filter(|v| ps.peer_map[*v].delay < Duration::from_millis(250))
         .count();
 
     let body = json!({
@@ -1773,7 +1773,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
         }
 
         page += &format!("</div>");
-        page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>decentralized home page of this program's author, which includes many various HTML front-ends/apps to this like chat, pong, video calling, AI made dashboard, more</a>");
+        page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>decentralized home page of this program's author, which includes various HTML front-ends/apps to this like chat, pong, video calling, AI made dashboard, more</a>");
         page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
         for (id, bytes_complete, eof) in &inbound_info {
