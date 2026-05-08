@@ -2697,7 +2697,7 @@ impl Receive for Content {
                     return vec![];
                 }
             } else {
-                warn!("unsigned stream Content");
+                warn!("unsigned streamstate Content");
                 return vec![];
             }
             let mut message_out = vec![];
