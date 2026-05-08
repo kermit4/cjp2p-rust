@@ -110,3 +110,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - just default stream url for people not dated
 - have AI write my presentation, include delays, i have a screen to show things, ill do screenshots but not generate stuff
 - are streams growing the window
+ipv4 scarcity worked fine until 2000
+some way to just get the live, chopped mkv due to difficult seeking, for any pub

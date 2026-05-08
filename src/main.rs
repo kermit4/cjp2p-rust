@@ -306,6 +306,15 @@ impl PeerState {
         ps.socket
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
+
+    let ipv4 = Ipv4Addr::new(127, 0, 0, 1);
+    let ipv6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0x1);
+    let v4_in_v6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x1);
+    
+    info!("{} is loopback? {} ", ipv4, ipv4.is_loopback());
+    info!("{} is loopback? {} ", ipv6, ipv6.is_loopback());
+    info!("{} is loopback? {} ", v4_in_v6, v4_in_v6.is_loopback()); //false, strange
+    info!("{} is loopback? {} ", v4_in_v6, v4_in_v6.to_ipv4().unwrap().is_loopback());
         for bootstrap in [
             "148.71.89.128:24254",
             "159.69.54.127:24254",
@@ -3390,8 +3399,10 @@ fn maintenance(
 
     // Drop stream_states with no viewers and stale activity
     stream_states.retain(|_, ss| ss.has_viewers());
+    log_if_slow(nowi, line!().to_string());
     // Stall detection: restart next_block for active streams
     for (_, ss) in stream_states.iter_mut() {
+    log_if_slow(nowi, line!().to_string());
         if ss.last_activity.elapsed() <= Duration::from_secs(1) || !ss.has_viewers() {
             continue;
         }
