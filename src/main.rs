@@ -307,14 +307,14 @@ impl PeerState {
             .set_read_timeout(Some(Duration::from_secs(1)))
             .unwrap();
 
-    let ipv4 = Ipv4Addr::new(127, 0, 0, 1);
-    let ipv6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0x1);
-    let v4_in_v6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x1);
-    
-    info!("{} is loopback? {} ", ipv4, ipv4.is_loopback());
-    info!("{} is loopback? {} ", ipv6, ipv6.is_loopback());
-    info!("{} is loopback? {} ", v4_in_v6, v4_in_v6.is_loopback()); //false, strange
-    info!("{} is loopback? {} ", v4_in_v6, v4_in_v6.to_ipv4().unwrap().is_loopback());
+        let ipv4 = Ipv4Addr::new(127, 0, 0, 1);
+        let ipv6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0x1);
+        let v4_in_v6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x1);
+
+        info!("{} is loopback? {} ", ipv4, ipv4.is_loopback());
+        info!("{} is loopback? {} ", ipv6, ipv6.is_loopback());
+        info!("{} is loopback? {} ", v4_in_v6, v4_in_v6.is_loopback()); //false, strange
+        info!("{} is loopback? {} ", v4_in_v6, v4_in_v6.to_ipv4().unwrap().is_loopback());
         for bootstrap in [
             "148.71.89.128:24254",
             "159.69.54.127:24254",
@@ -1869,13 +1869,6 @@ fn handle_web_request(
                 return;
             }
 
-            let id = &req.path[1..].split('?').next().unwrap();
-            let id = &id.split('/').next().unwrap();
-            let id = id.strip_prefix("0x").unwrap_or(id);
-            if id.find("\\") != None || id == "favicon.ico" || id.starts_with(".") {
-                return;
-            }
-
             info!("got http request for {:?}",req);
             if let Ok(mut file) = OpenOptions::new()
                 .create(true)
@@ -1948,7 +1941,10 @@ fn handle_web_request(
                                 &(p.to_owned() + "index.html")
                             },
                         None => {
-                            let qs = req.path.splitn(2, '?').nth(1)
+                            let qs = req
+                                .path
+                                .splitn(2, '?')
+                                .nth(1)
                                 .map_or(String::new(), |q| format!("?{}", q));
                             let redirect = format!(
                                 "HTTP/1.0 301 Moved Permanently\r\nLocation: /latest/{}/{}\r\n\r\n",
@@ -2096,9 +2092,6 @@ fn handle_web_request(
                 return;
             }
 
-            if id.find("/") != None {
-                return;
-            }
             if req.path.starts_with("/?get=") {
                 if !is_local(&stream) {
                     let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
@@ -2126,6 +2119,12 @@ fn handle_web_request(
 
             info!("http start end {start} {end}");
             let index = ps.content_gateways.len();
+            let id = &req.path[1..].split('?').next().unwrap();
+            let id = &id.split('/').next().unwrap();
+            let id = id.strip_prefix("0x").unwrap_or(id);
+            if !is_safe_relative_path(id) || id.find("/") != None || id == "favicon.ico" {
+                return;
+            }
             ps.content_gateways.push(ContentGateway {
                 id: id.to_string(),
                 //                http_time: Instant::now(),
@@ -2386,11 +2385,7 @@ impl Receive for IJustSawThis {
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        if self.id.find("/") != None
-            || self.id.find("\\") != None
-            || self.id == "favicon.ico"
-            || self.id.starts_with(".")
-        {
+        if !is_safe_relative_path(&self.id) || self.id == "favicon.ico" {
             return vec![];
         }
         if let Source::S(src) = *src {
@@ -2421,11 +2416,7 @@ impl Receive for YouShouldSeeThis {
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        if self.id.find("/") != None
-            || self.id.find("\\") != None
-            || self.id == "favicon.ico"
-            || self.id.starts_with(".")
-        {
+        if !is_safe_relative_path(&self.id) || self.id == "favicon.ico" {
             return vec![];
         }
         if let Source::S(src) = *src {
@@ -3402,7 +3393,7 @@ fn maintenance(
     log_if_slow(nowi, line!().to_string());
     // Stall detection: restart next_block for active streams
     for (_, ss) in stream_states.iter_mut() {
-    log_if_slow(nowi, line!().to_string());
+        log_if_slow(nowi, line!().to_string());
         if ss.last_activity.elapsed() <= Duration::from_secs(1) || !ss.has_viewers() {
             continue;
         }
@@ -3927,11 +3918,7 @@ impl Receive for ContentList {
                     ps.peer_map[&src].delay,
                     self.results
                 );
-                if id.find("/") != None
-                    || id.find("\\") != None
-                    || id == "favicon.ico"
-                    || id.starts_with(".")
-                {
+                if !is_safe_relative_path(id) {
                     return vec![];
                 }
                 if let Some(i) = inbound_states.get_mut(id) {

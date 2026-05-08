@@ -95,20 +95,14 @@ or HTML pages with many page components, individually downloaded from the networ
 - ethphone..and chat in it ..and pong
 - the final sha256 should be a thread..this is in git stash but not reviewed
 - /update
-- make pull git stash
+- make pull could git stash
 - kind of heavy on bandwith forever if someone requests something that just plain doesnt exist, static or /latest
 - the /ping chat should really do the please reply in advance somehow
-- make useful chat interface, for me
-- better logggin of cpu usage during maintenance
+- make useful chat interface, for me (just basic all people chat)
 - it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?
-- why is signed messsage base64, we know its json, thats just harder to read on a tcpdump
-- use is_safe_relative_path in more places
-- ok it willl be easier ot pass the signature through the stack i think
-- use dev branch
-- only link to / not home page without slash because of relative links
-- link to my home page on the status page..need cleaner user flow for it all
+- why is signed messsage base64, we know its json, thats just harder to read on a tcpdump - when everyone is upgrade, which they are it seems, switch to the json..test
+- ok it willl be easier to pass the signature through the stack i think
+- use dev branch more
 - just default stream url for people not dated
-- have AI write my presentation, include delays, i have a screen to show things, ill do screenshots but not generate stuff
-- are streams growing the window
-ipv4 scarcity worked fine until 2000
-some way to just get the live, chopped mkv due to difficult seeking, for any pub
+- ipv4 scarcity worked fine until 2000, just do that, ipv6 turned out to be a failure anyway
+- some way to just get the live, chopped mkv due to difficult seeking, for any pub
