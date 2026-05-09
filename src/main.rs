@@ -1802,7 +1802,8 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
                     <a href=/latest/{}/>home</a>
                     <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>call</a>
                     <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>pong</a>
-                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?{}>chat</a>", 
+                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?ed25519={}>chat</a> {}", 
+                pub_.to_string(),
                 pub_.to_string(),
                 pub_.to_string(),
                 pub_.to_string(),
