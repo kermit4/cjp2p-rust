@@ -3030,13 +3030,18 @@ impl ContentGateway {
         let mmap = &mut ss.mmap;
         self.serve_mmap(mmap, available_end);
     }
-    fn serve_mmap(&mut self, mmap: &MmapMut, available_end: usize) {
+    fn serve_mmap(&mut self, mmap: &MmapMut, mut available_end: usize) {
         if !self.sent_header {
             let mime_type = mimetype_detector::detect(&mmap[0..]);
             let response = if self.ranged {
-//                if self.http_end - self.http_start > 0x100000 {
- //                   self.http_end = self.http_start + 0x100000;
-  //              } // seems to improve seeking in Brave
+                debug!("cg {} serve_mmap ranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_type.mime());
+                debug!("cg {} http end minus start {}",self.http_socket.as_raw_fd(),self.http_end-self.http_start);
+                if self.http_end - self.http_start > 0x100000 {
+                    self.http_end = self.http_start + 0x100000;
+                    if available_end > self.http_end {
+                        available_end = self.http_end;
+                    }
+                } // seems to improve seeking in Brave
                 format!(
                                 "HTTP/1.1 206 Partial Content\r\n\
                                  Content-Length: {}\r\n\
@@ -3046,6 +3051,7 @@ impl ContentGateway {
                                  Content-Type: {}\r\n\r\n"
             ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffffff), mime_type.mime())
             } else {
+                debug!("cg {} serve_mmap unranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_type.mime());
                 format!(
                                 "HTTP/1.1 200 OK\r\n\
                                  Content-Length: {}\r\n\
@@ -3054,11 +3060,11 @@ impl ContentGateway {
                                  Content-Type: {}\r\n\r\n"
             ,self.http_end-self.http_start, mime_type.mime())
             };
-            info!("sending http client {}",response);
+            info!("cg {} sending http client {}",self.http_socket.as_raw_fd(),response);
             match self.http_socket.write_all(response.as_bytes()) {
                 Ok(_) => (),
                 Err(e) => {
-                    warn!("http failed to write header {}",e);
+                    warn!("cg {} http failed to write header {}",self.http_socket.as_raw_fd(),e);
                     self.http_done = true; // give up, that shouldnt happen
                     self.waiting_for_browser = false;
                 }
@@ -3066,6 +3072,7 @@ impl ContentGateway {
             self.sent_header = true;
         }
 
+        debug!("cg {} serve_mmap {}-{} [available {} ] of {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,available_end,self.eof.unwrap_or(0x7fffffffff));
         match self
             .http_socket
             .write(&mmap[self.http_start..available_end])
@@ -3073,10 +3080,10 @@ impl ContentGateway {
             Ok(sent) => self.http_start += sent,
             Err(e) => {
                 if e.raw_os_error() == Some(11) {
-                    debug!("EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {e}");
+                    debug!("cg {} EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {e}",self.http_socket.as_raw_fd());
                     // failed to send (your wifi/mobile connection is probably backing up) {0} {e}", msg_out.len());
                 } else {
-                    warn!("http client error {e}");
+                    warn!("cg {} http client error {e}",self.http_socket.as_raw_fd());
                     self.http_done = true;
                     self.waiting_for_browser = false;
                     return;
@@ -3084,9 +3091,9 @@ impl ContentGateway {
             }
         }
         if self.http_start != available_end {
-            debug!("http sent up to {} ..wanted to send up to {}",self.http_start,available_end);
+            debug!("cg {} sent up to {} ..wanted to send up to {}",self.http_socket.as_raw_fd(),self.http_start,available_end);
         } else {
-            debug!("http sent up to {} ",self.http_start);
+            debug!("cg {} sent up to {} ",self.http_socket.as_raw_fd(),self.http_start);
         }
         self.http_done = self.http_start == self.http_end;
         self.waiting_for_browser = self.http_start != available_end;
