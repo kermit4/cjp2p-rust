@@ -3034,9 +3034,9 @@ impl ContentGateway {
         if !self.sent_header {
             let mime_type = mimetype_detector::detect(&mmap[0..]);
             let response = if self.ranged {
-                if self.http_end - self.http_start > 0x100000 {
-                    self.http_end = self.http_start + 0x100000;
-                } // seems to improve seeking in Brave
+//                if self.http_end - self.http_start > 0x100000 {
+ //                   self.http_end = self.http_start + 0x100000;
+  //              } // seems to improve seeking in Brave
                 format!(
                                 "HTTP/1.1 206 Partial Content\r\n\
                                  Content-Length: {}\r\n\
