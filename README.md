@@ -94,7 +94,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - focus on enabling devs, i've done enough demoning
 - ethphone..and chat in it ..and pong
 - the final sha256 should be a thread..this is in git stash but not reviewed
-- /update
 - make pull could git stash
 - kind of heavy on bandwith forever if someone requests something that just plain doesnt exist, static or /latest
 - the /ping chat should really do the please reply in advance somehow
@@ -107,3 +106,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - ipv4 scarcity worked fine until 2000, just do that, ipv6 turned out to be a failure anyway
 - some way to just get the live, chopped mkv due to difficult seeking, for any pub
 - HELP message..ask ai abuot introspection. maybe serde knows it already
+- send getlatest twice for the 300ms delay
+- /update - make pull, make, rerun same comand

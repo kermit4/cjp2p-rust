@@ -1,6 +1,6 @@
 SHELL = /bin/bash -ue
 
-default: debug release
+default: check debug release bundle
 
 bundle: cjp2p/origin/cjp2p.bundle
 
@@ -8,17 +8,18 @@ cjp2p/origin/cjp2p.bundle: .git/logs/refs/heads/master
 	git bundle create --quiet cjp2p/origin/cjp2p.bundle_ master
 	mv cjp2p/origin/cjp2p.bundle_ cjp2p/origin/cjp2p.bundle
 
-# "your IP address can't do this to my server"
-pins: cjp2p/origin/cjp2p.bundle
-	find cjp2p/origin/ -not -name '.*' -type f -not -path '*/.*' -exec cat {} \;|wc -c
-	for _x in . .;do find cjp2p/origin/ -not -name '.*' -type f -not -path '*/.*' -printf "%P\n"|xargs -P 0 -i curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/{}  |wc -c;sleep .3;done 
+# your IP address can't do this to my server so this is a NOOP for you
+pins: bundle
+	if [[ ` hostname ` == t470s.azai.net ]];then \
+	find cjp2p/origin/ -not -name '.*' -type f -not -path '*/.*' -exec cat {} \;|wc -c  ;\
+	for _x in . .;do find cjp2p/origin/ -not -name '.*' -type f -not -path '*/.*' -printf "%P\n"|xargs -P 0 -i curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/{}  |wc -c;sleep .3;done ;fi
 
-debug: target/debug/cjp2p
+debug: target/debug/cjp2p bundle
 target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs
 	BUILD_VERSION="debug: `git log --pretty=format:"Rust %ad %h %s" -1`" cargo build
 	rm -f target/*/libcjp
 
-release: target/release/cjp2p
+release: target/release/cjp2p bundle
 target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs
 	BUILD_VERSION="release `git log --pretty=format:"Rust %ad %h %s" -1`" cargo build --release
 	rm -f target/*/libcjp
