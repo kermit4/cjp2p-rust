@@ -2794,7 +2794,7 @@ impl Receive for Content {
         //if (rand::rng().random::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
         if (rand::rng().random::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof {
+                if i.next_block * BLOCK_SIZE!() >= i.eof || self.bytes_complete == self.eof {
                     continue;
                 }
                 debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
@@ -2823,7 +2823,7 @@ impl Receive for Content {
         }
         if message_out.len() == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof {
+                if i.next_block * BLOCK_SIZE!() >= i.eof || self.bytes_complete == self.eof {
                     continue;
                 }
                 message_out = PleaseSendContent::new_messages(i, ps);
@@ -2853,6 +2853,7 @@ struct InboundState {
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
     hash_failures: i32,
+    hash_future: Option<std::sync::mpsc::Receiver<bool>>,
 }
 
 struct StreamState {
@@ -3159,6 +3160,7 @@ impl InboundState {
             peers: peers,
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
+            hash_future: None,
         };
     }
 
@@ -3298,38 +3300,64 @@ impl InboundState {
         })];
     }
     fn finished(&mut self) -> bool {
-        // yes this could sha as it goes, but then its not testing as much as it could,
-        // for little real improvement, so dont do that
-        // though this will hang the whole thing
+        if let Some(ref rx) = self.hash_future {
+            match rx.try_recv() {
+                Ok(matched) => {
+                    self.hash_future = None;
+                    if matched {
+                        info!("{0} finished {1} bytes", self.id, self.eof);
+                        println!("{0} finished {1} bytes", self.id, self.eof);
+                        let path = "./cjp2p/incoming/".to_owned() + &self.id;
+                        let new_path = "./cjp2p/public/".to_owned() + &self.id;
+                        fs::rename(path, new_path).unwrap();
+                        self.save_content_peers();
+                        return true;
+                    }
+                    error!("{} hash doesnt match! restarting", self.id);
+                    self.hash_failures += 1;
+                    if self.hash_failures > 2 {
+                        error!("{} hash failed 3 times, giving up!", self.id);
+                        return true;
+                    }
+                    self.bitmap.fill(false);
+                    self.mmap = None;
+                    self.next_block = 0;
+                    self.bytes_complete = 0;
+                    return false;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.hash_future = None;
+                    self.hash_failures += 1;
+                    return false;
+                }
+            }
+        }
         if self.bytes_complete != self.eof {
             return false;
         }
-        let mut hasher = Sha256::new();
-        info!("{} starting sha256sum", self.id);
-        hasher.update(self.mmap.as_mut().unwrap());
-        let hash = format!("{:x}", hasher.finalize());
-        info!("{} sha256sum", hash);
-        if hash == self.id.to_lowercase() {
-            info!("{0} finished {1} bytes", self.id, self.eof);
-            println!("{0} finished {1} bytes", self.id, self.eof);
-            let path = "./cjp2p/incoming/".to_owned() + &self.id;
-            let new_path = "./cjp2p/public/".to_owned() + &self.id;
-            fs::rename(path, new_path).unwrap();
-            self.save_content_peers();
-            return true;
-        }
-        error!("{} hash doesnt match! restarting", self.id);
-        self.hash_failures += 1;
-        if self.hash_failures > 2 {
-            error!("{} hash failed 3 times, giving up!", self.id);
-            return true;
-        }
-
-        self.bitmap.fill(false);
-        self.mmap = None;
-        self.next_block = 0;
-        self.bytes_complete = 0;
-        return false;
+        let id = self.id.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.hash_future = Some(rx);
+        info!("{} starting sha256sum (background thread)", id);
+        thread::spawn(move || {
+            let path = "./cjp2p/incoming/".to_owned() + &id;
+            let matched = (|| -> Option<bool> {
+                let mut file = fs::File::open(&path).ok()?;
+                let mut hasher = Sha256::new();
+                let mut buf = vec![0u8; 1 << 16];
+                loop {
+                    let n = file.read(&mut buf).ok()?;
+                    if n == 0 { break; }
+                    hasher.update(&buf[..n]);
+                }
+                let hash = format!("{:x}", hasher.finalize());
+                info!("{} sha256sum {}", id, hash);
+                Some(hash == id.to_lowercase())
+            })().unwrap_or(false);
+            tx.send(matched).ok();
+        });
+        false
     }
 }
 
@@ -3393,7 +3421,7 @@ fn maintenance(
     ps.open_file_cache = HashMap::new(); // clear the cache
     log_if_slow(nowi, line!().to_string());
     for (_, i) in inbound_states.iter_mut() {
-        if i.last_activity.elapsed() <= Duration::from_secs(1) {
+        if i.last_activity.elapsed() <= Duration::from_secs(1) || self.bytes_complete == self.eof {
             continue;
         }
         if i.next_block != 0 {
@@ -3403,7 +3431,7 @@ fn maintenance(
     }
     log_if_slow(nowi, line!().to_string());
     for (_, i) in inbound_states.iter_mut() {
-        if i.last_activity.elapsed() <= Duration::from_secs(1) {
+        if i.last_activity.elapsed() <= Duration::from_secs(1) || self.bytes_complete == self.eof {
             continue;
         }
         info!("{} stalled, restarting", i.id);
