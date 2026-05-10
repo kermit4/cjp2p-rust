@@ -87,6 +87,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - use dev branch more
 - just default stream url for people not dated
-- ipv4 scarcity worked fine until 2000, just do that, ipv6 turned out to be a failure anyway
 - ******* some way to just get the live, chopped mkv due to difficult seeking, for any pub
 - more message types to wiki
