@@ -4767,7 +4767,7 @@ fn is_local(stream: &TcpStream) -> bool {
         .map(|a| {
             let local = a.ip().is_loopback();
             if !local {
-                warn!("remote websocket from {}", a);
+                info!("remote http request from {}", a);
             }
             local
         })
