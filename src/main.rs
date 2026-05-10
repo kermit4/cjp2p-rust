@@ -650,14 +650,8 @@ impl PeerState {
                     return;
                 }
 
-                let mut new_i = InboundState::new(&id);
+                let new_i = InboundState::new(&id, self);
                 info!("http scheduling inbound file {:?}", id);
-                for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
-                    new_i.request_blocks(self, new_i.peers.clone()); // resume (un-stall)
-                }
-                let peers = self.best_peers(250, 6);
-                info!("searchng  {} peers",peers.len());
-                new_i.request_blocks(self, peers);
                 inbound_states.insert(id.to_string(), new_i);
                 inbound_states.get_mut(&id).unwrap()
             }
@@ -1359,7 +1353,7 @@ pub fn run() -> Result<(), std::io::Error> {
             );
         } else {
             info!("queing inbound file {:?}", v);
-            inbound_states.insert(v.to_string(), InboundState::new(&v));
+            inbound_states.insert(v.to_string(), InboundState::new(&v, &mut ps));
         }
     }
 
@@ -1456,7 +1450,7 @@ fn handle_stdin(
         let mut arg2: String = "".to_string();
         if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
             println!("QUEING FILE {arg}");
-            inbound_states.insert(arg.clone(), InboundState::new(&arg));
+            inbound_states.insert(arg.clone(), InboundState::new(&arg, ps));
         } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
             if let Ok(pub_key) = arg.parse::<Ed25519Pub>() {
                 chat_to_pub(ps, pub_key, &arg2);
@@ -2155,7 +2149,7 @@ fn handle_web_request(
                     return;
                 }
                 let v = &req.path[6..];
-                inbound_states.insert(v.to_string(), InboundState::new(v));
+                inbound_states.insert(v.to_string(), InboundState::new(v, ps));
                 println!("http requested ordinary download of {}",v);
                 let response = format!(
                             "HTTP/1.0 301 OK\r\n\
@@ -3144,7 +3138,7 @@ impl ContentGateway {
     }
 }
 impl InboundState {
-    fn new(id: &str) -> Self {
+    fn new(id: &str, ps: &mut PeerState) -> Self {
         let mut peers: HashSet<SocketAddr> = HashSet::new();
         let peers_from_disk = InboundState::send_content_peers_from_disk(
             &id.to_string(),
@@ -3157,7 +3151,7 @@ impl InboundState {
                 info!("{} loadedd {} peers frorm disk",id,p.peers.len());
             }
         }
-        return Self {
+        let mut new_i = Self {
             mmap: None,
             next_block: 0,
             bitmap: bitvec![0;(1<<18)/BLOCK_SIZE!()],
@@ -3169,6 +3163,13 @@ impl InboundState {
             hash_failures: 0,
             hash_future: None,
         };
+        for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
+            new_i.request_blocks(ps, new_i.peers.clone()); // resume (un-stall)
+        }
+        let peers = ps.best_peers(250, 6);
+        info!("searchng  {} peers",peers.len());
+        new_i.request_blocks(ps, peers);
+        return new_i;
     }
 
     fn receive_content(&mut self, content: &Content, ps: &mut PeerState) -> Vec<Message> {
@@ -3432,6 +3433,7 @@ fn maintenance(
     ps.open_file_cache = HashMap::new(); // clear the cache
     log_if_slow(nowi, line!().to_string());
     inbound_states.retain(|_, i| !i.finished());
+    log_if_slow(nowi, line!().to_string());
     for (_, i) in inbound_states.iter_mut() {
         if i.bytes_complete == i.eof {
             continue;
