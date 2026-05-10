@@ -1330,6 +1330,7 @@ pub fn run() -> Result<(), std::io::Error> {
         warn!("sndbuf  = {:?}",sndbuf);
     }
     println!("your ed25519 public key, stored in cjp2p/state/key.v2.json, is:  0x{}", ps.keypair.public);
+    println!("BUILD_VERSION {}", env!("BUILD_VERSION"));
     println!("web console at        http://127.0.0.1:{http_port}/");
     let pub_hex = ps.keypair.public.to_string();
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
