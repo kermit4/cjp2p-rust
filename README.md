@@ -58,53 +58,38 @@ or HTML pages with many page components, individually downloaded from the networ
 - make it easy for other people to build on, make easy for UI devs on websockets
 ## UI
 -   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
-- public websocket support/ browser light node, its easy, just treat non-localhost as network..easy, right? update Source enum
-## cryptography or scarcity related
-- trust 
-- valuable numbers? (PoW?  or valuable just because the issuer, based on their public key, limits the issuance.  every person their own "coin" as value derived from their reputation?  reputation granting fungible negotiable scarcity? be your own CENTRAL bank!)
+- public websocket support/ browser light node, its easy, just treat non-localhost as network..easy, right? update Source enum..  the code is intended to possibly allow this but there are gaps to fully implementing it, if i even want to
+- more orderly useful chat interface, with history on dashboard page, like make this a social focused space , with clicking on a id to open the 1:1 chat
+## scarcity related
 - proof of latency? signature chain of somewhat verifiable latency?
-- reputation
-- thanks based reputation. auto-thanks on succesful get.
-- direct referal trust or public reputation..and is that the scarcity or something else like ipv4 addresses or work.
+- valuable numbers? (PoW?  or valuable just because the issuer, based on their public key, limits the issuance.  every person their own "coin" as value derived from their reputation?  reputation granting fungible negotiable scarcity? be your own CENTRAL bank!)
+- or ipv4 scarcity, that worked fine until 2000, just do that, ipv6 turned out to be a scam anyway..or use the ipv6 prefix that is the unique location like an ipv4
 - read this again https://howtofixtheweb.com/
-- more encryption? by default?   for debugging (tcpdump) its much easier to leave this off for now, but could be a command line option.  and its a bit slow with Noise unless they save state, 4x the CPU on to send/receive encrypted.  why? 4x block size makes  it only 70% slower though, but it still seems somewhat high.  its because Noise is doing DH even for one-way communication which is silly.  using N type and "into_transport_mode" on both sides after the 1st message is fast, but i think it needs state on both sides, to hold ephemeral keys i assume.  maybe use https://docs.rs/aes-gcm/latest/aes_gcm/ instead of Noise
-## near-real time things - may overlap 
-- news feed
 - once there is economics, sell services
+### reputation
+- thanks based reputation. auto-thanks on succesful get.
+- web of trust - direct referal trust or public reputation..and is that the scarcity   reputation is not absolute, its from your point of view, that solves sybil attacks
+## public collaboration 
+- needs some scactiy, eventually, right?  to not be spam?  as long as the spam can be automated without limit
+- news feed
 - group chats
-## public collaboration
 - reviews of content
--  some equivalent of wikipedia
+- polls, approval voting style
+- some equivalent of wikipedia.. no concensus needed, DAG, fork if they want, or agree if they want. forks forever or people sane enough to sync up.  each name space can have a popularity 
 ## unnsorted
 - make it do what i actually do each day, check for news basically, from friends or weigthed by importance/distance. like /trending but scoped/weighted.  user defined algorithm. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
-- need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming)
-- reputation, ip-time? web of trust (people approve other people)? 
-- polls, approval voting style..which need some kind of scarcity
-- drop in socket() replacement that takes public keys intead of ips(), in Rust crate?
-- my putting plain names in public/ will go badly for anyone who doest have thetm and tries to get them ..just think of what i need to do for me and the fastest way to do it, htats how it will be done.. it doesnt have to be authenticated , as long as it CAN be later, just automate what i do, thats my specialtiy, and if a file is deleted and someone uses the URL it will have unpredictable results
-- lcdp crate now? send to ed25519 as the base theme with the big hash getter should be core?
-- more orderly chat with history on dashboard page, like make this a social focused space 
-- when people publish UIs to this, on this, there sholud be an easy directory of those, and with latest versions, and shown right on the status page
-- web of trust, reputation is not absolute, its from your point of view, that solves sybil attacks
+- need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming).. maybe this starts right from messages a message type that says "too big, get this hash or list of hashes" (or is that a different scenario, level 0 of get by hash)
 - any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
-- if streaming video is a signed list of hashes, just sign the video itself, then i can multisource per packet, the encryption does hashing already i think?
 - dot file, env var, commmand line options..too many ways to pass options
-- the killer app for this i think is the drop in socket replacement that takes a pub
-- break apart functionality more and use different names and repos
+- lcdp crate now? send to ed25519 and big hash getter are basic legos .. the killer app for this i think is a lib that is a drop in socket replacement that takes a pub, or maybe libp2p semantics..look into how you actually send a message with libp2p, or transport for it as long as the app can still direct message on the socket.
 - focus on enabling devs, i've done enough demoning
-- ethphone..and chat in it ..and pong
 - the final sha256 should be a thread..this is in git stash but not reviewed
-- make pull could git stash
 - kind of heavy on bandwith forever if someone requests something that just plain doesnt exist, static or /latest
-- the /ping chat should really do the please reply in advance somehow
-- make useful chat interface, for me (just basic all people chat)
-- it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?
-- why is signed messsage base64, we know its json, thats just harder to read on a tcpdump - when everyone is upgrade, which they are it seems, switch to the json..test
-- ok it willl be easier to pass the signature through the stack i think
+- it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - use dev branch more
 - just default stream url for people not dated
 - ipv4 scarcity worked fine until 2000, just do that, ipv6 turned out to be a failure anyway
-- some way to just get the live, chopped mkv due to difficult seeking, for any pub
 - HELP message..ask ai abuot introspection. maybe serde knows it already
 - send getlatest twice for the 300ms delay
 - /update - make pull, make, rerun same comand
+- ******* some way to just get the live, chopped mkv due to difficult seeking, for any pub
