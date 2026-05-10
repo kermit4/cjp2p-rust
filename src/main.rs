@@ -45,8 +45,8 @@ use std::vec;
 use std::{io, str};
 //use base64::{engine::general_purpose, Engine as _};
 //use nix::NixPath;
-use std::path::Path;
 use schemars::{schema_for, JsonSchema};
+use std::path::Path;
 //use std::convert::TryInto;
 //use std::fmt;
 //use std::io::copy;
@@ -83,7 +83,9 @@ impl std::str::FromStr for Ed25519Pub {
     }
 }
 impl JsonSchema for Ed25519Pub {
-    fn schema_name() -> String { "Ed25519Pub".to_owned() }
+    fn schema_name() -> String {
+        "Ed25519Pub".to_owned()
+    }
     fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
         schemars::schema::SchemaObject {
             instance_type: Some(schemars::schema::InstanceType::String.into()),
@@ -92,7 +94,8 @@ impl JsonSchema for Ed25519Pub {
                 ..Default::default()
             })),
             ..Default::default()
-        }.into()
+        }
+        .into()
     }
 }
 
@@ -1627,12 +1630,29 @@ fn handle_stdin(
             let args: Vec<String> = env::args().collect();
             thread::spawn(move || {
                 const BUNDLE_URL: &str = "http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle";
-                let status = std::process::Command::new("wget").args(["-q", "-O","cjp2p.bundle",BUNDLE_URL]).status().expect("wget failed");
-                if !status.success() { eprintln!("wget cjp2p.bundle failed: {}", status); return; }
-                let status = std::process::Command::new("git").args(["pull", "cjp2p.bundle", "master"]).status().expect("git pull failed");
-                if !status.success() { eprintln!("git pull cjp2p.bundle master failed: {}", status); return; }
-                let status = std::process::Command::new("make").status().expect("make failed");
-                if !status.success() { eprintln!("make failed: {}", status); return; }
+                let status = std::process::Command::new("wget")
+                    .args(["-q", "-O", "cjp2p.bundle", BUNDLE_URL])
+                    .status()
+                    .expect("wget failed");
+                if !status.success() {
+                    eprintln!("wget cjp2p.bundle failed: {}", status);
+                    return;
+                }
+                let status = std::process::Command::new("git")
+                    .args(["pull", "cjp2p.bundle", "master"])
+                    .status()
+                    .expect("git pull failed");
+                if !status.success() {
+                    eprintln!("git pull cjp2p.bundle master failed: {}", status);
+                    return;
+                }
+                let status = std::process::Command::new("make")
+                    .status()
+                    .expect("make failed");
+                if !status.success() {
+                    eprintln!("make failed: {}", status);
+                    return;
+                }
                 let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
             });
         } else if line == "/help\n" {
@@ -2794,7 +2814,7 @@ impl Receive for Content {
         //if (rand::rng().random::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
         if (rand::rng().random::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof {
+                if i.next_block * BLOCK_SIZE!() >= i.eof || i.bytes_complete == i.eof {
                     continue;
                 }
                 debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
@@ -2808,22 +2828,9 @@ impl Receive for Content {
         let block_number = self.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
         let mut message_out = i.receive_content(&self, ps);
-        if i.finished() {
-            for (index, cg) in (&mut (ps.content_gateways)).into_iter().enumerate() {
-                if cg.id == self.id {
-                    cg.serve_content_from_inbound_state(i);
-                    if cg.http_done {
-                        let cg = ps.content_gateways.remove(index);
-                        ps.http_clients.push(cg.http_socket);
-                        break;
-                    }
-                }
-            }
-            inbound_states.remove(&self.id);
-        }
         if message_out.len() == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof {
+                if i.next_block * BLOCK_SIZE!() >= i.eof || i.bytes_complete == i.eof {
                     continue;
                 }
                 message_out = PleaseSendContent::new_messages(i, ps);
@@ -2853,6 +2860,7 @@ struct InboundState {
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
     hash_failures: i32,
+    hash_future: Option<std::sync::mpsc::Receiver<bool>>,
 }
 
 struct StreamState {
@@ -3159,6 +3167,7 @@ impl InboundState {
             peers: peers,
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
+            hash_future: None,
         };
     }
 
@@ -3298,38 +3307,68 @@ impl InboundState {
         })];
     }
     fn finished(&mut self) -> bool {
-        // yes this could sha as it goes, but then its not testing as much as it could,
-        // for little real improvement, so dont do that
-        // though this will hang the whole thing
+        if let Some(ref rx) = self.hash_future {
+            match rx.try_recv() {
+                Ok(matched) => {
+                    self.hash_future = None;
+                    if matched {
+                        info!("{0} finished {1} bytes", self.id, self.eof);
+                        println!("{0} finished {1} bytes", self.id, self.eof);
+                        let path = "./cjp2p/incoming/".to_owned() + &self.id;
+                        let new_path = "./cjp2p/public/".to_owned() + &self.id;
+                        fs::rename(path, new_path).unwrap();
+                        self.save_content_peers();
+                        return true;
+                    }
+                    error!("{} hash doesnt match! restarting", self.id);
+                    self.hash_failures += 1;
+                    if self.hash_failures > 2 {
+                        error!("{} hash failed 3 times, giving up!", self.id);
+                        return true;
+                    }
+                    self.bitmap.fill(false);
+                    self.mmap = None;
+                    self.next_block = 0;
+                    self.bytes_complete = 0;
+                    return false;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.hash_future = None;
+                    self.hash_failures += 1;
+                    return false;
+                }
+            }
+        }
         if self.bytes_complete != self.eof {
             return false;
         }
-        let mut hasher = Sha256::new();
-        info!("{} starting sha256sum", self.id);
-        hasher.update(self.mmap.as_mut().unwrap());
-        let hash = format!("{:x}", hasher.finalize());
-        info!("{} sha256sum", hash);
-        if hash == self.id.to_lowercase() {
-            info!("{0} finished {1} bytes", self.id, self.eof);
-            println!("{0} finished {1} bytes", self.id, self.eof);
-            let path = "./cjp2p/incoming/".to_owned() + &self.id;
-            let new_path = "./cjp2p/public/".to_owned() + &self.id;
-            fs::rename(path, new_path).unwrap();
-            self.save_content_peers();
-            return true;
-        }
-        error!("{} hash doesnt match! restarting", self.id);
-        self.hash_failures += 1;
-        if self.hash_failures > 2 {
-            error!("{} hash failed 3 times, giving up!", self.id);
-            return true;
-        }
-
-        self.bitmap.fill(false);
-        self.mmap = None;
-        self.next_block = 0;
-        self.bytes_complete = 0;
-        return false;
+        let id = self.id.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.hash_future = Some(rx);
+        debug!("{} starting sha256sum (background thread)", id);
+        thread::spawn(move || {
+            let path = "./cjp2p/incoming/".to_owned() + &id;
+            let matched = (|| -> Option<bool> {
+                let mut file = fs::File::open(&path).ok()?;
+                let mut hasher = Sha256::new();
+                let mut buf = vec![0u8; 1 << 16];
+                loop {
+                    let n = file.read(&mut buf).ok()?;
+                    if n == 0 {
+                        break;
+                    }
+                    hasher.update(&buf[..n]);
+                }
+                let hash = format!("{:x}", hasher.finalize());
+                info!("{} sha256sum {}", id, hash);
+                Some(hash == id.to_lowercase())
+            })()
+            .unwrap_or(false);
+            info!("sha thread for {path} sendding {}",matched);
+            tx.send(matched).ok();
+        });
+        false
     }
 }
 
@@ -3392,7 +3431,11 @@ fn maintenance(
     ps.probe();
     ps.open_file_cache = HashMap::new(); // clear the cache
     log_if_slow(nowi, line!().to_string());
+    inbound_states.retain(|_, i| !i.finished());
     for (_, i) in inbound_states.iter_mut() {
+        if i.bytes_complete == i.eof {
+            continue;
+        }
         if i.last_activity.elapsed() <= Duration::from_secs(1) {
             continue;
         }
@@ -3403,7 +3446,7 @@ fn maintenance(
     }
     log_if_slow(nowi, line!().to_string());
     for (_, i) in inbound_states.iter_mut() {
-        if i.last_activity.elapsed() <= Duration::from_secs(1) {
+        if i.last_activity.elapsed() <= Duration::from_secs(1) || i.bytes_complete == i.eof {
             continue;
         }
         info!("{} stalled, restarting", i.id);
@@ -3415,9 +3458,11 @@ fn maintenance(
                 break;
             }
         }
+        log_if_slow(nowi, line!().to_string());
         for _ in 0..(1 + try_harder / (1 + i.peers.len())) {
             i.request_blocks(ps, i.peers.clone()); // resume (un-stall)
         }
+        log_if_slow(nowi, line!().to_string());
         let peers = ps.best_peers(50 * try_harder, 6);
         info!("searching  {} peers for {}",peers.len(),i.id);
         i.request_blocks(ps, peers);
@@ -3426,6 +3471,7 @@ fn maintenance(
         if rand::rng().random::<u32>() % 2 == 0 {
             break;
         }
+        log_if_slow(nowi, line!().to_string());
     }
 
     log_if_slow(nowi, line!().to_string());
