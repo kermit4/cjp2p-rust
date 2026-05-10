@@ -26,6 +26,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, BufWriter, IsTerminal, Read, Seek, SeekFrom, Write};
 //use std::convert::TryInto;
 use std::env;
+use std::os::unix::process::CommandExt;
 //use std::fmt;
 use std::f64;
 use std::fs;
@@ -1620,6 +1621,25 @@ fn handle_stdin(
                 trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
                 ps.socket.send_to(&message_out_bytes, sa).ok();
             }
+        } else if line == "/update\n" {
+            let status = std::process::Command::new("make")
+                .arg("pull")
+                .status()
+                .expect("make pull failed");
+            if !status.success() {
+                eprintln!("make pull failed: {}", status);
+                return;
+            }
+            let status = std::process::Command::new("make")
+                .status()
+                .expect("make failed");
+            if !status.success() {
+                eprintln!("make failed: {}", status);
+                return;
+            }
+            let exe = env::current_exe().unwrap();
+            let args: Vec<String> = env::args().collect();
+            let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
         } else if line == "/help\n" {
             println!("
                         - /ping
@@ -1635,6 +1655,7 @@ fn handle_stdin(
                         - /peers
                         - /msg [ip:port or 0xPubKey] msg
                         - /version
+                        - /update
                         - /help
                 ");
         } else {
