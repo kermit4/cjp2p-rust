@@ -45,6 +45,7 @@ use std::{io, str};
 //use base64::{engine::general_purpose, Engine as _};
 //use nix::NixPath;
 use std::path::Path;
+use schemars::{schema_for, JsonSchema};
 //use std::convert::TryInto;
 //use std::fmt;
 //use std::io::copy;
@@ -78,6 +79,19 @@ impl std::str::FromStr for Ed25519Pub {
             .try_into()
             .map_err(|_| "expected 32 bytes".to_string())?;
         Ok(Self(arr))
+    }
+}
+impl JsonSchema for Ed25519Pub {
+    fn schema_name() -> String { "Ed25519Pub".to_owned() }
+    fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        schemars::schema::SchemaObject {
+            instance_type: Some(schemars::schema::InstanceType::String.into()),
+            string: Some(Box::new(schemars::schema::StringValidation {
+                pattern: Some("^[0-9a-f]{64}$".to_owned()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }.into()
     }
 }
 
@@ -2278,11 +2292,11 @@ fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct Peers {
     peers: HashSet<SocketAddr>,
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct AlwaysReturned {
     cookie: String,
 }
@@ -2301,7 +2315,7 @@ impl Receive for AlwaysReturned {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct PleaseAlwaysReturnThisMessage {
     cookie: String,
 }
@@ -2326,7 +2340,7 @@ impl Receive for PleaseAlwaysReturnThisMessage {
         return vec![];
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct PleaseSendPeers {}
 impl Receive for PleaseSendPeers {
     fn receive(
@@ -2371,7 +2385,7 @@ impl Receive for Peers {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 struct IJustSawThis {
     id: String,
     length: u64,
@@ -2402,7 +2416,7 @@ impl Receive for IJustSawThis {
         return vec![];
     }
 }
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, JsonSchema)]
 struct YouShouldSeeThis {
     id: String,
     length: u64,
@@ -2433,7 +2447,7 @@ impl Receive for YouShouldSeeThis {
         return vec![];
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct PleaseSendContent {
     id: String,
     length: usize,
@@ -2441,10 +2455,11 @@ struct PleaseSendContent {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct Content {
     id: String,
     offset: usize,
+    #[schemars(with = "String")]
     #[serde_as(as = "Base64")]
     base64: Vec<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3432,7 +3447,7 @@ fn maintenance(
     log_if_slow(nowi, line!().to_string());
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct MaybeTheyHaveSome {
     id: String,
     peers: HashSet<SocketAddr>,
@@ -3462,7 +3477,7 @@ impl Receive for MaybeTheyHaveSome {
         return vec![];
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct PleaseReturnThisMessage {
     cookie: String,
 }
@@ -3487,7 +3502,7 @@ impl PleaseReturnThisMessage {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct ReturnedMessage {
     cookie: String,
 }
@@ -3514,7 +3529,7 @@ impl Receive for ReturnedMessage {
     }
 }
 //        socket.send(JSON.stringify([{GetPubByEth:{eth_addr:their_eth_addr}}]));
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 struct WhereAreThey {
     ed25519h: Ed25519Pub,
 }
@@ -3547,7 +3562,7 @@ impl Receive for WhereAreThey {
     }
 }
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 struct GetPubByEth {
     eth_addr: String,
 }
@@ -3602,7 +3617,7 @@ impl Receive for GetPubByEth {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct SignedPub {
     signature: String,
 }
@@ -3625,7 +3640,7 @@ impl Receive for SignedPub {
         return vec![];
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct Forwarded {
     src: SocketAddr,
     from_ed25519: Option<Ed25519Pub>,
@@ -3664,7 +3679,7 @@ impl Receive for Forwarded {
     }
 }
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct Forward {
     #[serde(skip_serializing_if = "Option::is_none")]
     to_ed25519: Option<Ed25519Pub>,
@@ -3708,7 +3723,7 @@ impl Receive for Forward {
         return vec![];
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct MyPublicKey {
     ed25519h: Ed25519Pub,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3779,7 +3794,7 @@ impl Receive for MyPublicKey {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct ChatMessage {
     message: String,
 }
@@ -3863,7 +3878,7 @@ impl Receive for ChatMessage {
         return vec![];
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct PleaseListContent {}
 impl Receive for PleaseListContent {
     fn receive(
@@ -3904,7 +3919,7 @@ impl PleaseListContent {
         return message_out;
     }
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct ContentList {
     results: Vec<(String, u64)>,
 }
@@ -3949,8 +3964,9 @@ impl Receive for ContentList {
 
 // forward secrecy, 2x the CPU as FastEncryptedMessages
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct EncryptedMessages {
+    #[schemars(with = "String")]
     #[serde_as(as = "Base64")]
     base64: Vec<u8>,
     noise_params: String,
@@ -4056,11 +4072,13 @@ impl Receive for EncryptedMessages {
 // Static-static X25519 ECDH + AES-256-GCM. No ephemeral keys, no handshake, no RTT.
 // Not forward-secret by design -- the shared secret is stable between any two peers.
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct FastEncryptedMessages {
+    #[schemars(with = "String")]
     #[serde_as(as = "Base64")]
     nonce: [u8; 12],
     sender: Ed25519Pub,
+    #[schemars(with = "String")]
     #[serde_as(as = "Base64")]
     ciphertext: Vec<u8>,
 }
@@ -4185,11 +4203,13 @@ impl Receive for FastEncryptedMessages {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 struct SignedMessage {
     ed25519: Ed25519Pub,
+    #[schemars(with = "String")]
     #[serde_as(as = "Base64")]
     signature: Vec<u8>,
+    #[schemars(with = "Option<String>")]
     #[serde_as(as = "Option<Base64>")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     payload: Option<Vec<u8>>,
@@ -4448,7 +4468,7 @@ fn create_and_cache_latest(ps: &PeerState, name: &str, pub_hex: &str, seq: u64, 
 }
 
 // GetLatest: ask for the latest signed hash for a named file owned by ed25519 publisher
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 struct GetLatest {
     ed25519: Ed25519Pub,
     name: String,
@@ -4498,7 +4518,7 @@ impl Receive for GetLatest {
 }
 
 // Latest: the signed response carrying the sha256 and sequence number of a named file
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 struct Latest {
     ed25519: Ed25519Pub,
     name: String,
@@ -4541,7 +4561,45 @@ impl Receive for Latest {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+struct PleaseListSupportedMessages {}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+struct SupportedMessages {
+    schema: serde_json::Value,
+}
+
+impl Receive for PleaseListSupportedMessages {
+    fn receive(
+        self,
+        _ps: &mut PeerState,
+        _src: &Source,
+        _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
+        _: &mut HashMap<String, InboundState>,
+        _signer: Option<Ed25519Pub>,
+    ) -> Vec<Message> {
+        let schema = schema_for!(Message);
+        let schema_value = serde_json::to_value(&schema).unwrap_or(serde_json::Value::Null);
+        vec![Message::SupportedMessages(SupportedMessages { schema: schema_value })]
+    }
+}
+
+impl Receive for SupportedMessages {
+    fn receive(
+        self,
+        _ps: &mut PeerState,
+        _src: &Source,
+        _: &mut bool,
+        _stream_states: &mut HashMap<String, StreamState>,
+        _: &mut HashMap<String, InboundState>,
+        _signer: Option<Ed25519Pub>,
+    ) -> Vec<Message> {
+        vec![]
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, JsonSchema)]
 #[enum_dispatch]
 enum Message {
     PleaseSendPeers(PleaseSendPeers),
@@ -4569,6 +4627,8 @@ enum Message {
     WhereAreThey(WhereAreThey),
     GetLatest(GetLatest),
     Latest(Latest),
+    PleaseListSupportedMessages(PleaseListSupportedMessages),
+    SupportedMessages(SupportedMessages),
 }
 
 // this struct only exists to be able to get that VecSkipError in there.

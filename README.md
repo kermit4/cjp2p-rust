@@ -106,3 +106,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - just default stream url for people not dated
 - ipv4 scarcity worked fine until 2000, just do that, ipv6 turned out to be a failure anyway
 - some way to just get the live, chopped mkv due to difficult seeking, for any pub
+- HELP message..ask ai abuot introspection. maybe serde knows it already
