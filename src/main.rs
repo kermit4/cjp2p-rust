@@ -2269,36 +2269,36 @@ fn handle_network(
     let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
     trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
-    // slow, even big blocks is 4x slower user time, with sys time 3x
-    // 4k blocks 8x slower user, 5x net
-    //
     // 256M cb407d7355bb63929d7f4b282684f5a2884a0c3fb73d56642455600569a6888b
+    // seconds of user/sys time
     //NO IFTOP NO TCPDUMP NO IPV6
     // Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz
+    // # to/from itself
     // 5/2 unencrypted
-    // 68/3 old encrypted
-    // 30/3 fast encrypted
+    // 68/3 EncryptedMessages
+    // 30/3 FastEncryptedMessages
     // # receiving :
     // 4/3 unencrypted
-    // 38/2 old encrypted
-    // 20/2 fast encrypted
+    // 38/2 EncryptedMessages
+    // 20/2 FastEncryptedMessages
     // # sending :
     // 3/3 unencrypted
-    // 32/4 old encrypted
-    // 16/4 fast encrypted
+    // 32/4 EncryptedMessages
+    // 16/4 FastEncryptedMessages
     //
     // AMD EPYC-Rome-v4 Processor
+    // # to/from itself
     // 3/2 unencrypted
-    // 53/4 old encrypted
-    // 27/2 fast encrypted
+    // 53/4 EncryptedMessages
+    // 27/2 FastEncryptedMessages
     // # receiving :
     // 3/4 unencrypted
-    // 32/4 old encrypted
-    // 17/5 fast encrypted
+    // 32/4 EncryptedMessages
+    // 17/5 FastEncryptedMessages
     // # sending :
     // 3/6 unencrypted
-    // 32/4 old encrypted
-    // 15/4 fast encrypted
+    // 32/4 EncryptedMessages
+    // 15/4 FastEncryptedMessages
     /*if let Some(their_pub) = &ps.peer_map[&src].ed25519 {
         message_out_bytes = serde_json::to_vec(
             &(vec![
