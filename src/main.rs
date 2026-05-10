@@ -2040,8 +2040,13 @@ fn handle_web_request(
                             };
                             if is_local(&stream) && ed25519 != ps.keypair.public {
                                 let mut peers = ps.best_peers(250, 6);
-                                if let Some(Source::S(origin)) = ps.peer_map_by_pub.get(&ed25519) {
-                                    peers.insert(*origin);
+                                if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&ed25519) {
+                                    let mut msg_out = vec![Message::GetLatest(gl.clone())];
+                                    msg_out.append(&mut ps.always_returned(*sa));
+                                    ps.socket
+                                        .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
+                                        .ok();
+                                    peers.insert(*sa);
                                 }
                                 for sa in &peers {
                                     let mut msg_out = vec![Message::GetLatest(gl.clone())];
