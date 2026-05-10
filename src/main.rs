@@ -1622,24 +1622,18 @@ fn handle_stdin(
                 ps.socket.send_to(&message_out_bytes, sa).ok();
             }
         } else if line == "/update\n" {
-            let status = std::process::Command::new("make")
-                .arg("pull")
-                .status()
-                .expect("make pull failed");
-            if !status.success() {
-                eprintln!("make pull failed: {}", status);
-                return;
-            }
-            let status = std::process::Command::new("make")
-                .status()
-                .expect("make failed");
-            if !status.success() {
-                eprintln!("make failed: {}", status);
-                return;
-            }
             let exe = env::current_exe().unwrap();
             let args: Vec<String> = env::args().collect();
-            let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
+            thread::spawn(move || {
+                const BUNDLE_URL: &str = "http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle";
+                let status = std::process::Command::new("wget").args(["-q", "-O","cjp2p.bundle",BUNDLE_URL]).status().expect("wget failed");
+                if !status.success() { eprintln!("wget cjp2p.bundle failed: {}", status); return; }
+                let status = std::process::Command::new("git").args(["pull", "cjp2p.bundle", "master"]).status().expect("git pull failed");
+                if !status.success() { eprintln!("git pull cjp2p.bundle master failed: {}", status); return; }
+                let status = std::process::Command::new("make").status().expect("make failed");
+                if !status.success() { eprintln!("make failed: {}", status); return; }
+                let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
+            });
         } else if line == "/help\n" {
             println!("
                         - /ping
