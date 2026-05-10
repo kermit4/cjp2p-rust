@@ -2794,7 +2794,7 @@ impl Receive for Content {
         //if (rand::rng().random::<u32>() % (if cg.http_socket.is_some() { 7 } else { 101 })) == 0 ||
         if (rand::rng().random::<u32>() % 101) == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof || self.bytes_complete == self.eof {
+                if i.next_block * BLOCK_SIZE!() >= i.eof || i.bytes_complete == i.eof {
                     continue;
                 }
                 debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
@@ -2823,7 +2823,7 @@ impl Receive for Content {
         }
         if message_out.len() == 0 {
             for (_, i) in inbound_states.iter_mut() {
-                if i.next_block * BLOCK_SIZE!() >= i.eof || self.bytes_complete == self.eof {
+                if i.next_block * BLOCK_SIZE!() >= i.eof || i.bytes_complete == i.eof {
                     continue;
                 }
                 message_out = PleaseSendContent::new_messages(i, ps);
@@ -3421,7 +3421,11 @@ fn maintenance(
     ps.open_file_cache = HashMap::new(); // clear the cache
     log_if_slow(nowi, line!().to_string());
     for (_, i) in inbound_states.iter_mut() {
-        if i.last_activity.elapsed() <= Duration::from_secs(1) || self.bytes_complete == self.eof {
+        if i.bytes_complete == i.eof {
+            i.finished(); 
+                continue;
+        }
+        if i.last_activity.elapsed() <= Duration::from_secs(1) {
             continue;
         }
         if i.next_block != 0 {
@@ -3431,7 +3435,7 @@ fn maintenance(
     }
     log_if_slow(nowi, line!().to_string());
     for (_, i) in inbound_states.iter_mut() {
-        if i.last_activity.elapsed() <= Duration::from_secs(1) || self.bytes_complete == self.eof {
+        if i.last_activity.elapsed() <= Duration::from_secs(1) || i.bytes_complete == i.eof {
             continue;
         }
         info!("{} stalled, restarting", i.id);
