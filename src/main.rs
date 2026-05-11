@@ -987,7 +987,9 @@ impl PeerState {
         return None;
     }
     fn unstall_getlatests(&self) {
+    let nowi = Instant::now();
         let mut msg_out = vec![];
+    log_if_slow(nowi, line!().to_string());
         for cg in &self.content_gateways {
             if let Some(pending_latest) = &cg.pending_latest {
                 if cg.id.is_empty() {
@@ -998,8 +1000,10 @@ impl PeerState {
                 }
             }
         }
+    log_if_slow(nowi, line!().to_string());
         if msg_out.len() > 0 {
             let peers = self.best_peers(250, 6);
+    log_if_slow(nowi, line!().to_string());
             debug!("trying to GetLatest {:?} from {:?}",msg_out,peers);
             for sa in &peers {
                 msg_out.append(&mut self.always_returned(*sa));
@@ -1020,6 +1024,7 @@ impl PeerState {
                 }
             }
         }
+    log_if_slow(nowi, line!().to_string());
     }
 }
 
