@@ -643,7 +643,7 @@ impl PeerState {
         let i = match inbound_states.get_mut(&id) {
             Some(i) => i,
             _ => {
-                if !is_local(&cg.http_socket) {
+                if !is_local(&cg.http_socket) && !matches!( cg.initiator,Initiator::Latest ) {
                     let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
                     cg.http_socket.write_all(page.as_bytes()).ok();
                     self.content_gateways.remove(cg_index);
@@ -987,9 +987,9 @@ impl PeerState {
         return None;
     }
     fn unstall_getlatests(&self) {
-    let nowi = Instant::now();
+        let nowi = Instant::now();
         let mut msg_out = vec![];
-    log_if_slow(nowi, line!().to_string());
+        log_if_slow(nowi, line!().to_string());
         for cg in &self.content_gateways {
             if let Some(pending_latest) = &cg.pending_latest {
                 if cg.id.is_empty() {
@@ -1000,10 +1000,10 @@ impl PeerState {
                 }
             }
         }
-    log_if_slow(nowi, line!().to_string());
+        log_if_slow(nowi, line!().to_string());
         if msg_out.len() > 0 {
             let peers = self.best_peers(250, 6);
-    log_if_slow(nowi, line!().to_string());
+            log_if_slow(nowi, line!().to_string());
             debug!("trying to GetLatest {:?} from {:?}",msg_out,peers);
             for sa in &peers {
                 msg_out.append(&mut self.always_returned(*sa));
@@ -1024,7 +1024,7 @@ impl PeerState {
                 }
             }
         }
-    log_if_slow(nowi, line!().to_string());
+        log_if_slow(nowi, line!().to_string());
     }
 }
 
@@ -2032,13 +2032,11 @@ fn handle_web_request(
                             }
                             let cache_path = latest_cache_path(&ed25519.to_string(), &name);
                             let sha256_opt = load_sha256_from_latest_cache(&cache_path);
-                            let pending_latest = if !is_local(&stream) {
-                                if sha256_opt.is_none() {
-                                    stream.write_all(b"HTTP/1.0 403 Forbidden\r\n\n").ok();
-                                    return;
-                                }
-                                None
-                            } else if sha256_opt.is_none() {
+                            if !is_local(&stream) && sha256_opt.is_none() {
+                                stream.write_all(b"HTTP/1.0 403 Forbidden\r\n\n").ok();
+                                return;
+                            }
+                            let pending_latest = if sha256_opt.is_none() {
                                 Some(LatestData {
                                     pub_key: ed25519,
                                     name: name.clone(),
@@ -2057,7 +2055,7 @@ fn handle_web_request(
                                     ),
                                 })
                             };
-                            if is_local(&stream) && ed25519 != ps.keypair.public {
+                            if ed25519 != ps.keypair.public {
                                 let mut peers = ps.best_peers(250, 6);
                                 if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&ed25519) {
                                     let mut msg_out = vec![Message::GetLatest(gl.clone())];
@@ -2067,12 +2065,15 @@ fn handle_web_request(
                                         .ok();
                                     peers.insert(*sa);
                                 }
-                                for sa in &peers {
-                                    let mut msg_out = vec![Message::GetLatest(gl.clone())];
-                                    msg_out.append(&mut ps.always_returned(*sa));
-                                    ps.socket
-                                        .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
-                                        .ok();
+                                if is_local(&stream) {
+                                    // dont do an aggressive search for just anyone
+                                    for sa in &peers {
+                                        let mut msg_out = vec![Message::GetLatest(gl.clone())];
+                                        msg_out.append(&mut ps.always_returned(*sa));
+                                        ps.socket
+                                            .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
+                                            .ok();
+                                    }
                                 }
                             }
                             let index = ps.content_gateways.len();
@@ -2087,6 +2088,7 @@ fn handle_web_request(
                                 sent_header: false,
                                 eof: None,
                                 pending_latest,
+                                initiator: Initiator::Latest,
                             });
                             if ps.content_gateways[index].pending_latest.is_none() {
                                 ps.serve_http_content(stream_states, inbound_states, index);
@@ -2141,6 +2143,7 @@ fn handle_web_request(
                         sent_header: false,
                         eof: None,
                         pending_latest: None,
+                        initiator: Initiator::Stream,
                     });
                     ps.serve_http_content(stream_states, inbound_states, index);
                 }
@@ -2192,6 +2195,7 @@ fn handle_web_request(
                 sent_header: false,
                 eof: None,
                 pending_latest: None,
+                initiator: Initiator::ByHash,
             });
             ps.serve_http_content(stream_states, inbound_states, index);
         }
@@ -3022,6 +3026,12 @@ struct ContentGateway {
     sent_header: bool,
     eof: Option<usize>,
     pending_latest: Option<LatestData>,
+    initiator: Initiator,
+}
+enum Initiator {
+    Latest,
+    Stream,
+    ByHash,
 }
 impl ContentGateway {
     fn serve_content_from_disk(&mut self, file: &File) {

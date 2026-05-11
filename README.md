@@ -88,4 +88,3 @@ or HTML pages with many page components, individually downloaded from the networ
 - use dev branch more
 - just default stream url for people not dated
 - ******* some way to just get the live, chopped mkv due to difficult seeking, for any pub
-- latest should still work on update on gateway
