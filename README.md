@@ -72,7 +72,7 @@ or HTML pages with many page components, individually downloaded from the networ
 ## public collaboration 
 - needs some scactiy, eventually, right?  to not be spam?  as long as the spam can be automated without limit
 - news feed
-- group chats
+- group chats - or just another field in chat message, an array of tags? for public chats
 - reviews of content
 - polls, approval voting style
 - some equivalent of wikipedia.. no concensus needed, DAG, fork if they want, or agree if they want. forks forever or people sane enough to sync up.  each name space can have a popularity 
