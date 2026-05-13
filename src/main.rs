@@ -2281,6 +2281,7 @@ fn handle_network(
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
     // 256M cb407d7355bb63929d7f4b282684f5a2884a0c3fb73d56642455600569a6888b
     // seconds of user/sys time
+    // these were NOT done with RUSTFLAGS="-C target-cpu=native" 
     //NO IFTOP NO TCPDUMP NO IPV6
     // Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz
     // # to/from itself

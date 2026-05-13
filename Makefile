@@ -21,7 +21,7 @@ target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs
 
 release: target/release/cjp2p bundle
 target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs
-	BUILD_VERSION="release `git log --pretty=format:"Rust %ad %h %s" -1`" cargo build --release
+	BUILD_VERSION="release `git log --pretty=format:"Rust %ad %h %s" -1`" RUSTFLAGS="-C target-cpu=native"  cargo build --release
 	rm -f target/*/libcjp
 
 check: Makefile Cargo.toml src/*.rs src/bin/*.rs
