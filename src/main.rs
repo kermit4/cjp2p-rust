@@ -1777,7 +1777,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
     let mut seen_pubs: HashSet<Ed25519Pub> = HashSet::new();
     let mut active_peers: Vec<(SocketAddr, Ed25519Pub)> = Vec::new();
     for (k, v) in &ps.peer_map {
-        if v.delay < Duration::from_millis(250) {
+        if v.delay < Duration::from_millis(600) {
             if let Some(pub_) = v.ed25519 {
                 if seen_pubs.insert(pub_) {
                     active_peers.push((*k, pub_));
@@ -1925,10 +1925,11 @@ fn handle_web_request(
                 .append(true)
                 .write(true)
                 .read(true)
-                .open("./cjp2p/log/http.json")
+                .open("./cjp2p/log/http.v3.json")
             {
                 file.write_all(&serde_json::to_vec(&json![req]).unwrap())
                     .ok();
+                file.write(b"\n").ok();
             }
 
             if is_local(&stream) && req.path.starts_with("/chat/") {
@@ -3445,6 +3446,7 @@ fn maintenance(
     ps.probe_interfaces();
     log_if_slow(nowi, line!().to_string());
     ps.probe();
+    log_if_slow(nowi, line!().to_string());
     ps.open_file_cache = HashMap::new(); // clear the cache
     log_if_slow(nowi, line!().to_string());
     inbound_states.retain(|_, i| !i.finished());
