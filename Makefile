@@ -5,6 +5,7 @@ default: check debug release bundle
 bundle: cjp2p/origin/cjp2p.bundle
 
 cjp2p/origin/cjp2p.bundle: .git/logs/refs/heads/master
+	mkdir -p cjp2p/origin
 	git bundle create --quiet cjp2p/origin/cjp2p.bundle_ master
 	mv cjp2p/origin/cjp2p.bundle_ cjp2p/origin/cjp2p.bundle
 

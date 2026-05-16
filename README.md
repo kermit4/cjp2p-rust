@@ -32,6 +32,8 @@ This also works fine on Android.
 
 # hints
 
+[build your own p2p app in minutes quick start](quickstart_built_a_p2p_app_with_one_prompt.md)
+
 
 Try /help
 Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its ubuntu-24.04.3-live-server-amd64.iso )
