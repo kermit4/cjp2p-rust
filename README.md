@@ -63,28 +63,30 @@ or HTML pages with many page components, individually downloaded from the networ
 ## scarcity related
 - proof of latency? signature chain of somewhat verifiable latency?
 - valuable numbers? (PoW?  or valuable just because the issuer, based on their public key, limits the issuance.  every person their own "coin" as value derived from their reputation?  reputation granting fungible negotiable scarcity? be your own CENTRAL bank!)
-- or ipv4 scarcity, that worked fine until 2000, just do that, ipv6 turned out to be a scam anyway..or use the ipv6 prefix that is the unique location like an ipv4
+- ipv4 scarcity, that worked fine until 2000, just do that, for ipv6 its all in 2... 3.... (2000::/3) . the next 32 are about as in ipv4.
 - read this again https://howtofixtheweb.com/
 - once there is economics, sell services
 ### reputation
 - thanks based reputation. auto-thanks on succesful get.
 - web of trust - direct referal trust or public reputation..and is that the scarcity   reputation is not absolute, its from your point of view, that solves sybil attacks
 ## public collaboration 
-- needs some scactiy, eventually, right?  to not be spam?  as long as the spam can be automated without limit
+- needs some scarcity, eventually, right?  to not be spam?  as long as the spam cant be automated without limit
 - news feed
 - group chats - or just another field in chat message, an array of tags? for public chats
 - reviews of content
+- reviews of anything
 - polls, approval voting style
 - some equivalent of wikipedia.. no concensus needed, DAG, fork if they want, or agree if they want. forks forever or people sane enough to sync up.  each name space can have a popularity 
 ## unnsorted
-- make it do what i actually do each day, check for news basically, from friends or weigthed by importance/distance. like /trending but scoped/weighted.  user defined algorithm. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, an most popular, etc.
+- make it do what i actually do each day, check for news basically, from friends or weigthed by importance/distance. like /trending but scoped/weighted.  user defined algorithm. get /trending into a nice /UI ..  make it do it well, easy, streamlined, in browser, and to select 2nd and third most trending, and most popular, etc.
 - need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming).. maybe this starts right from messages a message type that says "too big, get this hash or list of hashes" (or is that a different scenario, level 0 of get by hash)
 - any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
 - dot file, env var, commmand line options..too many ways to pass options
 - lcdp crate now? send to ed25519 and big hash getter are basic legos .. the killer app for this i think is a lib that is a drop in socket replacement that takes a pub, or maybe libp2p semantics..look into how you actually send a message with libp2p, or transport for it as long as the app can still direct message on the socket.
 - focus on enabling devs, i've done enough demoning
-- kind of heavy on bandwith forever if someone requests something that just plain doesnt exist, static or /latest
-- it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
-- use dev branch more
+- kind of heavy on bandwidth forever if someone requests something that just plain doesnt exist, static or /latest
 - just default stream url for people not dated
+- it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - ******* some way to just get the live, chopped mkv due to difficult seeking, for any pub
+- needs real ai quickstart make game or toy
+- chat UX
