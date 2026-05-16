@@ -90,5 +90,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - just default stream url for people not dated
 - it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - ******* some way to just get the live, chopped mkv due to difficult seeking, for any pub
-- needs real ai quickstart make game or toy
 - chat UX
