@@ -1373,7 +1373,6 @@ pub fn run() -> Result<(), std::io::Error> {
         if stdin_is_tty {
             read_fds.insert(stdin.as_fd());
         }
-        let mut error_fds = read_fds.clone();
 
         for cg in &ps.content_gateways {
             let fd = cg.http_socket.as_fd();
@@ -1388,7 +1387,7 @@ pub fn run() -> Result<(), std::io::Error> {
             read_fds.insert(ws.get_ref().as_fd());
         }
         let tv_1 = &mut (nix::sys::time::TimeVal::new(0, 333));
-        select(None, &mut read_fds, &mut write_fds, &mut error_fds, tv_1).unwrap();
+        select(None, &mut read_fds, &mut write_fds, None, tv_1).unwrap();
 
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if write_fds.contains(cg.http_socket.as_fd()) {
@@ -1436,7 +1435,7 @@ pub fn run() -> Result<(), std::io::Error> {
                 continue 'main;
             }
         }
-        if read_fds.contains(ps.socket.as_fd()) || error_fds.contains(ps.socket.as_fd()) {
+        if read_fds.contains(ps.socket.as_fd()) {
             trace!("handling network");
             handle_network(&mut ps, &mut stream_states, &mut inbound_states);
         }
@@ -2281,7 +2280,7 @@ fn handle_network(
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
     // 256M cb407d7355bb63929d7f4b282684f5a2884a0c3fb73d56642455600569a6888b
     // seconds of user/sys time
-    // these were NOT done with RUSTFLAGS="-C target-cpu=native" 
+    // these were NOT done with RUSTFLAGS="-C target-cpu=native"
     //NO IFTOP NO TCPDUMP NO IPV6
     // Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz
     // # to/from itself
@@ -2959,14 +2958,18 @@ impl StreamState {
         let end = n_blocks.min(self.bitmap.size());
         (start_block..end).find(|&i| !self.bitmap.get(i))
     }
-    fn has_viewers(&self) -> bool {
-        self.last_viewed.elapsed() <= Duration::from_secs(30)
+    fn has_viewers(&self, ps: &PeerState) -> bool {
+        let a = self.last_viewed.elapsed() <= Duration::from_secs(30);
+        let b = ps.content_gateways.iter().any(|cg| cg.id == self.id);
+        debug!("has_viewers {a} {b}");
+        a || b
     }
     #[allow(non_snake_case)]
     fn PleaseSendContent__new_messages(ss: &mut StreamState, ps: &PeerState) -> Vec<Message> {
         for cg in &ps.content_gateways {
             let new_next_block = cg.http_start / BLOCK_SIZE!();
             if !cg.http_done && !cg.waiting_for_browser && cg.id == ss.id {
+                debug!("PleaseSendContent__new_messages {} {} {} {}",new_next_block*BLOCK_SIZE!(),ss.next_block*BLOCK_SIZE!(),cg.http_start,ss.eof);
                 if new_next_block != ss.next_block
                     && (ss.next_block * BLOCK_SIZE!() < cg.http_start
                         || ss.next_block * BLOCK_SIZE!() >= cg.http_start + 0x400000)
@@ -2979,9 +2982,6 @@ impl StreamState {
         // skip already-received blocks
         while ss.next_block * BLOCK_SIZE!() < ss.eof && ss.block_bit(ss.next_block) {
             ss.next_block += 1;
-        }
-        if ss.next_block * BLOCK_SIZE!() >= ss.eof {
-            return vec![];
         }
         ss.last_activity = Instant::now();
         debug!( "\x1b[32;7mPleaseSendContent {} {} {} \x1b[m", ss.id, ss.next_block, ss.next_block * BLOCK_SIZE!());
@@ -3424,7 +3424,7 @@ fn maintenance(
     let mut to_remove = vec![];
     log_if_slow(nowi, line!().to_string());
     for (index, cg) in ps.content_gateways.iter().enumerate() {
-        if cg.http_done {
+        if cg.http_done || tcpstream_is_closed(&cg.http_socket) {
             to_remove.push(index);
         }
     }
@@ -3499,12 +3499,12 @@ fn maintenance(
     log_if_slow(nowi, line!().to_string());
 
     // Drop stream_states with no viewers and stale activity
-    stream_states.retain(|_, ss| ss.has_viewers());
+    stream_states.retain(|_, ss| ss.has_viewers(ps));
     log_if_slow(nowi, line!().to_string());
     // Stall detection: restart next_block for active streams
     for (_, ss) in stream_states.iter_mut() {
         log_if_slow(nowi, line!().to_string());
-        if ss.last_activity.elapsed() <= Duration::from_secs(1) || !ss.has_viewers() {
+        if ss.last_activity.elapsed() <= Duration::from_secs(1) || !ss.has_viewers(ps) {
             continue;
         }
 
@@ -4860,5 +4860,15 @@ fn log_if_slow(nowi: Instant, line: String) {
         debug!("{}",txt);
     } else {
         trace!("{}",txt);
+    }
+}
+
+fn tcpstream_is_closed(stream: &TcpStream) -> bool {
+    let mut buf = [0; 16];
+    match stream.peek(&mut buf) {
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => false,
+        Err(_) => true,
     }
 }
