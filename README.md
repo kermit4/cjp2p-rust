@@ -85,9 +85,13 @@ or HTML pages with many page components, individually downloaded from the networ
 - any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
 - dot file, env var, commmand line options..too many ways to pass options
 - lcdp crate now? send to ed25519 and big hash getter are basic legos .. the killer app for this i think is a lib that is a drop in socket replacement that takes a pub, or maybe libp2p semantics..look into how you actually send a message with libp2p, or transport for it as long as the app can still direct message on the socket.
-- focus on enabling devs, i've done enough demoning
+- focus on enabling devs, i've done enough demoing
 - kind of heavy on bandwidth forever if someone requests something that just plain doesnt exist, static or /latest
 - just default stream url for people not dated
 - it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - ******* some way to just get the live, chopped mkv due to difficult seeking, for any pub
 - chat UX
+- general UX .. for devs though ..DX
+- dont search locally generated stream, and try origin first when getting
+- version
+- move even more out of LCPD spec to wiki..to emphasize how the messages ar optional
