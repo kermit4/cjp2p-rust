@@ -75,7 +75,9 @@ jobs:
             "$KEYSTORE_PATH" > tauri-app/src-tauri/gen/android/key.properties
 
       - name: Build signed release APK
-        run: cd tauri-app && ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" cargo tauri android build --target aarch64
+        run: |
+          BUILD_VERSION="tauri-android $(git log --pretty=format:'%ad %h %s' -1)" \
+          ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" cargo tauri android build --target aarch64
 
       - name: Locate APK
         id: apk

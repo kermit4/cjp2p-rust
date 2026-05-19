@@ -171,7 +171,10 @@ jobs:
         run: cd tauri-app/src-tauri && python3 ../gen-icons.py
 
       - name: Build .deb
-        run: cd tauri-app && cargo tauri build --bundles deb
+        run: |
+          BUILD_VERSION="tauri-deb $(git log --pretty=format:'%ad %h %s' -1)" \
+          cargo tauri build --bundles deb
+        working-directory: tauri-app
 
       - name: Locate .deb
         id: deb
