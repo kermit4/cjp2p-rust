@@ -1834,7 +1834,8 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
                     let Ok(meta) = entry.metadata() else { continue };
                     let size = meta.len();
                     let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                    let mime = File::open(entry.path()).ok()
+                    let mime = File::open(entry.path())
+                        .ok()
                         .and_then(|mut f| {
                             let mut buf = [0u8; 512];
                             let n = f.read(&mut buf).ok()?;
@@ -1845,20 +1846,26 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
                 }
             }
             downloads.sort_by(|a, b| b.3.cmp(&a.3));
-            page += "<p><b>your downloads</b></p><table style='font-family:monospace'>\n";
-            if downloads.is_empty() {
-                page += "<tr><td>(none yet)</td></tr>\n";
-            }
-            for (hash, size, mime, _) in &downloads {
-                let size_str = if *size < 1024 { format!("{} B", size) }
-                    else if *size < 1024 * 1024 { format!("{} KB", size / 1024) }
-                    else { format!("{} MB", size / (1024 * 1024)) };
-                page += &format!(
+            if is_local(&stream) {
+                page += "<p><b>your downloads</b></p><table style='font-family:monospace'>\n";
+                if downloads.is_empty() {
+                    page += "<tr><td>(none yet)</td></tr>\n";
+                }
+                for (hash, size, mime, _) in &downloads {
+                    let size_str = if *size < 1024 {
+                        format!("{} B", size)
+                    } else if *size < 1024 * 1024 {
+                        format!("{} KB", size / 1024)
+                    } else {
+                        format!("{} MB", size / (1024 * 1024))
+                    };
+                    page += &format!(
                     "<tr><td><a href='/{hash}' target='_blank'>{hash}</a></td>\
                      <td>&nbsp;{size_str}&nbsp;</td><td>{mime}</td></tr>\n"
                 );
+                }
+                page += "</table>\n";
             }
-            page += "</table>\n";
         }
 
         page += &format!("
