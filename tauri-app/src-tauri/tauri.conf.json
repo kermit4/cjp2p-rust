@@ -10,15 +10,13 @@
     "windows": [
       {
         "label": "main",
-        "title": "cjp2p Pong",
+        "title": "cjp2p",
+        "url": "http://localhost:24255/",
         "width": 960,
         "height": 680,
         "resizable": true
       }
-    ],
-    "security": {
-      "csp": "default-src 'self' 'unsafe-inline'; connect-src ws://localhost:24255 wss://localhost:24255"
-    }
+    ]
   },
   "bundle": {
     "active": true,

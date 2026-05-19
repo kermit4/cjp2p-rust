@@ -1,4 +1,5 @@
-dist/
+dist/*
+!dist/index.html
 src-tauri/target/
 src-tauri/icons/
 src-tauri/gen/schemas/

@@ -74,33 +74,19 @@ $(CARGO_TAURI):
 
 tauri-cli: $(CARGO_TAURI)
 
-# Fetch pong.html from the cjp2p origin repo if it isn't present locally.
-# The origin repo is expected at ../cjp2p relative to this repo.
-PONG_SRC = cjp2p/public/pong.html
-$(PONG_SRC):
-	@if [ -f ../cjp2p/origin/pong.html ]; then \
-		mkdir -p cjp2p/public && cp ../cjp2p/origin/pong.html $(PONG_SRC); \
-	else \
-		echo "ERROR: $(PONG_SRC) missing and ../cjp2p/origin/pong.html not found." >&2; exit 1; \
-	fi
-
-$(TAURI_APP_DIR)/dist/index.html: $(PONG_SRC)
-	mkdir -p $(TAURI_APP_DIR)/dist
-	cp $(PONG_SRC) $(TAURI_APP_DIR)/dist/index.html
-
 $(TAURI_APP_DIR)/src-tauri/icons/128x128.png: $(TAURI_APP_DIR)/gen-icons.py
 	cd $(TAURI_APP_DIR)/src-tauri && python3 ../gen-icons.py
 
 tauri-icons: $(TAURI_APP_DIR)/src-tauri/icons/128x128.png
 
-tauri-deb: $(CARGO_TAURI) $(TAURI_APP_DIR)/dist/index.html tauri-icons
+tauri-deb: $(CARGO_TAURI) tauri-icons
 	cd $(TAURI_APP_DIR) && cargo tauri build --bundles deb
 
 # Run once after SDK is set up (build_android.sh does the SDK setup).
 tauri-android-init: $(CARGO_TAURI)
 	cd $(TAURI_APP_DIR) && ANDROID_SDK_ROOT=$(ANDROID_SDK_ROOT) cargo tauri android init
 
-tauri-apk: $(CARGO_TAURI) $(TAURI_APP_DIR)/dist/index.html tauri-icons
+tauri-apk: $(CARGO_TAURI) tauri-icons
 	cd $(TAURI_APP_DIR) && ANDROID_SDK_ROOT=$(ANDROID_SDK_ROOT) cargo tauri android build --target aarch64 --debug
 
 # Release (signed, smaller) APK.  Run once to create the keystore:  make tauri-keystore
@@ -120,5 +106,5 @@ $(KEYSTORE):
 		"$(KEYSTORE)" > $(KEYSTORE_PROPS)
 	@echo "Keystore created. Back up $(KEYSTORE) -- losing it means you cannot update the app."
 
-tauri-apk-release: $(CARGO_TAURI) $(TAURI_APP_DIR)/dist/index.html tauri-icons $(KEYSTORE_PROPS)
+tauri-apk-release: $(CARGO_TAURI) tauri-icons $(KEYSTORE_PROPS)
 	cd $(TAURI_APP_DIR) && ANDROID_SDK_ROOT=$(ANDROID_SDK_ROOT) cargo tauri android build --target aarch64
