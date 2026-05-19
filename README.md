@@ -32,7 +32,7 @@ This also works fine on Android.
 
 # hints
 
-[build your own p2p app in minutes quick start](quickstart_built_a_p2p_app_with_one_prompt.md)
+[build your own p2p app in minutes quick start](quickstart_build_a_p2p_app_with_one_prompt.md)
 
 
 Try /help
@@ -92,4 +92,3 @@ or HTML pages with many page components, individually downloaded from the networ
 - chat UX
 - general UX .. for devs though ..DX
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
-- make new tauri-apk-release a workflow in github so verifiable to public
