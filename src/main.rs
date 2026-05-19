@@ -3849,6 +3849,7 @@ impl Receive for Forward {
         debug!("websocket asked me to forward {:?}", &self.messages);
         let mut messages = self.messages;
         if let Some(to) = self.src {
+            error!("i dont think this section of code is ever called and i forgot why it is here");
             let c = ps.always_returned(to);
             if c.len() > 0 {
                 messages.push(serde_json::to_value(&c[0]).unwrap());
