@@ -1,5 +1,8 @@
 SHELL = /bin/bash -ue
 
+
+export BUILD_VERSION=$@ $(shell TZ= git log --pretty=format:"Rust %ad %h %s" -1)
+
 default: check debug release bundle
 
 bundle: cjp2p/origin/cjp2p.bundle
@@ -17,16 +20,16 @@ pins: bundle
 
 debug: target/debug/cjp2p bundle
 target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs
-	BUILD_VERSION="debug: `TZ= git log --pretty=format:"Rust %ad %h %s" -1`" cargo build
+	cargo build
 	rm -f target/*/libcjp
 
 release: target/release/cjp2p bundle
 target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs
-	BUILD_VERSION="release `TZ= git log --pretty=format:"Rust %ad %h %s" -1`" RUSTFLAGS="-C target-cpu=native"  cargo build --release
+	RUSTFLAGS="-C target-cpu=native"  cargo build --release
 	rm -f target/*/libcjp
 
 check: Makefile Cargo.toml src/*.rs src/bin/*.rs
-	BUILD_VERSION="check `TZ= git log --pretty=format:"Rust %ad %h %s" -1`" cargo check 
+	cargo check 
 
 pretty: check 
 	cargo fmt --  --config skip_macro_invocations='["*"]' --config match_arm_blocks=false

@@ -84,7 +84,7 @@ or HTML pages with many page components, individually downloaded from the networ
 - need metadata for large files, a list of 256k block hashes (256k of 64 byte hashes is  2^12, so files over 2^30 may want another layer of hashing, over 4TB yet another.), so in-transit corruption recovers faster, and also files can be relayed before compelete (which would enable streaming).. maybe this starts right from messages a message type that says "too big, get this hash or list of hashes" (or is that a different scenario, level 0 of get by hash)
 - any aggressive scans should monitor latency and loss consequences and throttle both max bw and max hosts/sec because they are often separate limits on consumer routers even without NAT (DMZ/ipv6)
 - dot file, env var, commmand line options..too many ways to pass options
-- lcdp crate now? send to ed25519 and big hash getter are basic legos .. the killer app for this i think is a lib that is a drop in socket replacement that takes a pub, or maybe libp2p semantics..look into how you actually send a message with libp2p, or transport for it as long as the app can still direct message on the socket.
+- lcdp crate now? send to ed25519 and big hash getter are basic legos .. the killer app for this i think is a lib that is a drop in socket replacement that takes a pub (oh https://www.iroh.computer/ does that), or maybe libp2p semantics..look into how you actually send a message with libp2p, or transport for it as long as the app can still direct message on the socket.
 - focus on enabling devs, i've done enough demoing
 - kind of heavy on bandwidth forever if someone requests something that just plain doesnt exist, static or /latest
 - just default stream url for people not dated
@@ -93,3 +93,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - general UX .. for devs though ..DX
 - move even more out of LCPD spec to wiki..to emphasize how the messages ar optional
 - for apk and deb experiments, use http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/ not static pong.html
+- less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
