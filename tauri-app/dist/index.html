@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>cjp2p</title>
+<style>body{font-family:monospace;background:#111;color:#aaa;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}</style>
+<p id=s>starting cjp2p…</p>
+<script>
+(async()=>{
+  for(;;){
+    try{
+      await fetch('http://localhost:24255/',{mode:'no-cors'});
+      location.replace('http://localhost:24255/');
+      return;
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,300));
+  }
+})();
+</script>

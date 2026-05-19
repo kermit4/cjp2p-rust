@@ -1,0 +1,113 @@
+name: Tauri APK (signed release)
+
+# Runs on a version tag (git tag v1.2.3 && git push --tags)
+# or manually via Actions -> "Run workflow" on GitHub.
+# The workflow log records the exact commit, so users only have to trust
+# GitHub's build infrastructure, not the author's machine.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  tauri-apk-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create/update releases
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so git log works in BUILD_VERSION
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Rust (stable + aarch64-linux-android)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            tauri-app/src-tauri/target
+          key: ${{ runner.os }}-tauri-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'tauri-app/src-tauri/Cargo.toml', 'tauri-app/src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-tauri-
+
+      - name: Cache cargo-tauri CLI
+        id: cache-tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: cargo-tauri-v2-${{ runner.os }}
+
+      - name: Install cargo-tauri
+        if: steps.cache-tauri-cli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Install Android NDK 27
+        run: |
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "ndk;27.2.12479018" "platforms;android-36" "build-tools;35.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+
+      - name: Generate icons
+        run: cd tauri-app/src-tauri && python3 ../gen-icons.py
+
+      - name: Write keystore and key.properties
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/tauri-app/cjp2p.jks"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          printf 'storeFile=%s\nstorePassword=cjp2pdev\nkeyAlias=cjp2p\nkeyPassword=cjp2pdev\n' \
+            "$KEYSTORE_PATH" > tauri-app/src-tauri/gen/android/key.properties
+
+      - name: Build signed release APK
+        run: cd tauri-app && ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" cargo tauri android build --target aarch64
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK=$(find tauri-app/src-tauri/gen/android/app/build/outputs/apk \
+                -name '*release*.apk' ! -name '*unsigned*' | head -1)
+          echo "path=$APK" >> $GITHUB_OUTPUT
+          echo "Found APK: $APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cjp2p-tauri-${{ github.sha }}.apk
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.apk.outputs.path }}
+          body: |
+            ## cjp2p Tauri APK (signed release)
+
+            Built by GitHub Actions from commit `${{ github.sha }}`.
+
+            To verify provenance: open the Actions run linked above and confirm
+            the commit SHA matches a commit you can inspect in this repository.
+            You are trusting GitHub's build infrastructure, not the author's machine.
+
+            ### Install
+            Download the `.apk`, copy it to your Android device, open it in the
+            Files app and tap Install.  You may need to allow "install unknown apps"
+            for your file manager the first time.
+
+            Requires Android 7.0+ (arm64).
