@@ -91,6 +91,5 @@ or HTML pages with many page components, individually downloaded from the networ
 - it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - chat UX
 - general UX .. for devs though ..DX
-- move even more out of LCPD spec to wiki..to emphasize how the messages ar optional
-- for apk and deb experiments, use http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/ not static pong.html
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
+- make new tauri-apk-release a workflow in github so verifiable to public
