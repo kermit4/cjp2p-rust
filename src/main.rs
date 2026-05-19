@@ -1803,7 +1803,7 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
 
     thread::spawn(move || {
         let mut stream = stream;
-        let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=4><title>cjp2p status {}</title></head><body>\n\
+        let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=10><title>cjp2p status {}</title></head><body>\n\
             {}\n\n\
             <p>
             <p> your public key {}
