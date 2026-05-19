@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
 
         findViewById(R.id.btn_menu).setOnClickListener(v -> {
             Intent browser = new Intent(Intent.ACTION_VIEW,
-                Uri.parse("http://127.0.0.1:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/index.html"));
+                Uri.parse("http://127.0.0.1:24255/"));
             startActivity(browser);
         });
 

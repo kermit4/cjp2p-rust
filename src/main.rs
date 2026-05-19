@@ -3503,12 +3503,19 @@ fn maintenance(
     log_if_slow(nowi, line!().to_string());
     // Stall detection: restart next_block for active streams
     for (_, ss) in stream_states.iter_mut() {
+        if ss.origin_pubkey == ps.keypair.public {
+            continue;
+        }
         log_if_slow(nowi, line!().to_string());
         if ss.last_activity.elapsed() <= Duration::from_secs(1) || !ss.has_viewers(ps) {
             continue;
         }
 
-        //            ss.next_block = 0;
+        if let Some(Source::S(origin)) = ps.peer_map_by_pub.get(&ss.origin_pubkey) {
+            let peers = HashSet::from([origin.clone()]);
+            ss.request_blocks(ps, peers.clone());
+            ss.request_blocks(ps, peers);
+        }
         for _ in 0..(1 + 5 / (1 + ss.peers.len())) {
             ss.request_blocks(ps, ss.peers.clone());
         }

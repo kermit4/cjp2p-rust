@@ -39,6 +39,7 @@ APK_SRCS = $(wildcard src/*.rs) Cargo.toml build_android.sh \
            $(wildcard cjp2p/public/*.html) \
 		   src/bin/cjp2p.rs
 
+# this one uses a status page that the links open in native browser, though with a built in file share function, unlike all the Tauri stuff below that is a single app (though probably mulitple processes)
 apk: $(APK)
 $(APK): $(APK_SRCS)
 	./build_android.sh
