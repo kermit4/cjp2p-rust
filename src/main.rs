@@ -1822,6 +1822,45 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
 
         page += &format!("</div>");
         page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>decentralized home page of this program's author, which includes various HTML front-ends/apps to this like chat, pong, video calling, AI made dashboard, more</a>");
+
+        {
+            let mut downloads: Vec<(String, u64, String, std::time::SystemTime)> = Vec::new();
+            if let Ok(entries) = fs::read_dir("./cjp2p/public") {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().into_string().unwrap_or_default();
+                    if name.len() != 64 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
+                        continue;
+                    }
+                    let Ok(meta) = entry.metadata() else { continue };
+                    let size = meta.len();
+                    let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    let mime = File::open(entry.path()).ok()
+                        .and_then(|mut f| {
+                            let mut buf = [0u8; 512];
+                            let n = f.read(&mut buf).ok()?;
+                            Some(mimetype_detector::detect(&buf[..n]).mime().to_string())
+                        })
+                        .unwrap_or_else(|| "application/octet-stream".to_string());
+                    downloads.push((name, size, mime, modified));
+                }
+            }
+            downloads.sort_by(|a, b| b.3.cmp(&a.3));
+            page += "<p><b>your downloads</b></p><table style='font-family:monospace'>\n";
+            if downloads.is_empty() {
+                page += "<tr><td>(none yet)</td></tr>\n";
+            }
+            for (hash, size, mime, _) in &downloads {
+                let size_str = if *size < 1024 { format!("{} B", size) }
+                    else if *size < 1024 * 1024 { format!("{} KB", size / 1024) }
+                    else { format!("{} MB", size / (1024 * 1024)) };
+                page += &format!(
+                    "<tr><td><a href='/{hash}' target='_blank'>{hash}</a></td>\
+                     <td>&nbsp;{size_str}&nbsp;</td><td>{mime}</td></tr>\n"
+                );
+            }
+            page += "</table>\n";
+        }
+
         page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
         for (id, bytes_complete, eof) in &inbound_info {
