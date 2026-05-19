@@ -95,3 +95,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - dont search locally generated stream, and try origin first when getting
 - version
 - move even more out of LCPD spec to wiki..to emphasize how the messages ar optional
+- for apk and deb experiments, use http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html not static pong.html
