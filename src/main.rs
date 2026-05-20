@@ -1320,6 +1320,19 @@ pub fn run() -> Result<(), std::io::Error> {
     run_engine(lcdp_port, http_port, file_args)
 }
 
+/// Called from the Tauri crate's JNI entry point on Android.
+/// Sets cwd, initialises logging, then starts the engine.
+pub fn run_from_android(data_dir: &str, lcdp_port: u16, http_port: u16) {
+    if !data_dir.is_empty() {
+        std::env::set_current_dir(data_dir).ok();
+    }
+    env_logger::builder()
+        .format_timestamp(Some(TimestampPrecision::Millis))
+        .try_init()
+        .ok();
+    let _ = run_engine(lcdp_port, http_port, vec![]);
+}
+
 fn run_engine(
     lcdp_port: u16,
     http_port: u16,
@@ -4867,17 +4880,17 @@ fn chat_to_pub(ps: &mut PeerState, their_pub: Ed25519Pub, msg: &String) -> () {
     msgs_to_pub(ps, their_pub, &message_out);
 }
 
-// Android JNI entry points -- only compiled when targeting Android.
-// Java counterpart: com.cjp2p.NativeLib
+// Android JNI entry point for the standalone APK (com.cjp2p package).
+// The Tauri APK has its own entry point in tauri-app/src-tauri/src/lib.rs
+// because #[no_mangle] symbols in rlib dependencies are dead-stripped out
+// of the final cdylib -- the function must live in the cdylib's own crate.
 #[cfg(target_os = "android")]
 #[allow(non_snake_case)]
 pub mod android_jni {
     use jni::objects::{JClass, JString};
     use jni::JNIEnv;
 
-    /// Called once from BackendService.onStartCommand.
-    /// dataDir is getFilesDir().getAbsolutePath() -- Rust uses it as cwd so
-    /// relative paths like ./cjp2p/... resolve correctly.
+    /// Called once from BackendService.onStartCommand in the standalone APK.
     #[no_mangle]
     pub extern "C" fn Java_com_cjp2p_NativeLib_start<'local>(
         mut env: JNIEnv<'local>,
@@ -4895,14 +4908,7 @@ pub mod android_jni {
         let _ = std::thread::Builder::new()
             .name("cjp2p".into())
             .spawn(move || {
-                if !dir.is_empty() {
-                    std::env::set_current_dir(&dir).ok();
-                }
-                env_logger::builder()
-                    .format_timestamp(Some(env_logger::fmt::TimestampPrecision::Millis))
-                    .try_init()
-                    .ok();
-                let _ = super::run_engine(lp, hp, vec![]);
+                super::run_from_android(&dir, lp, hp);
             });
     }
 }
