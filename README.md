@@ -92,5 +92,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - chat UX
 - general UX .. for devs though ..DX
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
-- cjp2p.bundle kills my tab complete
 - steer users to group_chat, fade out old chat

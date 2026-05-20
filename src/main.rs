@@ -1896,7 +1896,7 @@ fn status_page(
     }
 
     page += &format!("\n{} total peers\n", total_peers);
-    page += &format!("--- active public keys (recently responding in under than 250ms).  Click on one to open an encrypted 2-way chat.\n\
+    page += &format!("--- active public keys (recently responding in under than 600ms).  Click on one to open an encrypted 2-way chat.\n\
             Note that unless they have a tab open with you, they'll only see it in the console or status page: \n</pre>");
     thread::spawn(move || {
         for (sa, pub_) in &active_peers {
@@ -1912,11 +1912,6 @@ fn status_page(
                 pub_.to_string(),
                 if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
             );
-        }
-        page += &format!("<pre>--- all IPs: <table>\n");
-        for ip in &all_ips {
-            page += &format!("<tr><td align=right>{:21}</td><td width=30px></td><td>{}</td></tr>\n", ip,
-                if let Ok(hn) = dns_lookup::lookup_addr(ip) { hn } else { ip.to_string() });
         }
         page += &format!("</table>{} total unique IP peers\n--- fast peers: \n", unique_ips_count);
         for (d, v) in &fast_peers {
