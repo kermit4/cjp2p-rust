@@ -1913,7 +1913,7 @@ fn status_page(
                 if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
             );
         }
-        page += &format!("</table>{} total unique IP peers\n--- fast peers: \n", unique_ips_count);
+        page += &format!("<pre>{} total unique IP peers\n--- fast peers: \n", unique_ips_count);
         for (d, v) in &fast_peers {
             page += &format!("{:21?} {:21}\n", d, v);
         }
