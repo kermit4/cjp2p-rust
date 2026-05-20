@@ -1631,7 +1631,7 @@ fn handle_stdin(
             thread::spawn(move || {
                 const BUNDLE_URL: &str = "http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle";
                 let status = std::process::Command::new("wget")
-                    .args(["-q", "-O", "cjp2p.bundle", BUNDLE_URL])
+                    .args(["-q", "-O", "bundle", BUNDLE_URL])
                     .status()
                     .expect("wget failed");
                 if !status.success() {
@@ -1639,11 +1639,11 @@ fn handle_stdin(
                     return;
                 }
                 let status = std::process::Command::new("git")
-                    .args(["pull", "cjp2p.bundle", "master"])
+                    .args(["pull", "bundle", "master"])
                     .status()
                     .expect("git pull failed");
                 if !status.success() {
-                    eprintln!("git pull cjp2p.bundle master failed: {}", status);
+                    eprintln!("git pull bundle master failed: {}", status);
                     return;
                 }
                 let status = std::process::Command::new("make")
