@@ -1735,7 +1735,11 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
     stream.write_all(response.as_bytes()).ok();
 }
 
-fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, stream: TcpStream) {
+fn status_page(
+    inbound_states: &HashMap<String, InboundState>,
+    ps: &PeerState,
+    mut stream: TcpStream,
+) {
     let public_key_hex = ps.keypair.public.to_string();
     let all_chats = ps.all_chats.clone();
     let current_dir = std::env::current_dir().unwrap().display().to_string();
@@ -1801,96 +1805,95 @@ fn status_page(inbound_states: &HashMap<String, InboundState>, ps: &PeerState, s
         .filter(|(d, _)| *d < Duration::from_millis(250))
         .collect();
 
-    thread::spawn(move || {
-        let mut stream = stream;
-        let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=10><title>cjp2p status {}</title></head><body>\n\
+    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=10><title>cjp2p status {}</title></head><body>\n\
             {}\n\n\
             <p>
             <p> your public key {}
-            <p>
+            <p> node uptime: {:?}
             <div style='height: 200px; overflow: auto; border: 1px solid #ccc;'>",
             env!("BUILD_VERSION"),
             env!("BUILD_VERSION"),
-            public_key_hex);
+            public_key_hex,ps.boot.elapsed());
 
-        for (their_pub_hex, msg) in all_chats.iter().rev() {
-            page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?{} target=_blank>0x{}</a> {}</p>\n",
+    for (their_pub_hex, msg) in all_chats.iter().rev() {
+        page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?{} target=_blank>0x{}</a> {}</p>\n",
                 their_pub_hex,
                 their_pub_hex,
                 msg);
-        }
+    }
 
-        page += &format!("</div>");
-        page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>decentralized home page of this program's author, which includes various HTML front-ends/apps to this like chat, pong, video calling, AI made dashboard, more</a>");
+    page += &format!("</div>");
+    page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>decentralized home page of this program's author, which includes various HTML front-ends/apps to this like chat, pong, video calling, AI made dashboard, more</a>");
 
-        {
-            let mut downloads: Vec<(String, u64, String, std::time::SystemTime)> = Vec::new();
-            if let Ok(entries) = fs::read_dir("./cjp2p/public") {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().into_string().unwrap_or_default();
-                    if name.len() != 64 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
-                        continue;
-                    }
-                    let Ok(meta) = entry.metadata() else { continue };
-                    let size = meta.len();
-                    let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                    let mime = File::open(entry.path())
-                        .ok()
-                        .and_then(|mut f| {
-                            let mut buf = [0u8; 512];
-                            let n = f.read(&mut buf).ok()?;
-                            Some(mimetype_detector::detect(&buf[..n]).mime().to_string())
-                        })
-                        .unwrap_or_else(|| "application/octet-stream".to_string());
-                    downloads.push((name, size, mime, modified));
+    {
+        let mut downloads: Vec<(String, u64, String, std::time::SystemTime)> = Vec::new();
+        if let Ok(entries) = fs::read_dir("./cjp2p/public") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().into_string().unwrap_or_default();
+                if name.len() != 64 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
+                    continue;
                 }
+                let Ok(meta) = entry.metadata() else { continue };
+                let size = meta.len();
+                let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                let mime = File::open(entry.path())
+                    .ok()
+                    .and_then(|mut f| {
+                        let mut buf = [0u8; 512];
+                        let n = f.read(&mut buf).ok()?;
+                        Some(mimetype_detector::detect(&buf[..n]).mime().to_string())
+                    })
+                    .unwrap_or_else(|| "application/octet-stream".to_string());
+                downloads.push((name, size, mime, modified));
             }
-            downloads.sort_by(|a, b| b.3.cmp(&a.3));
-            if is_local(&stream) {
-                page += "<p><b>your downloads</b></p><table style='font-family:monospace'>\n";
-                if downloads.is_empty() {
-                    page += "<tr><td>(none yet)</td></tr>\n";
-                }
-                for (hash, size, mime, _) in &downloads {
-                    let size_str = if *size < 1024 {
-                        format!("{} B", size)
-                    } else if *size < 1024 * 1024 {
-                        format!("{} KB", size / 1024)
-                    } else {
-                        format!("{} MB", size / (1024 * 1024))
-                    };
-                    page += &format!(
+        }
+        downloads.sort_by(|a, b| b.3.cmp(&a.3));
+        if is_local(&stream) {
+            page += "<p><b>your downloads</b></p><table style='font-family:monospace'>\n";
+            if downloads.is_empty() {
+                page += "<tr><td>(none yet)</td></tr>\n";
+            }
+            for (hash, size, mime, _) in &downloads {
+                let size_str = if *size < 1024 {
+                    format!("{} B", size)
+                } else if *size < 1024 * 1024 {
+                    format!("{} KB", size / 1024)
+                } else {
+                    format!("{} MB", size / (1024 * 1024))
+                };
+                page += &format!(
                     "<tr><td><a href='/{hash}' target='_blank'>{hash}</a></td>\
                      <td>&nbsp;{size_str}&nbsp;</td><td>{mime}</td></tr>\n"
                 );
-                }
-                page += "</table>\n";
             }
+            page += "</table>\n";
         }
+    }
 
-        page += &format!("
+    page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
-        for (id, bytes_complete, eof) in &inbound_info {
-            page += &format!("{} {}/{}\n", id, bytes_complete, eof);
-        }
+    for (id, bytes_complete, eof) in &inbound_info {
+        page += &format!("{} {}/{}\n", id, bytes_complete, eof);
+    }
 
-        let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
-        sorted_list_results.sort_by_key(|&(_, b)| b.0);
-        page += &format!("most recommended content (results of '/recommend sha256' in the CLI):\n");
-        for (k, v) in &sorted_list_results {
-            page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
-        }
+    let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
+    sorted_list_results.sort_by_key(|&(_, b)| b.0);
+    page += &format!("most recommended content (results of '/recommend sha256' in the CLI):\n");
+    for (k, v) in &sorted_list_results {
+        page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
+    }
 
-        let mut sorted_list_results: Vec<_> = trending.iter().collect();
-        sorted_list_results.sort_by_key(|&(_, b)| b.0);
-        page += &format!("most recently downloaded content:\n");
-        for (k, v) in sorted_list_results.into_iter().rev() {
-            page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
-        }
+    let mut sorted_list_results: Vec<_> = trending.iter().collect();
+    sorted_list_results.sort_by_key(|&(_, b)| b.0);
+    page += &format!("most recently downloaded content:\n");
+    for (k, v) in sorted_list_results.into_iter().rev() {
+        page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
+    }
 
-        page += &format!("\n{} total peers\n", total_peers);
-        page += &format!("--- active public keys (recently responding in under than 250ms).  Click on one to open an encrypted 2-way chat.\n\
+    page += &format!("\n{} total peers\n", total_peers);
+    page += &format!("--- active public keys (recently responding in under than 250ms).  Click on one to open an encrypted 2-way chat.\n\
             Note that unless they have a tab open with you, they'll only see it in the console or status page: \n</pre>");
+    thread::spawn(move || {
         for (sa, pub_) in &active_peers {
             page += &format!("<p>0x{} 
                     <a href=/latest/{}/>home</a>
