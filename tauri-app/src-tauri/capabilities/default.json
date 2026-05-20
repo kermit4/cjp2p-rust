@@ -2,6 +2,14 @@
   "$schema": "https://schema.tauri.app/config/2",
   "identifier": "default",
   "description": "Default capability for cjp2p Tauri app",
+  "local": true,
+  "remote": {
+    "urls": ["http://localhost:24255/**"]
+  },
   "windows": ["main"],
-  "permissions": []
+  "permissions": [
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify"
+  ]
 }
