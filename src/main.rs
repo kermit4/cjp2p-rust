@@ -203,6 +203,7 @@ struct PeerState {
     recent_peer_counter_max: usize,
     socket: UdpSocket,
     lcdp_port: u16,
+    http_port: u16,
     boot: Instant,
     keypair: Keypair,
     open_file_cache: HashMap<String, OpenFile>,
@@ -255,7 +256,7 @@ impl PersistentState {
     }
 }
 impl PeerState {
-    fn new(lcdp_port: u16) -> Self {
+    fn new(lcdp_port: u16, http_port: u16) -> Self {
         fs::create_dir("./cjp2p").ok();
         fs::create_dir("./cjp2p/public").ok();
         fs::create_dir("./cjp2p/metadata").ok();
@@ -295,6 +296,7 @@ impl PeerState {
             .or_else(|_| UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, lcdp_port)))
             .unwrap(),
             lcdp_port,
+            http_port,
             boot: Instant::now(),
             keypair: Keypair::load_key(),
             open_file_cache: HashMap::new(),
@@ -1318,8 +1320,12 @@ pub fn run() -> Result<(), std::io::Error> {
     run_engine(lcdp_port, http_port, file_args)
 }
 
-fn run_engine(lcdp_port: u16, http_port: u16, file_args: Vec<String>) -> Result<(), std::io::Error> {
-    let mut ps: PeerState = PeerState::new(lcdp_port);
+fn run_engine(
+    lcdp_port: u16,
+    http_port: u16,
+    file_args: Vec<String>,
+) -> Result<(), std::io::Error> {
+    let mut ps: PeerState = PeerState::new(lcdp_port, http_port);
     let bind_addr = if Path::new(".allow_remote_http").exists() {
         format!("0.0.0.0:{http_port}")
     } else {
@@ -1628,10 +1634,10 @@ fn handle_stdin(
         } else if line == "/update\n" {
             let exe = env::current_exe().unwrap();
             let args: Vec<String> = env::args().collect();
+            let bundle_url = format!("http://localhost:{}/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle",ps.http_port);
             thread::spawn(move || {
-                const BUNDLE_URL: &str = "http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle";
                 let status = std::process::Command::new("wget")
-                    .args(["-q", "-O", "bundle", BUNDLE_URL])
+                    .args(["-q", "-O", "bundle", bundle_url.as_str()])
                     .status()
                     .expect("wget failed");
                 if !status.success() {
@@ -1986,7 +1992,7 @@ fn handle_web_request(
                 page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ><title>cjp2p chat {}</title></head><body><pre>\n\
                     try /ping or /version. \n\
                 If they can't find you through main page, the URL they need to get here (not the same as yours) is 
-                <a href=http://127.0.0.1:24255/chat/{}>http://127.0.0.1:24255/chat/{}</a>
+                <a href=http://127.0.0.1:{}/chat/{}>http://127.0.0.1:{}/chat/{}</a>
                     <br><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>click here</a> for high quality video call (just mute the video for audio only)</a>\n
                     <br><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>click here</a> to play pong</a>\n
                     send a message (type fast before the next page refresh) : <form><input name=line_chat_msg></form>\n\n\
@@ -1994,7 +2000,9 @@ fn handle_web_request(
                     "
                     ,their_pub
                     ,their_pub
+                    ,ps.http_port
                     ,ps.keypair.public
+                    ,ps.http_port
                     ,ps.keypair.public
                     ,their_pub
                     ,their_pub
