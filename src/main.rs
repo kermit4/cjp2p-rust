@@ -1848,12 +1848,13 @@ fn status_page(
             }
         }
         downloads.sort_by(|a, b| b.3.cmp(&a.3));
+        downloads.truncate(30);
         if is_local(&stream) {
             page += "<p><b>your downloads</b></p><table style='font-family:monospace'>\n";
             if downloads.is_empty() {
                 page += "<tr><td>(none yet)</td></tr>\n";
             }
-            for (hash, size, mime, _) in &downloads {
+            for (hash, size, mime, modified) in &downloads {
                 let size_str = if *size < 1024 {
                     format!("{} B", size)
                 } else if *size < 1024 * 1024 {
@@ -1861,9 +1862,11 @@ fn status_page(
                 } else {
                     format!("{} MB", size / (1024 * 1024))
                 };
+                use chrono::DateTime;
                 page += &format!(
                     "<tr><td><a href='/{hash}' target='_blank'>{hash}</a></td>\
-                     <td>&nbsp;{size_str}&nbsp;</td><td>{mime}</td></tr>\n"
+                     <td>&nbsp;{size_str}&nbsp;</td><td>{mime}</td><td>{}</td></tr>\n",
+                    DateTime::<Utc>::from(*modified).format("%Y-%m-%d %H:%M:%S") 
                 );
             }
             page += "</table>\n";
