@@ -3140,8 +3140,15 @@ impl ContentGateway {
     fn serve_mmap(&mut self, mmap: &MmapMut, mut available_end: usize) {
         if !self.sent_header {
             let mime_type = mimetype_detector::detect(&mmap[0..]);
+            // text/x-typescript is a misdetection of plain JS -- the detector pattern-matches
+            // syntax that is a superset of JS. Browsers require a JS MIME type to load scripts.
+            let mime_str = if mime_type.mime() == "text/x-typescript" {
+                "application/javascript"
+            } else {
+                mime_type.mime()
+            };
             let response = if self.ranged {
-                debug!("cg {} serve_mmap ranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_type.mime());
+                debug!("cg {} serve_mmap ranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_str);
                 debug!("cg {} http end minus start {}",self.http_socket.as_raw_fd(),self.http_end-self.http_start);
                 if self.http_end - self.http_start > 0x100000 {
                     self.http_end = self.http_start + 0x100000;
@@ -3156,16 +3163,16 @@ impl ContentGateway {
                                  Accept-Range: bytes\r\n\
                                  Content-Range: bytes {}-{}/{}\r\n\
                                  Content-Type: {}\r\n\r\n"
-            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffffff), mime_type.mime())
+            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffffff), mime_str)
             } else {
-                debug!("cg {} serve_mmap unranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_type.mime());
+                debug!("cg {} serve_mmap unranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_str);
                 format!(
                                 "HTTP/1.1 200 OK\r\n\
                                  Content-Length: {}\r\n\
                                  Content-Disposition: inline\r\n\
                                  Accept-Range: bytes\r\n\
                                  Content-Type: {}\r\n\r\n"
-            ,self.http_end-self.http_start, mime_type.mime())
+            ,self.http_end-self.http_start, mime_str)
             };
             info!("cg {} sending http client {}",self.http_socket.as_raw_fd(),response);
             match self.http_socket.write_all(response.as_bytes()) {
