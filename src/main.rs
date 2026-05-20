@@ -1314,9 +1314,11 @@ pub fn run() -> Result<(), std::io::Error> {
         .format_timestamp(Some(TimestampPrecision::Millis))
         .init();
     println!("logging level: {}", log::max_level());
-
     let (lcdp_port, http_port, file_args) = parse_args();
+    run_engine(lcdp_port, http_port, file_args)
+}
 
+fn run_engine(lcdp_port: u16, http_port: u16, file_args: Vec<String>) -> Result<(), std::io::Error> {
     let mut ps: PeerState = PeerState::new(lcdp_port);
     let bind_addr = if Path::new(".allow_remote_http").exists() {
         format!("0.0.0.0:{http_port}")
@@ -4878,18 +4880,26 @@ pub mod android_jni {
         mut env: JNIEnv<'local>,
         _class: JClass<'local>,
         data_dir: JString<'local>,
+        lcdp_port: i32,
+        http_port: i32,
     ) {
         let dir: String = env
             .get_string(&data_dir)
             .map(|s| s.into())
             .unwrap_or_default();
+        let lp = lcdp_port as u16;
+        let hp = http_port as u16;
         let _ = std::thread::Builder::new()
             .name("cjp2p".into())
             .spawn(move || {
                 if !dir.is_empty() {
                     std::env::set_current_dir(&dir).ok();
                 }
-                let _ = super::run();
+                env_logger::builder()
+                    .format_timestamp(Some(env_logger::fmt::TimestampPrecision::Millis))
+                    .try_init()
+                    .ok();
+                let _ = super::run_engine(lp, hp, vec![]);
             });
     }
 }

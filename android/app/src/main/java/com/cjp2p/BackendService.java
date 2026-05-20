@@ -48,7 +48,7 @@ public class BackendService extends Service {
                 extractPublicAssets(filesDir);
                 redirectStderrToFile();
                 android.system.Os.setenv("RUST_LOG", "info", true);
-                NativeLib.start(filesDir.getAbsolutePath());
+                NativeLib.start(filesDir.getAbsolutePath(), 24264, 24265);
                 Log.i(TAG, "P2P engine started in-process");
             } catch (Exception e) {
                 Log.e(TAG, "Failed to start P2P engine", e);

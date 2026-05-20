@@ -33,7 +33,7 @@ import java.util.Date;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private static final String STATUS_URL = "http://127.0.0.1:24255/status.json";
+    private static final String STATUS_URL = "http://127.0.0.1:24265/status.json";
     private static final int POLL_MS = 3000;
     private static final int PICK_FILE = 1;
 
@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
 
         findViewById(R.id.btn_menu).setOnClickListener(v -> {
             Intent browser = new Intent(Intent.ACTION_VIEW,
-                Uri.parse("http://127.0.0.1:24255/"));
+                Uri.parse("http://127.0.0.1:24265/"));
             startActivity(browser);
         });
 
@@ -152,7 +152,7 @@ public class MainActivity extends Activity {
             .setMessage("Share this hash with anyone who wants to download it:\n\n" + hash)
             .setPositiveButton("Copy hash", (d, w) -> {
                 ClipboardManager cm = getSystemService(ClipboardManager.class);
-                cm.setPrimaryClip(ClipData.newPlainText("cjp2p hash", "http://localhost:24255/" + hash));
+                cm.setPrimaryClip(ClipData.newPlainText("cjp2p hash", "http://localhost:24265/" + hash));
                 Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("OK", null)
