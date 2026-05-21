@@ -34,6 +34,8 @@ RUST_LOG=warn ./target/release/cjp2p
 
 Then type /help or go to http://localhost:24255/ 
 
+join the fully p2p group chat http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/group_chat.html
+
 This uses about 400MB/day out and 100MB/day in
 
 This also works great on Android.  It seems to use very little battery, but I haven't done controlled tests.
@@ -41,6 +43,7 @@ This also works great on Android.  It seems to use very little battery, but I ha
 # hints
 
 [build your own p2p app in minutes quick start](quickstart_build_a_p2p_app_with_one_prompt.md)
+
 
 Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its ubuntu-24.04.3-live-server-amd64.iso ) and watch it come from two places with iftop
 
@@ -93,5 +96,5 @@ or look at attempts to host HTML and components on the network
 - chat UX
 - general UX .. for devs though ..DX
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
-- steer users to group_chat, fade out old chat
+- on status page steer users to group_chat, fade out old chat
 - try to get github workflows to use make some?
