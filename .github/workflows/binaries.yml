@@ -25,7 +25,7 @@ jobs:
           targets: x86_64-unknown-linux-musl
 
       - name: Install musl toolchain
-        run: sudo apt-get install -y musl-tools
+        run: sudo apt-get install -y musl-tools librsvg2-bin
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
@@ -36,6 +36,9 @@ jobs:
             target
           key: ${{ runner.os }}-musl-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
           restore-keys: ${{ runner.os }}-musl-
+
+      - name: Generate icons
+        run: python3 tauri-app/gen-icons.py
 
       - name: Build
         run: |
@@ -85,6 +88,12 @@ jobs:
             target
           key: ${{ runner.os }}-android-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
           restore-keys: ${{ runner.os }}-android-
+
+      - name: Install librsvg2-bin
+        run: sudo apt-get install -y librsvg2-bin
+
+      - name: Generate icons
+        run: python3 tauri-app/gen-icons.py
 
       - name: Install Android NDK
         run: |
@@ -165,10 +174,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev librsvg2-dev
+            libayatana-appindicator3-dev librsvg2-dev librsvg2-bin
 
       - name: Generate icons
-        run: cd tauri-app/src-tauri && python3 ../gen-icons.py
+        run: python3 tauri-app/gen-icons.py
 
       - name: Build .deb
         run: |

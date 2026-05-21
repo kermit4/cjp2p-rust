@@ -62,8 +62,11 @@ jobs:
           "$SDKMANAGER" "ndk;27.2.12479018" "platforms;android-36" "build-tools;35.0.0"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
 
+      - name: Install librsvg2-bin
+        run: sudo apt-get install -y librsvg2-bin
+
       - name: Generate icons
-        run: cd tauri-app/src-tauri && python3 ../gen-icons.py
+        run: python3 tauri-app/gen-icons.py
 
       - name: Write keystore and key.properties
         env:

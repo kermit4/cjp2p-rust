@@ -1985,6 +1985,13 @@ fn handle_web_request(
                 status_json(ps, stream);
                 return;
             }
+            if req.path == "/favicon.ico" {
+                let data = include_bytes!("favicon.png");
+                let hdr = format!("HTTP/1.0 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\n\r\n", data.len());
+                stream.write_all(hdr.as_bytes()).ok();
+                stream.write_all(data).ok();
+                return;
+            }
 
             info!("got http request for {:?}",req);
             if let Ok(mut file) = OpenOptions::new()
