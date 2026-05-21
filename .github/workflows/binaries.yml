@@ -78,6 +78,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
+      
+      - name: Install librsvg2 
+        run: sudo apt-get install -y librsvg2-bin
+      
+      - name: Generate icons
+        run: ./gen-icons.py
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
