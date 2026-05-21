@@ -19,12 +19,12 @@ pins: bundle
 	for _x in . .;do find cjp2p/origin/ -not -name '.*' -type f -not -path '*/.*' -printf "%P\n"|xargs -P 0 -i curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/{}  |wc -c;sleep .3;done ;fi
 
 debug: target/debug/cjp2p bundle
-target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs
+target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png
 	cargo build
 	rm -f target/*/libcjp
 
 release: target/release/cjp2p bundle
-target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs
+target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png
 	RUSTFLAGS="-C target-cpu=native"  cargo build --release
 	rm -f target/*/libcjp
 
@@ -66,23 +66,23 @@ ANDROID_SDK_ROOT ?= $(HOME)/Android/Sdk
 CARGO_TAURI = $(HOME)/.cargo/bin/cargo-tauri
 TAURI_APP_DIR = tauri-app
 
-.PHONY: tauri-cli tauri-icons tauri-android-init tauri-apk
+.PHONY: tauri-cli icons tauri-android-init tauri-apk
 
 $(CARGO_TAURI):
 	cargo install tauri-cli --version "^2" --locked
 
 tauri-cli: $(CARGO_TAURI)
 
-$(TAURI_APP_DIR)/src-tauri/icons/128x128.png: $(TAURI_APP_DIR)/gen-icons.py
-	cd $(TAURI_APP_DIR)/src-tauri && python3 ../gen-icons.py
+src/favicon.png: gen-icons.py
+	./gen-icons.py
 
-tauri-icons: $(TAURI_APP_DIR)/src-tauri/icons/128x128.png
+icons:  src/favicon.png
 
 # Run once after SDK is set up (build_android.sh does the SDK setup).
 tauri-android-init: $(CARGO_TAURI)
 	cd $(TAURI_APP_DIR) && ANDROID_SDK_ROOT=$(ANDROID_SDK_ROOT) cargo tauri android init
 
-tauri-apk: $(CARGO_TAURI) tauri-icons
+tauri-apk: $(CARGO_TAURI) icons
 	cd $(TAURI_APP_DIR) && ANDROID_SDK_ROOT=$(ANDROID_SDK_ROOT) cargo tauri android build --target aarch64 --debug
 
 # Release (signed, smaller) APK.  Run once to create the keystore:  make tauri-keystore
@@ -102,5 +102,5 @@ $(KEYSTORE):
 		"$(KEYSTORE)" > $(KEYSTORE_PROPS)
 	@echo "Keystore created. Back up $(KEYSTORE) -- losing it means you cannot update the app."
 
-tauri-apk-release: $(CARGO_TAURI) tauri-icons $(KEYSTORE_PROPS)
+tauri-apk-release: $(CARGO_TAURI) icons $(KEYSTORE_PROPS)
 	cd $(TAURI_APP_DIR) && ANDROID_SDK_ROOT=$(ANDROID_SDK_ROOT) cargo tauri android build --target aarch64

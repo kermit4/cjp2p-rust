@@ -66,7 +66,7 @@ jobs:
         run: sudo apt-get install -y librsvg2-bin
 
       - name: Generate icons
-        run: python3 tauri-app/gen-icons.py
+        run: ./gen-icons.py
 
       - name: Write keystore and key.properties
         env:

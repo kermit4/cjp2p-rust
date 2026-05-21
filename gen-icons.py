@@ -2,12 +2,11 @@
 """Generate all icon PNGs from SVG sources.  Run from anywhere."""
 import subprocess, shutil, pathlib
 
-here   = pathlib.Path(__file__).resolve().parent      # tauri-app/
-root   = here.parent                                   # repo root
-master = here / "icons" / "cjp2p_icon.svg"
-fg     = here / "icons" / "cjp2p_fg.svg"
-icons  = here / "src-tauri" / "icons"
-res    = here / "src-tauri" / "gen" / "android" / "app" / "src" / "main" / "res"
+root   = pathlib.Path(__file__).resolve().parent
+master = root / "tauri-app" / "icons" / "cjp2p_icon.svg"
+fg     = root / "tauri-app" / "icons" / "cjp2p_fg.svg"
+icons  = root / "tauri-app" / "src-tauri" / "icons"
+res    = root / "tauri-app" / "src-tauri" / "gen" / "android" / "app" / "src" / "main" / "res"
 
 def rsvg(svg, w, h, out):
     out.parent.mkdir(parents=True, exist_ok=True)

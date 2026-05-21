@@ -93,5 +93,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - general UX .. for devs though ..DX
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - steer users to group_chat, fade out old chat
-- group_chat.html browser notifications doesnt go to the tab when clicked
-- CLI interface to group chat
+- group_chat.html browser notifications doesnt go to the tab when clicked - claude says hard to fix, but see if other sites are doing it?
+- CLI interface to group chat?
+- try to get github workflows to use make some?
