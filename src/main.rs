@@ -360,10 +360,10 @@ impl PeerState {
         let ipv6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0x1);
         let v4_in_v6 = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x1);
 
-        info!("{} is loopback? {} ", ipv4, ipv4.is_loopback());
-        info!("{} is loopback? {} ", ipv6, ipv6.is_loopback());
-        info!("{} is loopback? {} ", v4_in_v6, v4_in_v6.is_loopback()); //false, strange
-        info!("{} is loopback? {} ", v4_in_v6, v4_in_v6.to_ipv4().unwrap().is_loopback());
+        debug!("{} is loopback? {} ", ipv4, ipv4.is_loopback());
+        debug!("{} is loopback? {} ", ipv6, ipv6.is_loopback());
+        debug!("{} is loopback? {} ", v4_in_v6, v4_in_v6.is_loopback()); //false, strange
+        debug!("{} is loopback? {} ", v4_in_v6, v4_in_v6.to_ipv4().unwrap().is_loopback());
         for bootstrap in [
             "148.71.89.128:24254",
             "159.69.54.127:24254",
@@ -3723,7 +3723,7 @@ impl Receive for MaybeTheyHaveSome {
         for p in self.peers {
             if i.peers.insert(p) {
                 // new possible source? try it
-                info!("{} trying new peer {} suggested by {:?}",self.id,p,src);
+                debug!("{} trying new peer {} suggested by {:?}",self.id,p,src);
                 i.request_blocks(ps, HashSet::from([p]));
             }
         }
