@@ -743,7 +743,7 @@ impl PeerState {
                     description,
                 ) {
                     Ok(()) => {
-                        info!("UPNP external port requested base based on your public key: {}",external_port);
+                        debug!("UPNP external port requested base based on your public key: {}",external_port);
                         for index in 0..99 {
                             match gateway.get_generic_port_mapping_entry(index) {
                             Ok(entry) => {
@@ -798,7 +798,7 @@ impl PeerState {
             let (gateway, oif) = match pcp_find_ipv6_gateway() {
                 Some(v) => v,
                 None => {
-                    info!("PCP no IPv6 default gateway found");
+                    debug!("PCP no IPv6 default gateway found");
                     return;
                 }
             };
@@ -910,7 +910,7 @@ impl PeerState {
             let control_url = match upnp_ipv6_find_service() {
                 Some(u) => u,
                 None => {
-                    info!("UPnP IPv6: no WANIPv6FirewallControl service found");
+                    debug!("UPnP IPv6: no WANIPv6FirewallControl service found");
                     return;
                 }
             };
@@ -2607,7 +2607,7 @@ impl PleaseSendContent {
         while {
             if i.next_block * BLOCK_SIZE!() >= i.eof && i.bytes_complete > 0 {
                 // %EOF
-                info!( "\x1b[36m{} almost done {}/{}/{}  blocks done/remaining/next \x1b[m", i.id, i.bytes_complete / BLOCK_SIZE!(), (i.eof - i.bytes_complete) / BLOCK_SIZE!(), i.next_block);
+                debug!( "\x1b[36m{} almost done {}/{}/{}  blocks done/remaining/next \x1b[m", i.id, i.bytes_complete / BLOCK_SIZE!(), (i.eof - i.bytes_complete) / BLOCK_SIZE!(), i.next_block);
                 if log_enabled!(Level::Trace) {
                     for i in i.bitmap.iter_zeros() {
                         trace!("{i}");
@@ -3298,8 +3298,8 @@ impl InboundState {
             return vec![];
         }
         let block_number = content.offset / BLOCK_SIZE!();
-        if self.bitmap[block_number] {
-            info!("dup {block_number}");
+        if self.bitmap[block_number] 
+            debug!("dup {block_number}");
         } else if content.base64.len() == BLOCK_SIZE!()
             || content.base64.len() + content.offset == self.eof
         {
@@ -3467,7 +3467,7 @@ impl InboundState {
                 Some(hash == id.to_lowercase())
             })()
             .unwrap_or(false);
-            info!("sha thread for {path} sendding {}",matched);
+            debug!("sha thread for {path} sendding {}",matched);
             tx.send(matched).ok();
         });
         false
