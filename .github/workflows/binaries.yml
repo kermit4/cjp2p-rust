@@ -37,9 +37,6 @@ jobs:
           key: ${{ runner.os }}-musl-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
           restore-keys: ${{ runner.os }}-musl-
 
-      - name: Generate icons
-        run: python3 tauri-app/gen-icons.py
-
       - name: Build
         run: |
           BUILD_VERSION="linux-x86_64 $(git log --pretty=format:'%ad %h %s' -1)" \
@@ -92,9 +89,6 @@ jobs:
       - name: Install librsvg2-bin
         run: sudo apt-get install -y librsvg2-bin
 
-      - name: Generate icons
-        run: python3 tauri-app/gen-icons.py
-
       - name: Install Android NDK
         run: |
           NDK_VERSION="27.2.12479018"
@@ -136,71 +130,3 @@ jobs:
             Built from commit `${{ github.sha }}` by GitHub Actions.
             Drop into Termux and `chmod +x cjp2p-android-aarch64 && ./cjp2p-android-aarch64`.
 
-  # -- Linux .deb (Tauri desktop app) ----------------------------------------
-  tauri-deb:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            tauri-app/src-tauri/target
-          key: ${{ runner.os }}-tauri-deb-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'tauri-app/src-tauri/Cargo.toml', 'tauri-app/src-tauri/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-tauri-deb-
-
-      - name: Cache cargo-tauri CLI
-        id: cache-tauri-cli
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cargo-tauri
-          key: cargo-tauri-v2-${{ runner.os }}
-
-      - name: Install cargo-tauri
-        if: steps.cache-tauri-cli.outputs.cache-hit != 'true'
-        run: cargo install tauri-cli --version "^2" --locked
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev librsvg2-dev librsvg2-bin
-
-      - name: Generate icons
-        run: python3 tauri-app/gen-icons.py
-
-      - name: Build .deb
-        run: |
-          BUILD_VERSION="tauri-deb $(git log --pretty=format:'%ad %h %s' -1)" \
-          cargo tauri build --bundles deb
-        working-directory: tauri-app
-
-      - name: Locate .deb
-        id: deb
-        run: |
-          DEB=$(find tauri-app/src-tauri/target/release/bundle/deb -name '*.deb' | head -1)
-          echo "path=$DEB" >> $GITHUB_OUTPUT
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cjp2p-${{ github.sha }}.deb
-          path: ${{ steps.deb.outputs.path }}
-
-      - name: Publish to release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ steps.deb.outputs.path }}
-          body: |
-            Built from commit `${{ github.sha }}` by GitHub Actions.

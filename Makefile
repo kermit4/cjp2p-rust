@@ -53,24 +53,20 @@ pull: Makefile
 	wget  -q http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle -O cjp2p.bundle
 	git pull cjp2p.bundle master
 
-# -- Tauri targets (Android APK + Linux .deb) ---------------------------------
-#
-# Tauri wraps cjp2p as a native app: pong.html is the WebView frontend,
-# cjp2p runs in a background thread serving ws://localhost:24255/wt.
+# -- Tauri targets (Android APK) ----------------------------------------------
 #
 # First-time setup:
-#   sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
-#   make tauri-cli        # installs cargo-tauri v2
-#   make tauri-apk needs Android SDK; run build_android.sh once first (sets up SDK/NDK).
+#   make tauri-cli            # installs cargo-tauri v2
+#   run build_android.sh once to set up Android SDK/NDK
 #   make tauri-android-init   # run once to scaffold Android project
 #
-# Then just: make tauri-deb   or   make tauri-apk
+# Then just: make tauri-apk   or   make tauri-apk-release
 
 ANDROID_SDK_ROOT ?= $(HOME)/Android/Sdk
 CARGO_TAURI = $(HOME)/.cargo/bin/cargo-tauri
 TAURI_APP_DIR = tauri-app
 
-.PHONY: tauri-cli tauri-icons tauri-android-init tauri-deb tauri-apk
+.PHONY: tauri-cli tauri-icons tauri-android-init tauri-apk
 
 $(CARGO_TAURI):
 	cargo install tauri-cli --version "^2" --locked
@@ -81,9 +77,6 @@ $(TAURI_APP_DIR)/src-tauri/icons/128x128.png: $(TAURI_APP_DIR)/gen-icons.py
 	cd $(TAURI_APP_DIR)/src-tauri && python3 ../gen-icons.py
 
 tauri-icons: $(TAURI_APP_DIR)/src-tauri/icons/128x128.png
-
-tauri-deb: $(CARGO_TAURI) tauri-icons
-	cd $(TAURI_APP_DIR) && cargo tauri build --bundles deb
 
 # Run once after SDK is set up (build_android.sh does the SDK setup).
 tauri-android-init: $(CARGO_TAURI)
