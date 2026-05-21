@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <!-- Android adaptive icon foreground: white bars on transparent.
+       Safe zone is 72dp centred in the 108dp canvas (x/y 18..90). -->
+  <!-- Top bar: centred, ~72% of safe zone width -->
+  <rect x="28" y="35" width="52" height="12" rx="2" fill="#ffffff"/>
+  <!-- Bottom bar: full safe zone width -->
+  <rect x="18" y="61" width="72" height="12" rx="2" fill="#ffffff"/>
+</svg>
