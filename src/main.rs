@@ -1500,10 +1500,15 @@ fn print_group_chat_msg(pub_key_hex: &str, msg: &GroupChatMessage) {
     for c in pub_key_hex.chars().take(5) {
         let nibble = u8::from_str_radix(&c.to_string(), 16).unwrap_or(0);
         let color = 30u8 + (nibble & 7);
-        pub_str.push_str(&format!("\x1b[7;{}m{}", color, c));
+        if nibble & 8 != 0 {
+            pub_str.push_str(&format!("\x1b[7;{color}m{c}"));
+        } else {
+            pub_str.push_str(&format!("\x1b[m\x1b[{color}m{c}"));
+        }
     }
-    println!("\x1b[7m[{}] {}...\x1b[7m [#{}] {}\x07\x1b[m",
-        ts, pub_str, msg.group_name, msg.text);
+    pub_str.push_str("\x1b[m");
+    println!("[{ts}] {pub_str}... #{}: \x1b[7m{}\x07\x1b[m",
+        msg.group_name, msg.text);
 }
 
 fn handle_stdin(
