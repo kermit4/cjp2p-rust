@@ -3298,7 +3298,7 @@ impl InboundState {
             return vec![];
         }
         let block_number = content.offset / BLOCK_SIZE!();
-        if self.bitmap[block_number] 
+        if self.bitmap[block_number] {
             debug!("dup {block_number}");
         } else if content.base64.len() == BLOCK_SIZE!()
             || content.base64.len() + content.offset == self.eof
