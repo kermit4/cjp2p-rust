@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Transparent background so rsvg-convert outputs RGBA (required by Tauri).
+       Android background colour lives in ic_launcher_background.xml instead. -->
+  <!-- Top bar: shorter, ~55% width -->
+  <rect x="116" y="178" width="280" height="64" rx="8" fill="#3a7bd5"/>
+  <!-- Bottom bar: longer, ~82% width — the wide foundation -->
+  <rect x="46" y="270" width="420" height="64" rx="8" fill="#3a7bd5"/>
+</svg>
