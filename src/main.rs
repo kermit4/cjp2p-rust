@@ -542,7 +542,7 @@ impl PeerState {
     fn load_peers() -> HashMap<SocketAddr, PeerInfo> {
         let file = OpenOptions::new()
             .read(true)
-            .open("./cjp2p/state/peers.v8.json");
+            .open("./cjp2p/state/peers.v9.json");
         let mut map = HashMap::<SocketAddr, PeerInfo>::new();
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
             let json: Vec<(SocketAddr, PeerInfo)> =
@@ -564,7 +564,7 @@ impl PeerState {
             .create(true)
             .write(true)
             .truncate(true)
-            .open("./cjp2p/state/peers.v8.json")
+            .open("./cjp2p/state/peers.v9.json")
             .unwrap()
             .write_all(&serde_json::to_vec_pretty(&peers_to_save).unwrap())
             .ok();
