@@ -28,7 +28,7 @@ target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.p
 	RUSTFLAGS="-C target-cpu=native"  cargo build --release
 	rm -f target/*/libcjp
 
-check: Makefile Cargo.toml src/*.rs src/bin/*.rs
+check: Makefile Cargo.toml src/*.rs src/bin/*.rs src/favicon.png
 	cargo check 
 
 pretty: check 
