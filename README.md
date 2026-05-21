@@ -1,6 +1,12 @@
-This uses the Lowest Common Denominator Protocol (LCDP) .   The primary purpose of this repo is to demonstrate a few basic examples of how one could do write p2p interoperable applications using LCDP (externally taggged JSON arrays).  Some browser side applications (relaying through a node over a websocket) are at http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/index.html
+This builds on the following standards:
 
-The current target audience is devs, so the UI is minimal and not well documented.   If you don't intend to develop p2p software, this repo is not for you.  This is not an end-user application.  This is sample code.
+- https://github.com/kermit4/LCDP Lowest Common Denominator Protocol
+- https://en.wikipedia.org/wiki/WebSocket
+- https://en.wikipedia.org/wiki/User_Datagram_Protocol (UDP)
+- https://en.wikipedia.org/wiki/HTTP
+- https://rust-lang.org/
+
+The current target audience is developers, so the UI is minimal and not well documented.   If you don't intend to develop p2p software, this repo is probably not for you, though the sample implementations are quite powerful.  
 
 This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it, except for /latest/ which are ordinary names that get checked for changes and published by hash in /public/, and the requester is sent the latest hash. (So you have distributed updateable content by your public key.  Make yourself a home page, call it index.html .)
 
@@ -8,9 +14,7 @@ Files in ./cjp2p/origin/ will be shared by name by your pub, i.e. http://localho
 
 If you create .allow_remote_http in the directory you run this, the next time it starts it will allow any IP to connect to the HTTP port, but it will only serve files you already have, it can't cause it to download anything new, and doesn't have any of special access that localhost does. As of this writing that means it will refuse websockets, among other things.  I run it with  .allow_remote_http so I think its safe.
 
-this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle  -- "make pull" to update with it instead of a centralized repo
-
-
+this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle  -- "make pull" or `/update` to update with it without a centralized repo
 
 # building
 
@@ -24,26 +28,25 @@ or
 
 RUST_LOG=info ./target/release/cjp2p
 
-This uses 10KB/s at idle (almost 1GB/day).  It seems to not use a lot of battery but I haven't done long tests, and there's still a small risk of bugs that will spin net/cpu.
+or 
 
-You can copy cjp2p/state/key.json to other systems if you want and it should receive messages directed to it on all systems.
+RUST_LOG=warn ./target/release/cjp2p
 
-This also works fine on Android.
+Then type /help or go to http://localhost:24255/ 
+
+This uses about 400MB/day out and 100MB/day in
+
+This also works great on Android.  It seems to use very little battery, but I haven't done controlled tests.
 
 # hints
 
 [build your own p2p app in minutes quick start](quickstart_build_a_p2p_app_with_one_prompt.md)
 
-
-Try /help
-Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its ubuntu-24.04.3-live-server-amd64.iso )
+Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its ubuntu-24.04.3-live-server-amd64.iso ) and watch it come from two places with iftop
 
 or watch Sintel http://localhost:24255/43a39a05ce426151da3c706ab570932b550065ab4f9e521bb87615f841517cf1 in a browser. Check out the amazing seek time!
 
-hand made status page http://localhost:24255/
-Claude made status page http://localhost:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/dashboard.html
-
-or HTML pages with many page components, individually downloaded from the network live (unless you already did.)
+or look at attempts to host HTML and components on the network
 - http://localhost:24255/c0b5426d0ccce3b647aaff4adf4b2aaead97aa626c5db29f77b8886efaa730c6 random img src
 - http://localhost:24255/96b375185bb9cb1ff8aecea12480b0663749d0afb1e8ffa8f32b8d6e48b90f10 1000 random img src
 - http://localhost:24255/b98d4a019a3b4cb29c1a0207f9f60dd5302d611374667fb3ea4b1a671ad9bf99  https://commons.wikimedia.org/wiki/Category:Fossils made with SingleFile browser plugin (for firexfox or chrome) (works much better than wget and my html_slurp.sh but becausue its inlining the images so doesnt really demonstrate the get-lots-of-little-files-quickly capabilities of this )
@@ -51,8 +54,6 @@ or HTML pages with many page components, individually downloaded from the networ
 - http://localhost:24255/fb132816910cda37494d2c1ec70b6bc92f9bc4b129842e7f4e9d16aac789ac3f wikipedia JSON page, with dependancies, made with ./html_slurp.sh https://en.wikipedia.org/wiki/JSON
 - http://localhost:24255/d70caf078afe39d38f63b86c0f03a70a4722773e3021c487d5e9852750d8c17a   made with ./html_slurp.sh  https://en.wikipedia.org/wiki/Earth 
 - http://localhost:24255/380e9e5a09e5b0564e442a17f3bf054a07046323237bd60f2cd6834bbb45d14e  https://en.wikipedia.org/wiki/Geological_history_of_Earth
-
-
 
 # TODO
 ## general 
@@ -93,6 +94,4 @@ or HTML pages with many page components, individually downloaded from the networ
 - general UX .. for devs though ..DX
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - steer users to group_chat, fade out old chat
-- group_chat.html browser notifications doesnt go to the tab when clicked , at least on m52, - claude says hard to fix, but see if other sites are doing it?
-- CLI interface to group chat?
 - try to get github workflows to use make some?
