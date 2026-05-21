@@ -54,11 +54,32 @@ use std::path::Path;
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
 
 #[serde_as]
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 struct Ed25519Pub(#[serde_as(as = "Hex")] [u8; 32]);
 impl Ed25519Pub {
     fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+    fn is_valid_edwards_point(&self) -> bool {
+        use curve25519_dalek::edwards::CompressedEdwardsY;
+        CompressedEdwardsY(self.0).decompress().is_some()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Ed25519Pub {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|_| serde::de::Error::custom("expected 32 bytes"))?;
+        let p = Ed25519Pub(arr);
+        if !p.is_valid_edwards_point() {
+            warn!("rejecting Ed25519Pub {} -- not a valid Edwards point", s);
+            return Err(serde::de::Error::custom(
+                format!("invalid Edwards point: {}", s),
+            ));
+        }
+        Ok(p)
     }
 }
 impl std::fmt::Display for Ed25519Pub {
@@ -79,7 +100,11 @@ impl std::str::FromStr for Ed25519Pub {
         let arr: [u8; 32] = bytes
             .try_into()
             .map_err(|_| "expected 32 bytes".to_string())?;
-        Ok(Self(arr))
+        let p = Self(arr);
+        if !p.is_valid_edwards_point() {
+            return Err(format!("invalid Edwards point: {}", hex::encode(arr)));
+        }
+        Ok(p)
     }
 }
 impl JsonSchema for Ed25519Pub {
@@ -215,6 +240,8 @@ struct PeerState {
     last_upnp: std::time::SystemTime,
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
+    displayed_group_chat_ids: HashSet<(String, i64)>,
+    last_group: String,
     ws_vec: Vec<WebSocket<TcpStream>>,
     http_clients: Vec<TcpStream>,
     content_gateways: Vec<ContentGateway>,
@@ -308,6 +335,8 @@ impl PeerState {
             last_upnp: std::time::SystemTime::now(),
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
+            displayed_group_chat_ids: HashSet::new(),
+            last_group: "main".to_string(),
             ws_vec: Vec::new(),
             http_clients: Vec::new(),
             content_gateways: Vec::new(),
@@ -1463,6 +1492,20 @@ fn run_engine(
     }
 }
 
+fn print_group_chat_msg(pub_key_hex: &str, msg: &GroupChatMessage) {
+    let ts = chrono::DateTime::from_timestamp_millis(msg.timestamp)
+        .map(|dt: chrono::DateTime<chrono::Utc>| dt.to_rfc3339())
+        .unwrap_or_else(|| format!("{}", msg.timestamp));
+    let mut pub_str = String::new();
+    for c in pub_key_hex.chars().take(5) {
+        let nibble = u8::from_str_radix(&c.to_string(), 16).unwrap_or(0);
+        let color = 30u8 + (nibble & 7);
+        pub_str.push_str(&format!("\x1b[7;{}m{}", color, c));
+    }
+    println!("\x1b[7m[{}] {}...\x1b[7m [#{}] {}\x07\x1b[m",
+        ts, pub_str, msg.group_name, msg.text);
+}
+
 fn handle_stdin(
     ps: &mut PeerState,
     stream_states: &mut HashMap<String, StreamState>,
@@ -1674,6 +1717,37 @@ fn handle_stdin(
                 }
                 let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
             });
+        } else if line.starts_with("/g ") {
+            let rest = line[3..].trim_end_matches('\n');
+            let (group_name, text) = if rest.starts_with('#') {
+                let trimmed = &rest[1..];
+                if let Some(sp) = trimmed.find(' ') {
+                    (trimmed[..sp].to_string(), trimmed[sp + 1..].to_string())
+                } else {
+                    (ps.last_group.clone(), rest.to_string())
+                }
+            } else {
+                (ps.last_group.clone(), rest.to_string())
+            };
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64;
+            ps.last_group = group_name.clone();
+            let gcm = GroupChatMessage {
+                group_name: group_name.clone(),
+                text: text.clone(),
+                timestamp,
+            };
+            let my_pub = ps.keypair.public.to_string();
+            ps.displayed_group_chat_ids
+                .insert((my_pub.clone(), timestamp));
+            print_group_chat_msg(&my_pub, &gcm);
+            let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm)).unwrap();
+            let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
+            for pub_key in peers {
+                msgs_to_pub(ps, pub_key, &vec![msg_val.clone()]);
+            }
         } else if line == "/help\n" {
             println!("
                         - /ping
@@ -1688,6 +1762,7 @@ fn handle_stdin(
                         - /pending
                         - /peers
                         - /msg [ip:port or 0xPubKey] msg
+                        - /g [#group_name] msg  (group chat; omit #group_name to use last or default 'main')
                         - /version
                         - /update
                         - /help
@@ -4057,6 +4132,43 @@ impl Receive for ChatMessage {
         return vec![];
     }
 }
+#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
+struct GroupChatMessage {
+    group_name: String,
+    text: String,
+    timestamp: i64,
+}
+impl Receive for GroupChatMessage {
+    fn receive(
+        self,
+        ps: &mut PeerState,
+        src: &Source,
+        _: &mut bool,
+        _: &mut HashMap<String, StreamState>,
+        _: &mut HashMap<String, InboundState>,
+        signer: Option<Ed25519Pub>,
+    ) -> Vec<Message> {
+        let pub_key_hex = signer
+            .map(|p| p.to_string())
+            .or_else(|| {
+                if let Source::S(sa) = src {
+                    ps.peer_map
+                        .get(sa)
+                        .and_then(|pi| pi.ed25519)
+                        .map(|p| p.to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "unknown".to_string());
+        let id = (pub_key_hex.clone(), self.timestamp);
+        if !ps.displayed_group_chat_ids.contains(&id) {
+            ps.displayed_group_chat_ids.insert(id);
+            print_group_chat_msg(&pub_key_hex, &self);
+        }
+        vec![]
+    }
+}
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct PleaseListContent {}
 impl Receive for PleaseListContent {
@@ -4312,7 +4424,7 @@ impl Receive for FastEncryptedMessages {
         if let Source::S(src) = *src_ {
             let sender_x25519 = CompressedEdwardsY(*sender.as_bytes())
                 .decompress()
-                .expect("valid ed25519 public key")
+                .expect("Ed25519Pub invariant: valid Edwards point")
                 .to_montgomery()
                 .to_bytes();
             let shared = MontgomeryPoint(sender_x25519)
@@ -4792,6 +4904,7 @@ enum Message {
     AlwaysReturned(AlwaysReturned),
     MyPublicKey(MyPublicKey),
     ChatMessage(ChatMessage),
+    GroupChatMessage(GroupChatMessage),
     EncryptedMessages(EncryptedMessages),
     FastEncryptedMessages(FastEncryptedMessages),
     SignedMessage(SignedMessage),
