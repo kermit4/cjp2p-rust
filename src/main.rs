@@ -3617,6 +3617,20 @@ fn maintenance(
     inbound_states: &mut HashMap<String, InboundState>,
     ps: &mut PeerState,
 ) -> () {
+    if ps.next_maintenance.elapsed() <= Duration::ZERO {
+        return;
+    }
+    debug!("maintenance");
+    let save_battery = if std::env::consts::ARCH == "aarch64" {
+        1
+    } else {
+        2
+    };
+    if save_battery > 1 {
+        info!("slowwing maintenance in half because aarch64");
+    }
+    ps.next_maintenance =
+        Instant::now() + Duration::from_millis(rand::rng().random_range(888..999) * save_battery);
     if let Some(next) = ps.group_chat_backoff_next {
         if next.elapsed() > Duration::ZERO && !ps.group_chat_outbox.is_empty() {
             let msgs: Vec<serde_json::Value> = ps
@@ -3632,9 +3646,6 @@ fn maintenance(
             ps.group_chat_backoff_next =
                 Some(Instant::now() + Duration::from_millis(ps.group_chat_backoff_delay_ms as u64));
         }
-    }
-    if ps.next_maintenance.elapsed() <= Duration::ZERO {
-        return;
     }
     let nowi = Instant::now();
     log_if_slow(nowi, line!().to_string());
@@ -3658,7 +3669,6 @@ fn maintenance(
             ps.upnp_ipv6();
         }
     }
-    debug!("maintenance");
     let mut to_remove = vec![];
     log_if_slow(nowi, line!().to_string());
     for (index, cg) in ps.content_gateways.iter().enumerate() {
@@ -3671,8 +3681,6 @@ fn maintenance(
         warn!("CG garbage collection..this should be handled elsewhere already i think? oh not if it errors i think like if the browser hangs up");
         ps.content_gateways.remove(*tr);
     }
-    ps.next_maintenance =
-        Instant::now() + Duration::from_millis(rand::rng().random_range(888..999));
     log_if_slow(nowi, line!().to_string());
     ps.sort();
     log_if_slow(nowi, line!().to_string());
