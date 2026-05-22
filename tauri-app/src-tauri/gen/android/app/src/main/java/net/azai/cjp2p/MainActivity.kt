@@ -7,7 +7,6 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
 import android.webkit.WebView
-import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
 
 class MainActivity : TauriActivity() {
@@ -21,7 +20,6 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    enableEdgeToEdge()
     super.onCreate(savedInstanceState)
     startBackendService()
   }
