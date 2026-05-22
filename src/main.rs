@@ -1980,8 +1980,7 @@ fn status_page(
     page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>lots of HTML+JS front ends here, like the <b><big>GROUP CHAT YOU SHOULD BE IN</big></b></a>.  You can host pages in cjp2p/origin/ and it will show up at a similar link for you, see the 'home' links below. <p>");
 
     page += &format!("\n{} total peers\n", total_peers);
-    page += &format!("<pre>--- active public keys (recently responding in under than 600ms).  Click on one to open an encrypted 2-way chat.\n\
-            Note that unless they have a tab open with you, they'll only see it in the console or status page: \n</pre>");
+    page += &format!("<pre>--- active public keys (recently responding in under than 600ms).  \n</pre>");
     let inbound_info: Vec<(String, usize, usize)> = inbound_states
         .values()
         .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
@@ -2070,7 +2069,7 @@ fn status_page(
         }
         page += "</pre>";
 
-        page += &format!("<pre>{} total unique IP peers\n--- fast peers: \n", unique_ips_count);
+        page += &format!("<pre>{} total unique IPs seen\n--- recent/fast port:ips \n", unique_ips_count);
         for (d, v) in &fast_peers {
             page += &format!("{:21?} {:21}\n", d, v);
         }
