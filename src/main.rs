@@ -242,6 +242,9 @@ struct PeerState {
     all_chats: Vec<(String, String)>,
     displayed_group_chat_ids: HashSet<(String, i64)>,
     last_group: String,
+    group_chat_outbox: Vec<GroupChatMessage>,
+    group_chat_backoff_next: Option<Instant>,
+    group_chat_backoff_delay_ms: f64,
     ws_vec: Vec<WebSocket<TcpStream>>,
     http_clients: Vec<TcpStream>,
     content_gateways: Vec<ContentGateway>,
@@ -337,6 +340,9 @@ impl PeerState {
             all_chats: Vec::new(),
             displayed_group_chat_ids: HashSet::new(),
             last_group: "main".to_string(),
+            group_chat_outbox: Vec::new(),
+            group_chat_backoff_next: None,
+            group_chat_backoff_delay_ms: 500.0,
             ws_vec: Vec::new(),
             http_clients: Vec::new(),
             content_gateways: Vec::new(),
@@ -1748,11 +1754,14 @@ fn handle_stdin(
             ps.displayed_group_chat_ids
                 .insert((my_pub.clone(), timestamp));
             print_group_chat_msg(&my_pub, &gcm);
-            let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm)).unwrap();
+            let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm.clone())).unwrap();
             let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
             for pub_key in peers {
                 msgs_to_pub(ps, pub_key, &vec![msg_val.clone()]);
             }
+            ps.group_chat_outbox.push(gcm);
+            ps.group_chat_backoff_delay_ms = 500.0;
+            ps.group_chat_backoff_next = Some(Instant::now() + Duration::from_millis(500));
         } else if line == "/help\n" {
             println!("
                         - /ping
@@ -3559,6 +3568,22 @@ fn maintenance(
     inbound_states: &mut HashMap<String, InboundState>,
     ps: &mut PeerState,
 ) -> () {
+    if let Some(next) = ps.group_chat_backoff_next {
+        if next.elapsed() > Duration::ZERO && !ps.group_chat_outbox.is_empty() {
+            let msgs: Vec<serde_json::Value> = ps
+                .group_chat_outbox
+                .iter()
+                .map(|m| serde_json::to_value(&Message::GroupChatMessage(m.clone())).unwrap())
+                .collect();
+            let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
+            for pub_key in peers {
+                msgs_to_pub(ps, pub_key, &msgs);
+            }
+            ps.group_chat_backoff_delay_ms *= 1.5;
+            ps.group_chat_backoff_next =
+                Some(Instant::now() + Duration::from_millis(ps.group_chat_backoff_delay_ms as u64));
+        }
+    }
     if ps.next_maintenance.elapsed() <= Duration::ZERO {
         return;
     }
