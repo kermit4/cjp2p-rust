@@ -16,11 +16,16 @@ If you create .allow_remote_http in the directory you run this, the next time it
 
 this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle  -- "make pull" or `/update` to update with it without a centralized repo
 
-# building
+# building (optional)
+
+- https://github.com/kermit4/cjp2p-rust/ 
+- https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z4NaokAHdQyjkF562Cj9PpHpGH5f1 (but ive seen it a week behind on the same node I was pushing to daily so I don't think I know how to use Radicle)
 
 make release
 
 # running
+
+- https://github.com/kermit4/cjp2p-rust/releases if you didn't build it above
 
 ./target/release/cjp2p
 
@@ -39,6 +44,10 @@ join the fully p2p group chat http://localhost:24255/latest/0xe13a614dff88de239a
 This uses about 400MB/day out and 100MB/day in
 
 This also works great on Android.  It seems to use very little battery, but I haven't done controlled tests.
+
+# updating
+
+`/update` works for locally built installs, not binary installs yet
 
 # hints
 
@@ -98,3 +107,4 @@ or look at attempts to host HTML and components on the network
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - on status page steer users to group_chat, fade out old chat
 - try to get github workflows to use make some?
+- /update for binary installs
