@@ -1903,11 +1903,6 @@ fn status_page(
     let all_chats = ps.all_chats.clone();
     let current_dir = std::env::current_dir().unwrap().display().to_string();
 
-    let inbound_info: Vec<(String, usize, usize)> = inbound_states
-        .values()
-        .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
-        .collect();
-
     let mut highly_recommended_content: HashMap<String, (i32, u64)> = HashMap::new();
     for (_, v) in &ps.peer_map {
         if let Some(p) = &v.you_should_see_this {
@@ -1980,34 +1975,63 @@ fn status_page(
                 their_pub_hex,
                 msg);
     }
-
     page += &format!("</div>");
+
     page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>lots of HTML+JS front ends here, like the <b><big>GROUP CHAT YOU SHOULD BE IN</big></b></a>.  You can host pages in cjp2p/origin/ and it will show up at a similar link for you, see the 'home' links below. <p>");
 
-        if is_local(&stream) {
-        let mut downloads: Vec<(String, u64, String, std::time::SystemTime)> = Vec::new();
-        if let Ok(entries) = fs::read_dir("./cjp2p/public") {
-            for entry in entries.flatten() {
-                let name = entry.file_name().into_string().unwrap_or_default();
-                if name.len() != 64 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
-                    continue;
-                }
-                let Ok(meta) = entry.metadata() else { continue };
-                let size = meta.len();
-                let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                let mime = File::open(entry.path())
-                    .ok()
-                    .and_then(|mut f| {
-                        let mut buf = [0u8; 512];
-                        let n = f.read(&mut buf).ok()?;
-                        Some(mimetype_detector::detect(&buf[..n]).mime().to_string())
-                    })
-                    .unwrap_or_else(|| "application/octet-stream".to_string());
-                downloads.push((name, size, mime, modified));
-            }
+    page += &format!("\n{} total peers\n", total_peers);
+    page += &format!("<pre>--- active public keys (recently responding in under than 600ms).  Click on one to open an encrypted 2-way chat.\n\
+            Note that unless they have a tab open with you, they'll only see it in the console or status page: \n</pre>");
+    let inbound_info: Vec<(String, usize, usize)> = inbound_states
+        .values()
+        .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
+        .collect();
+    thread::spawn(move || {
+        for (sa, pub_) in &active_peers {
+            page += &format!("<p>0x{} <a href=/latest/{}/>home</a>
+                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>call</a>
+                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>pong</a>
+                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?ed25519={}>chat</a> {}", 
+                pub_.to_string(),
+                pub_.to_string(),
+                pub_.to_string(),
+                pub_.to_string(),
+                pub_.to_string(),
+                if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
+            );
         }
-        downloads.sort_by(|a, b| b.3.cmp(&a.3));
-        downloads.truncate(30);
+        page += "</pre>";
+        page += &format!("
+          <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
+        for (id, bytes_complete, eof) in &inbound_info {
+            page += &format!("{} {}/{}\n", id, bytes_complete, eof);
+        }
+        page += "</pre>";
+
+        if is_local(&stream) {
+            let mut downloads: Vec<(String, u64, String, std::time::SystemTime)> = Vec::new();
+            if let Ok(entries) = fs::read_dir("./cjp2p/public") {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().into_string().unwrap_or_default();
+                    if name.len() != 64 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
+                        continue;
+                    }
+                    let Ok(meta) = entry.metadata() else { continue };
+                    let size = meta.len();
+                    let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    let mime = File::open(entry.path())
+                        .ok()
+                        .and_then(|mut f| {
+                            let mut buf = [0u8; 512];
+                            let n = f.read(&mut buf).ok()?;
+                            Some(mimetype_detector::detect(&buf[..n]).mime().to_string())
+                        })
+                        .unwrap_or_else(|| "application/octet-stream".to_string());
+                    downloads.push((name, size, mime, modified));
+                }
+            }
+            downloads.sort_by(|a, b| b.3.cmp(&a.3));
+            downloads.truncate(30);
             page += "<p><b>your downloads</b></p><table style='font-family:monospace'>\n";
             if downloads.is_empty() {
                 page += "<tr><td>(none yet)</td></tr>\n";
@@ -2030,44 +2054,22 @@ fn status_page(
             page += "</table>\n";
         }
 
-    page += &format!("
-          <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
-    for (id, bytes_complete, eof) in &inbound_info {
-        page += &format!("{} {}/{}\n", id, bytes_complete, eof);
-    }
-
-    let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
-    sorted_list_results.sort_by_key(|&(_, b)| b.0);
-    page += &format!("most recommended content (results of '/recommend sha256' in the CLI):\n");
-    for (k, v) in &sorted_list_results {
-        page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
-    }
-
-    let mut sorted_list_results: Vec<_> = trending.iter().collect();
-    sorted_list_results.sort_by_key(|&(_, b)| b.0);
-    page += &format!("most recently downloaded content:\n");
-    for (k, v) in sorted_list_results.into_iter().rev() {
-        page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
-    }
-
-    page += &format!("\n{} total peers\n", total_peers);
-    page += &format!("--- active public keys (recently responding in under than 600ms).  Click on one to open an encrypted 2-way chat.\n\
-            Note that unless they have a tab open with you, they'll only see it in the console or status page: \n</pre>");
-    thread::spawn(move || {
-        for (sa, pub_) in &active_peers {
-            page += &format!("<p>0x{} 
-                    <a href=/latest/{}/>home</a>
-                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>call</a>
-                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>pong</a>
-                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?ed25519={}>chat</a> {}", 
-                pub_.to_string(),
-                pub_.to_string(),
-                pub_.to_string(),
-                pub_.to_string(),
-                pub_.to_string(),
-                if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
-            );
+        let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
+        sorted_list_results.sort_by_key(|&(_, b)| b.0);
+        page += &format!("<pre>most recommended content (results of '/recommend sha256' in the CLI):\n");
+        for (k, v) in &sorted_list_results {
+            page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
         }
+        page += "</pre>";
+
+        let mut sorted_list_results: Vec<_> = trending.iter().collect();
+        sorted_list_results.sort_by_key(|&(_, b)| b.0);
+        page += &format!("<pre>most recently downloaded content:\n");
+        for (k, v) in sorted_list_results.into_iter().rev() {
+            page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
+        }
+        page += "</pre>";
+
         page += &format!("<pre>{} total unique IP peers\n--- fast peers: \n", unique_ips_count);
         for (d, v) in &fast_peers {
             page += &format!("{:21?} {:21}\n", d, v);
@@ -3625,7 +3627,7 @@ fn maintenance(
         1
     };
     if save_battery > 1 {
-        info!("slowwing maintenance in half because aarch64");
+        debug!("slowing maintenance in half because aarch64, checking if its plugged in is harder than it sounds");
     }
     ps.next_maintenance =
         Instant::now() + Duration::from_millis(rand::rng().random_range(888..999) * save_battery);
