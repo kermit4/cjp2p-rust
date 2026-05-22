@@ -1698,36 +1698,85 @@ fn handle_stdin(
                 trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
                 ps.socket.send_to(&message_out_bytes, sa).ok();
             }
-        } else if line == "/update\n" {
+        } else if line == "/update\n" || line.starts_with("/update ") {
+            let do_bin = line.trim_end_matches('\n').ends_with(" bin");
             let exe = env::current_exe().unwrap();
             let args: Vec<String> = env::args().collect();
-            let bundle_url = format!("http://localhost:{}/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle",ps.http_port);
-            thread::spawn(move || {
-                let status = std::process::Command::new("wget")
-                    .args(["-q", "-O", "bundle", bundle_url.as_str()])
-                    .status()
-                    .expect("wget failed");
-                if !status.success() {
-                    eprintln!("wget cjp2p.bundle failed: {}", status);
-                    return;
-                }
-                let status = std::process::Command::new("git")
-                    .args(["pull", "bundle", "master"])
-                    .status()
-                    .expect("git pull failed");
-                if !status.success() {
-                    eprintln!("git pull bundle master failed: {}", status);
-                    return;
-                }
-                let status = std::process::Command::new("make")
-                    .status()
-                    .expect("make failed");
-                if !status.success() {
-                    eprintln!("make failed: {}", status);
-                    return;
-                }
-                let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
-            });
+            if do_bin {
+                thread::spawn(move || {
+                    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+                    let meta = match std::fs::metadata(&exe) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            eprintln!("/update bin: stat failed: {e}");
+                            return;
+                        }
+                    };
+                    if meta.uid() == 0 && unsafe { libc::getuid() } != 0 {
+                        eprintln!("/update bin: binary is owned by root but running as a regular user -- re-run as root to update");
+                        return;
+                    }
+                    let os = std::env::consts::OS;
+                    let arch = std::env::consts::ARCH;
+                    let bin_name = format!("cjp2p-{os}-{arch}");
+                    let url = format!("https://github.com/kermit4/cjp2p-rust/releases/latest/download/{bin_name}");
+                    let tmp = exe.with_extension("tmp");
+                    eprintln!("/update bin: downloading {url}");
+                    let status = std::process::Command::new("wget")
+                        .args(["-q", "-O", tmp.to_str().unwrap(), url.as_str()])
+                        .status()
+                        .expect("wget failed");
+                    if !status.success() {
+                        eprintln!("/update bin: wget failed");
+                        let _ = std::fs::remove_file(&tmp);
+                        return;
+                    }
+                    let mut perms = std::fs::metadata(&tmp).unwrap().permissions();
+                    perms.set_mode(0o755);
+                    let _ = std::fs::set_permissions(&tmp, perms);
+                    let bak = exe.with_extension("bak");
+                    if let Err(e) = std::fs::rename(&exe, &bak) {
+                        eprintln!("/update bin: failed to back up old binary: {e}");
+                        let _ = std::fs::remove_file(&tmp);
+                        return;
+                    }
+                    if let Err(e) = std::fs::rename(&tmp, &exe) {
+                        eprintln!("/update bin: failed to move new binary into place: {e}");
+                        let _ = std::fs::rename(&bak, &exe);
+                        return;
+                    }
+                    eprintln!("/update bin: updated, restarting");
+                    let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
+                });
+            } else {
+                let bundle_url = format!("http://localhost:{}/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle",ps.http_port);
+                thread::spawn(move || {
+                    let status = std::process::Command::new("wget")
+                        .args(["-q", "-O", "bundle", bundle_url.as_str()])
+                        .status()
+                        .expect("wget failed");
+                    if !status.success() {
+                        eprintln!("wget cjp2p.bundle failed: {}", status);
+                        return;
+                    }
+                    let status = std::process::Command::new("git")
+                        .args(["pull", "bundle", "master"])
+                        .status()
+                        .expect("git pull failed");
+                    if !status.success() {
+                        eprintln!("git pull bundle master failed: {}", status);
+                        return;
+                    }
+                    let status = std::process::Command::new("make")
+                        .status()
+                        .expect("make failed");
+                    if !status.success() {
+                        eprintln!("make failed: {}", status);
+                        return;
+                    }
+                    let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
+                });
+            }
         } else if line.starts_with("/g ") {
             let rest = line[3..].trim_end_matches('\n');
             let (group_name, text) = if rest.starts_with('#') {
@@ -1778,7 +1827,7 @@ fn handle_stdin(
                         - /msg [ip:port or 0xPubKey] msg
                         - /g [#group_name] msg  (group chat; omit #group_name to use last or default 'main')
                         - /version
-                        - /update
+                        - /update [bin]  (bin: pull latest release binary from GitHub)
                         - /help
                 ");
         } else {
