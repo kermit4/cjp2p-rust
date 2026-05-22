@@ -9,7 +9,7 @@ bundle: cjp2p/origin/cjp2p.bundle
 
 cjp2p/origin/cjp2p.bundle: .git/logs/refs/heads/master
 	mkdir -p cjp2p/origin
-	git bundle create --quiet cjp2p/origin/cjp2p.bundle_ master
+	git bundle create --quiet cjp2p/origin/cjp2p.bundle_ master --tags
 	mv cjp2p/origin/cjp2p.bundle_ cjp2p/origin/cjp2p.bundle
 
 # your IP address can't do this to my server so this is a NOOP for you
@@ -51,7 +51,7 @@ all: check release debug apk
 
 pull: Makefile
 	wget  -q http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle -O cjp2p.bundle
-	git pull cjp2p.bundle master --tags
+	git pull cjp2p.bundle master
 
 # -- Tauri targets (Android APK) ----------------------------------------------
 #
