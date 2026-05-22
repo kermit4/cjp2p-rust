@@ -1982,9 +1982,9 @@ fn status_page(
     }
 
     page += &format!("</div>");
-    page += &format!("<a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>decentralized home page of this program's author, which includes various HTML front-ends/apps to this like chat, pong, video calling, AI made dashboard, more</a>");
+    page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>lots of HTML+JS front ends here, like the <b><big>GROUP CHAT YOU SHOULD BE IN</big></b></a>.  You can host pages in cjp2p/origin/ and it will show up at a similar link for you, see the 'home' links below. <p>");
 
-    {
+        if is_local(&stream) {
         let mut downloads: Vec<(String, u64, String, std::time::SystemTime)> = Vec::new();
         if let Ok(entries) = fs::read_dir("./cjp2p/public") {
             for entry in entries.flatten() {
@@ -2008,7 +2008,6 @@ fn status_page(
         }
         downloads.sort_by(|a, b| b.3.cmp(&a.3));
         downloads.truncate(30);
-        if is_local(&stream) {
             page += "<p><b>your downloads</b></p><table style='font-family:monospace'>\n";
             if downloads.is_empty() {
                 page += "<tr><td>(none yet)</td></tr>\n";
@@ -2030,7 +2029,6 @@ fn status_page(
             }
             page += "</table>\n";
         }
-    }
 
     page += &format!("
           <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
@@ -3622,9 +3620,9 @@ fn maintenance(
     }
     debug!("maintenance");
     let save_battery = if std::env::consts::ARCH == "aarch64" {
-        1
-    } else {
         2
+    } else {
+        1
     };
     if save_battery > 1 {
         info!("slowwing maintenance in half because aarch64");
