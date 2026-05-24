@@ -107,5 +107,7 @@ or look at attempts to host HTML and components on the network
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - on status page steer users to group_chat, fade out old chat
 - try to get github workflows to use make some?
-- /update for binary installs
 - test android battery usage, maybe do maintenance at 2s on android, or less
+- figure out what was broken about radicle
+- reimplement a group chat as a signature chain
+- just rev dns on internal top page..rest dynamic
