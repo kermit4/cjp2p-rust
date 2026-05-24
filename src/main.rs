@@ -1526,295 +1526,263 @@ fn handle_stdin(
 ) {
     let mut line = String::new();
     io::stdin().read_line(&mut line).unwrap();
-    if line.len() > 1 {
-        let mut arg: String = "".to_string();
-        let mut arg2: String = "".to_string();
-        if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
-            println!("QUEING FILE {arg}");
-            inbound_states.insert(arg.clone(), InboundState::new(&arg, ps));
-        } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
-            if let Ok(pub_key) = arg.parse::<Ed25519Pub>() {
-                chat_to_pub(ps, pub_key, &arg2);
-            }
-        } else if line == "/quit\n" {
-            ps.save_peers();
-            ps.p.save();
-            std::process::exit(0);
-        } else if sscanf!(line.as_str(), "/test {} {}",arg,arg2).is_ok() {
-            println!("this command is undocummmented because it will hang the node, your internet connection, and probably piss off your ISP.  Hetzner sent me an abuse email demaning an explaination almost immediately after I tried it there. DO NOT USE THIS!!  (Though Hetzner did not lose any traffic, unlike my cheap home router)");
-            // the issue is that, i have found, many cheap home "routers" top out at 1Mbps when talking to various IPs due to some sort of "Connection" tracking, even if you are the DMZ, or even if you use ipv6 to avoid NAT.
-            // it's structural censorship, or "protocol discrimination"
-            let rate: u64 = arg2.parse().unwrap();
-            ps.socket.set_nonblocking(false).unwrap();
-            if arg == "4" {
-                std::process::Command::new("ping")
-                    .arg("-c50")
-                    .arg("-i.2")
-                    .arg("8.8.8.8")
-                    .spawn()
-                    .ok();
-            } else {
-                std::process::Command::new("ping6")
-                    .arg("-c50")
-                    .arg("-i.2")
-                    .arg("2001:4860:4860::8888")
-                    .spawn()
-                    .ok();
-            };
-            'outer: for c in 0..255u64 {
-                for d in 0..255u64 {
-                    let s = if arg == "4" {
-                        // 100.64/10 reserved for CGNAT so wont piss off anyone but your ISP at most, not ideal really, port 6881 is bitttorent
-                        SocketAddr::from(([100, 100, c as u8, d as u8], 6881))
-                    } else {
-                        // 2001:db8::${i} 2001:db8::/31 supposedly black hole route
-                        SocketAddr::from((
-                            [0x2001, 0xdb8, 0, ((c as u16) << 8) + (d as u16), 0, 0, 0, 1],
-                            6881,
-                        ))
-                    };
-                    ps.socket.send_to(&[], s).ok();
-                    if ((c << 8) + d) % (rate / 500) == 0 {
-                        std::thread::sleep(Duration::from_millis(2));
-                        let sent = (c << 8) + d;
-                        print!("sent {}\r",sent);
-                        if sent > rate * 4 {
-                            break 'outer;
-                        }
+    if line.len() == 0 {
+        return;
+    }
+    let mut arg: String = "".to_string();
+    let mut arg2: String = "".to_string();
+    if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
+        println!("QUEING FILE {arg}");
+        inbound_states.insert(arg.clone(), InboundState::new(&arg, ps));
+    } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
+        if let Ok(pub_key) = arg.parse::<Ed25519Pub>() {
+            chat_to_pub(ps, pub_key, &arg2);
+        }
+    } else if line == "/quit\n" {
+        ps.save_peers();
+        ps.p.save();
+        std::process::exit(0);
+    } else if sscanf!(line.as_str(), "/test {} {}",arg,arg2).is_ok() {
+        println!("this command is undocummmented because it will hang the node, your internet connection, and probably piss off your ISP.  Hetzner sent me an abuse email demaning an explaination almost immediately after I tried it there. DO NOT USE THIS!!  (Though Hetzner did not lose any traffic, unlike my cheap home router)");
+        // the issue is that, i have found, many cheap home "routers" top out at 1Mbps when talking to various IPs due to some sort of "Connection" tracking, even if you are the DMZ, or even if you use ipv6 to avoid NAT.
+        // it's structural censorship, or "protocol discrimination"
+        let rate: u64 = arg2.parse().unwrap();
+        ps.socket.set_nonblocking(false).unwrap();
+        if arg == "4" {
+            std::process::Command::new("ping")
+                .arg("-c50")
+                .arg("-i.2")
+                .arg("8.8.8.8")
+                .spawn()
+                .ok();
+        } else {
+            std::process::Command::new("ping6")
+                .arg("-c50")
+                .arg("-i.2")
+                .arg("2001:4860:4860::8888")
+                .spawn()
+                .ok();
+        };
+        'outer: for c in 0..255u64 {
+            for d in 0..255u64 {
+                let s = if arg == "4" {
+                    // 100.64/10 reserved for CGNAT so wont piss off anyone but your ISP at most, not ideal really, port 6881 is bitttorent
+                    SocketAddr::from(([100, 100, c as u8, d as u8], 6881))
+                } else {
+                    // 2001:db8::${i} 2001:db8::/31 supposedly black hole route
+                    SocketAddr::from((
+                        [0x2001, 0xdb8, 0, ((c as u16) << 8) + (d as u16), 0, 0, 0, 1],
+                        6881,
+                    ))
+                };
+                ps.socket.send_to(&[], s).ok();
+                if ((c << 8) + d) % (rate / 500) == 0 {
+                    std::thread::sleep(Duration::from_millis(2));
+                    let sent = (c << 8) + d;
+                    print!("sent {}\r",sent);
+                    if sent > rate * 4 {
+                        break 'outer;
                     }
                 }
             }
-            ps.socket.set_nonblocking(true).unwrap();
-        } else if line == "/save\n" {
-            ps.save_peers();
-            ps.p.save();
-        } else if sscanf!(line.as_str(), "/addpeer {}",arg).is_ok() {
-            let mut pi = PeerInfo::new();
-            pi.delay = Duration::ZERO;
-            ps.peer_map.insert(arg.parse().unwrap(), pi);
-        } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
-            let mut message_out = ChatMessage::new(&ps, arg2.clone());
-            let dst = arg.parse().unwrap();
-            message_out.append(&mut ps.always_returned(dst));
-            // encrypt if we know the key
-            if let Some(pi) = &ps.peer_map.get(&dst) {
-                if let Some(their_pub) = &pi.ed25519 {
-                    message_out = vec![
+        }
+        ps.socket.set_nonblocking(true).unwrap();
+    } else if line == "/save\n" {
+        ps.save_peers();
+        ps.p.save();
+    } else if sscanf!(line.as_str(), "/addpeer {}",arg).is_ok() {
+        let mut pi = PeerInfo::new();
+        pi.delay = Duration::ZERO;
+        ps.peer_map.insert(arg.parse().unwrap(), pi);
+    } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
+        let mut message_out = ChatMessage::new(&ps, arg2.clone());
+        let dst = arg.parse().unwrap();
+        message_out.append(&mut ps.always_returned(dst));
+        // encrypt if we know the key
+        if let Some(pi) = &ps.peer_map.get(&dst) {
+            if let Some(their_pub) = &pi.ed25519 {
+                message_out = vec![
                         EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
                         //FastEncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
                         ];
-                    let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                    trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
-                    ps.socket.send_to(&message_out_bytes, arg).ok();
-                } else {
-                    warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
-                }
+                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
+                ps.socket.send_to(&message_out_bytes, arg).ok();
             } else {
                 warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
             }
-        } else if line == "/peers\n" {
-            println!("========== active peer/ports");
-            for v in ps.peer_vec.iter().rev() {
-                let d = ps.peer_map[v].delay;
-                if d < Duration::from_secs(1) {
-                    println!("{:21?} {}",
+        } else {
+            warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+        }
+    } else if line == "/peers\n" {
+        println!("========== active peer/ports");
+        for v in ps.peer_vec.iter().rev() {
+            let d = ps.peer_map[v].delay;
+            if d < Duration::from_secs(1) {
+                println!("{:21?} {}",
                             d,
                             v);
-                }
             }
-            println!("{} total peers",ps.peer_map.len());
-            let mut unique_ips = HashSet::new();
-            for (k, _) in &ps.peer_map {
-                unique_ips.insert(k.ip());
+        }
+        println!("{} total peers",ps.peer_map.len());
+        let mut unique_ips = HashSet::new();
+        for (k, _) in &ps.peer_map {
+            unique_ips.insert(k.ip());
+        }
+        thread::spawn(move || {
+            println!("========== all IPs");
+            for k in &unique_ips {
+                println!("{:21} {}",k,if let Ok(hn)= dns_lookup::lookup_addr(&k) { hn } else { k.to_string()});
             }
-            thread::spawn(move || {
-                println!("========== all IPs");
-                for k in &unique_ips {
-                    println!("{:21} {}",k,if let Ok(hn)= dns_lookup::lookup_addr(&k) { hn } else { k.to_string()});
-                }
-                println!("{} total unique IP peers.  ",unique_ips.len());
-            });
-        } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
-            ps.p.you_should_see_this = Some(YouShouldSeeThis {
-                id: arg.to_owned(),
-                length: File::open("./cjp2p/public/".to_owned() + &arg)
-                    .unwrap()
-                    .metadata()
-                    .unwrap()
-                    .len(),
-            });
-        } else if line == "/pending\n" {
-            println!("{} pending",inbound_states.len());
-            for (_, i) in inbound_states.iter_mut() {
-                println!("pending download {} {}/{}",i.id,i.bytes_complete,i.eof);
-            }
-            for (_, i) in stream_states.iter_mut() {
-                println!("streaming {} {}",i.id,i.eof);
-            }
-        } else if line == "/trending\n" {
-            let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
-            for (_, v) in &ps.peer_map {
-                if let Some(p) = &v.i_just_saw_this {
-                    match trending.get_mut(&p.id) {
-                        Some(h) => h.0 += 1,
-                        None => {
-                            trending.insert(p.id.to_owned(), (1, p.length));
-                            ()
-                        }
-                    }
-                }
-            }
-            let mut sorted_list_results: Vec<_> = trending.iter().collect();
-            sorted_list_results.sort_by_key(|&(_, b)| b.0);
-            for (k, v) in &sorted_list_results {
-                println!("{} {} {}",v.0,k,v.1);
-            }
-        } else if line == "/recommended\n" {
-            let mut highly_recommended_content: HashMap<String, (i32, u64)> = HashMap::new();
-            for (_, v) in &ps.peer_map {
-                if let Some(p) = &v.you_should_see_this {
-                    match highly_recommended_content.get_mut(&p.id) {
-                        Some(h) => h.0 += 1,
-                        None => {
-                            highly_recommended_content.insert(p.id.to_owned(), (1, p.length));
-                            ()
-                        }
-                    }
-                }
-            }
-            let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
-            sorted_list_results.sort_by_key(|&(_, b)| b.0);
-            for (k, v) in &sorted_list_results {
-                println!("{} {} {}",v.0,k,v.1);
-            }
-        } else if line == "/list\n" {
-            ps.list_results = HashMap::new();
-            ps.list_time = Instant::now();
-            println!("searching");
-            for sa in &ps.peer_vec {
-                let mut message_out = ps.always_returned(*sa);
-                for v in PleaseListContent::new(&ps) {
-                    message_out.push(v);
-                }
-                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
-                ps.socket.send_to(&message_out_bytes, sa).ok();
-            }
-        } else if line == "/update\n" || line.starts_with("/update ") {
-            let do_bin = line.trim_end_matches('\n').ends_with(" bin");
-            let exe = env::current_exe().unwrap();
-            let args: Vec<String> = env::args().collect();
-            if do_bin {
-                thread::spawn(move || {
-                    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-                    let meta = match std::fs::metadata(&exe) {
-                        Ok(m) => m,
-                        Err(e) => {
-                            eprintln!("/update bin: stat failed: {e}");
-                            return;
-                        }
-                    };
-                    if meta.uid() == 0 && unsafe { libc::getuid() } != 0 {
-                        eprintln!("/update bin: binary is owned by root but running as a regular user -- re-run as root to update");
-                        return;
-                    }
-                    let os = std::env::consts::OS;
-                    let arch = std::env::consts::ARCH;
-                    let bin_name = format!("cjp2p-{os}-{arch}");
-                    let url = format!("https://github.com/kermit4/cjp2p-rust/releases/latest/download/{bin_name}");
-                    let tmp = exe.with_extension("tmp");
-                    eprintln!("/update bin: downloading {url}");
-                    let status = std::process::Command::new("wget")
-                        .args(["-q", "-O", tmp.to_str().unwrap(), url.as_str()])
-                        .status()
-                        .expect("wget failed");
-                    if !status.success() {
-                        eprintln!("/update bin: wget failed");
-                        let _ = std::fs::remove_file(&tmp);
-                        return;
-                    }
-                    let mut perms = std::fs::metadata(&tmp).unwrap().permissions();
-                    perms.set_mode(0o755);
-                    let _ = std::fs::set_permissions(&tmp, perms);
-                    let bak = exe.with_extension("bak");
-                    if let Err(e) = std::fs::rename(&exe, &bak) {
-                        eprintln!("/update bin: failed to back up old binary: {e}");
-                        let _ = std::fs::remove_file(&tmp);
-                        return;
-                    }
-                    if let Err(e) = std::fs::rename(&tmp, &exe) {
-                        eprintln!("/update bin: failed to move new binary into place: {e}");
-                        let _ = std::fs::rename(&bak, &exe);
-                        return;
-                    }
-                    eprintln!("/update bin: updated, restarting");
-                    let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
-                });
-            } else {
-                let bundle_url = format!("http://localhost:{}/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle",ps.http_port);
-                thread::spawn(move || {
-                    let status = std::process::Command::new("wget")
-                        .args(["-q", "-O", "bundle", bundle_url.as_str()])
-                        .status()
-                        .expect("wget failed");
-                    if !status.success() {
-                        eprintln!("wget cjp2p.bundle failed: {}", status);
-                        return;
-                    }
-                    let status = std::process::Command::new("git")
-                        .args(["pull", "bundle", "master"])
-                        .status()
-                        .expect("git pull failed");
-                    if !status.success() {
-                        eprintln!("git pull bundle master failed: {}", status);
-                        return;
-                    }
-                    let status = std::process::Command::new("make")
-                        .status()
-                        .expect("make failed");
-                    if !status.success() {
-                        eprintln!("make failed: {}", status);
-                        return;
-                    }
-                    let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
-                });
-            }
-        } else if line.starts_with("/g ") {
-            let rest = line[3..].trim_end_matches('\n');
-            let (group_name, text) = if rest.starts_with('#') {
-                let trimmed = &rest[1..];
-                if let Some(sp) = trimmed.find(' ') {
-                    (trimmed[..sp].to_string(), trimmed[sp + 1..].to_string())
-                } else {
-                    (ps.last_group.clone(), rest.to_string())
-                }
-            } else {
-                (ps.last_group.clone(), rest.to_string())
-            };
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            println!("{} total unique IP peers.  ",unique_ips.len());
+        });
+    } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
+        ps.p.you_should_see_this = Some(YouShouldSeeThis {
+            id: arg.to_owned(),
+            length: File::open("./cjp2p/public/".to_owned() + &arg)
                 .unwrap()
-                .as_millis() as i64;
-            ps.last_group = group_name.clone();
-            let gcm = GroupChatMessage {
-                group_name: group_name.clone(),
-                text: text.clone(),
-                timestamp,
-            };
-            let my_pub = ps.keypair.public.to_string();
-            ps.displayed_group_chat_ids
-                .insert((my_pub.clone(), timestamp));
-            print_group_chat_msg(&my_pub, &gcm);
-            let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm.clone())).unwrap();
-            let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
-            for pub_key in peers {
-                msgs_to_pub(ps, pub_key, &vec![msg_val.clone()]);
+                .metadata()
+                .unwrap()
+                .len(),
+        });
+    } else if line == "/pending\n" {
+        println!("{} pending",inbound_states.len());
+        for (_, i) in inbound_states.iter_mut() {
+            println!("pending download {} {}/{}",i.id,i.bytes_complete,i.eof);
+        }
+        for (_, i) in stream_states.iter_mut() {
+            println!("streaming {} {}",i.id,i.eof);
+        }
+    } else if line == "/trending\n" {
+        let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
+        for (_, v) in &ps.peer_map {
+            if let Some(p) = &v.i_just_saw_this {
+                match trending.get_mut(&p.id) {
+                    Some(h) => h.0 += 1,
+                    None => {
+                        trending.insert(p.id.to_owned(), (1, p.length));
+                        ()
+                    }
+                }
             }
-            ps.group_chat_outbox.push(gcm);
-            ps.group_chat_backoff_delay_ms = 500.0;
-            ps.group_chat_backoff_next = Some(Instant::now() + Duration::from_millis(500));
-        } else if line == "/help\n" {
-            println!("
+        }
+        let mut sorted_list_results: Vec<_> = trending.iter().collect();
+        sorted_list_results.sort_by_key(|&(_, b)| b.0);
+        for (k, v) in &sorted_list_results {
+            println!("{} {} {}",v.0,k,v.1);
+        }
+    } else if line == "/recommended\n" {
+        let mut highly_recommended_content: HashMap<String, (i32, u64)> = HashMap::new();
+        for (_, v) in &ps.peer_map {
+            if let Some(p) = &v.you_should_see_this {
+                match highly_recommended_content.get_mut(&p.id) {
+                    Some(h) => h.0 += 1,
+                    None => {
+                        highly_recommended_content.insert(p.id.to_owned(), (1, p.length));
+                        ()
+                    }
+                }
+            }
+        }
+        let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
+        sorted_list_results.sort_by_key(|&(_, b)| b.0);
+        for (k, v) in &sorted_list_results {
+            println!("{} {} {}",v.0,k,v.1);
+        }
+    } else if line == "/list\n" {
+        ps.list_results = HashMap::new();
+        ps.list_time = Instant::now();
+        println!("searching");
+        for sa in &ps.peer_vec {
+            let mut message_out = ps.always_returned(*sa);
+            for v in PleaseListContent::new(&ps) {
+                message_out.push(v);
+            }
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+            ps.socket.send_to(&message_out_bytes, sa).ok();
+        }
+    } else if line == "/update\n" || line.starts_with("/update ") {
+        let do_bin = line.trim_end_matches('\n').ends_with(" bin");
+        let exe = env::current_exe().unwrap();
+        let args: Vec<String> = env::args().collect();
+        if do_bin {
+            thread::spawn(move || {
+                use std::os::unix::fs::{MetadataExt, PermissionsExt};
+                let meta = match std::fs::metadata(&exe) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("/update bin: stat failed: {e}");
+                        return;
+                    }
+                };
+                if meta.uid() == 0 && unsafe { libc::getuid() } != 0 {
+                    eprintln!("/update bin: binary is owned by root but running as a regular user -- re-run as root to update");
+                    return;
+                }
+                let os = std::env::consts::OS;
+                let arch = std::env::consts::ARCH;
+                let bin_name = format!("cjp2p-{os}-{arch}");
+                let url = format!("https://github.com/kermit4/cjp2p-rust/releases/latest/download/{bin_name}");
+                let tmp = exe.with_extension("tmp");
+                eprintln!("/update bin: downloading {url}");
+                let status = std::process::Command::new("wget")
+                    .args(["-q", "-O", tmp.to_str().unwrap(), url.as_str()])
+                    .status()
+                    .expect("wget failed");
+                if !status.success() {
+                    eprintln!("/update bin: wget failed");
+                    let _ = std::fs::remove_file(&tmp);
+                    return;
+                }
+                let mut perms = std::fs::metadata(&tmp).unwrap().permissions();
+                perms.set_mode(0o755);
+                let _ = std::fs::set_permissions(&tmp, perms);
+                let bak = exe.with_extension("bak");
+                if let Err(e) = std::fs::rename(&exe, &bak) {
+                    eprintln!("/update bin: failed to back up old binary: {e}");
+                    let _ = std::fs::remove_file(&tmp);
+                    return;
+                }
+                if let Err(e) = std::fs::rename(&tmp, &exe) {
+                    eprintln!("/update bin: failed to move new binary into place: {e}");
+                    let _ = std::fs::rename(&bak, &exe);
+                    return;
+                }
+                eprintln!("/update bin: updated, restarting");
+                let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
+            });
+        } else {
+            let bundle_url = format!("http://localhost:{}/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle",ps.http_port);
+            thread::spawn(move || {
+                let status = std::process::Command::new("wget")
+                    .args(["-q", "-O", "bundle", bundle_url.as_str()])
+                    .status()
+                    .expect("wget failed");
+                if !status.success() {
+                    eprintln!("wget cjp2p.bundle failed: {}", status);
+                    return;
+                }
+                let status = std::process::Command::new("git")
+                    .args(["pull", "bundle", "master"])
+                    .status()
+                    .expect("git pull failed");
+                if !status.success() {
+                    eprintln!("git pull bundle master failed: {}", status);
+                    return;
+                }
+                let status = std::process::Command::new("make")
+                    .status()
+                    .expect("make failed");
+                if !status.success() {
+                    eprintln!("make failed: {}", status);
+                    return;
+                }
+                let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
+            });
+        }
+    } else if line == "/help\n" {
+        println!("
                         - /ping
                         - /get hash
                         - /addpeer 1.2.3.4:5678
@@ -1831,20 +1799,46 @@ fn handle_stdin(
                         - /version
                         - /update [bin]  (bin: pull latest release binary from GitHub)
                         - /help
+                        - default action is /g #main 
                 ");
-        } else {
-            let peers = ps.best_peers(100, 5);
-            info!("spamming  {} peers",peers.len());
-            for sa in peers {
-                let mut message_out = ChatMessage::new(&ps, line.clone());
-                message_out.append(&mut ps.always_returned(sa));
-                // no point in encrypting spam
-                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
-                ps.socket.send_to(&message_out_bytes, sa).ok();
-            }
-        }
+        return;
     }
+    let mut group_name = ps.last_group.clone();
+    if line.starts_with("/g ") {
+        let rest = line[3..].trim_end_matches('\n');
+        (group_name, line) = if rest.starts_with('#') {
+            let trimmed = &rest[1..];
+            if let Some(sp) = trimmed.find(' ') {
+                (trimmed[..sp].to_string(), trimmed[sp + 1..].to_string())
+            } else {
+                (ps.last_group.clone(), rest.to_string())
+            }
+        } else {
+            (ps.last_group.clone(), rest.to_string())
+        };
+    }
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    ps.last_group = group_name.clone();
+    let gcm = GroupChatMessage {
+        group_name: group_name.clone(),
+        text: line.clone(),
+        timestamp,
+    };
+    let my_pub = ps.keypair.public.to_string();
+    ps.displayed_group_chat_ids
+        .insert((my_pub.clone(), timestamp));
+    print_group_chat_msg(&my_pub, &gcm);
+    let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm.clone())).unwrap();
+    let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
+    for pub_key in peers {
+        msgs_to_pub(ps, pub_key, &vec![msg_val.clone()]);
+    }
+    ps.group_chat_outbox.push(gcm);
+    ps.group_chat_backoff_delay_ms = 500.0;
+    ps.group_chat_backoff_next = Some(Instant::now() + Duration::from_millis(500));
 }
 fn status_json(ps: &PeerState, mut stream: TcpStream) {
     let public_key = format!("0x{}", ps.keypair.public);
