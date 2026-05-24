@@ -1973,20 +1973,16 @@ fn status_page(
             env!("BUILD_VERSION"),
             public_key_hex,ps.boot.elapsed());
 
-    page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>lots of HTML+JS front ends here, like the <b><big>GROUP CHAT YOU SHOULD BE IN</big></b></a>.  You can host pages in cjp2p/origin/ and it will show up at a similar link for you, see the 'home' links below. <p>");
 
     page += &format!("\n{} total peers\n", total_peers);
-    page += &format!("<pre>--- active public keys (recently responding in under than 600ms).  \n</pre>");
+    page += &format!("--- active public keys (recently responding in under than 600ms). <big><b>click on 0xe13a6...'s 'home'</b></big> for lots of LCDP apps including the <b><big>GROUP CHAT YOU SHOULD BE IN</big></b>.  You can host your own updateable signed contentin cjp2p/origin/, like an index.html which the 'home's below go to<p><pre>");
     let inbound_info: Vec<(String, usize, usize)> = inbound_states
         .values()
         .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
         .collect();
     thread::spawn(move || {
         for (sa, pub_) in &active_peers {
-            page += &format!("<p>0x{} <a href=/latest/{}/>home</a>
-                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>call</a>
-                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>pong</a>
-                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?ed25519={}>chat</a> {}", 
+            page += &format!("<p>0x{} <a href=/latest/{}/>home</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>call</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>pong</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?ed25519={}>chat</a> {}", 
                 pub_.to_string(),
                 pub_.to_string(),
                 pub_.to_string(),
