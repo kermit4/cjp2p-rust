@@ -1420,14 +1420,14 @@ fn run_engine(
         }
     }
 
+    let stdin = std::io::stdin();
+    let stdin_is_tty = stdin.is_terminal();
     'main: loop {
         let mut read_fds = FdSet::new();
         let mut write_fds = FdSet::new();
         maintenance(&mut stream_states, &mut inbound_states, &mut ps);
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
-        let stdin = std::io::stdin();
-        let stdin_is_tty = stdin.is_terminal();
         if stdin_is_tty {
             read_fds.insert(stdin.as_fd());
         }
@@ -1444,7 +1444,7 @@ fn run_engine(
         for ws in &ps.ws_vec {
             read_fds.insert(ws.get_ref().as_fd());
         }
-        let tv_1 = &mut (nix::sys::time::TimeVal::new(0, 333));
+        let tv_1 = &mut (nix::sys::time::TimeVal::new(0, 313187));
         select(None, &mut read_fds, &mut write_fds, None, tv_1).unwrap();
 
         for (index, cg) in ps.content_gateways.iter().enumerate() {
@@ -1473,7 +1473,7 @@ fn run_engine(
             }
         }
 
-        if stdin_is_tty && read_fds.contains(stdin.as_fd()) {
+        if read_fds.contains(stdin.as_fd()) {
             info!("handling stdin");
             handle_stdin(&mut ps, &mut stream_states, &mut inbound_states);
             continue 'main;
@@ -1939,6 +1939,14 @@ fn status_page(
         }
     }
 
+    active_peers.sort_by_key(|(_, pub_)| {
+        if pub_.to_string() == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb" {
+            0u8
+        } else {
+            1u8
+        }
+    });
+
     let mut seen_ips: HashSet<IpAddr> = HashSet::new();
     let mut all_ips: Vec<IpAddr> = Vec::new();
     for (k, _) in &ps.peer_map {
@@ -2019,7 +2027,7 @@ fn status_page(
             }
             downloads.sort_by(|a, b| b.3.cmp(&a.3));
             downloads.truncate(30);
-            page += "<p><b>your downloads</b></p><table style='font-family:monospace'>\n";
+            page += "<p><b>your recent downloads</b></p><table style='font-family:monospace'>\n";
             if downloads.is_empty() {
                 page += "<tr><td>(none yet)</td></tr>\n";
             }
