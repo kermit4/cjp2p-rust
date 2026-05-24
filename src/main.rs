@@ -1607,7 +1607,7 @@ fn handle_stdin(
                         ];
                 let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
                 trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
-                ps.socket.send_to(&message_out_bytes, arg).ok();
+                ps.socket.send_to(&message_out_bytes, &arg).ok();
             } else {
                 warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
             }
@@ -1804,16 +1804,8 @@ fn handle_stdin(
         return;
     }
     let mut group_name = ps.last_group.clone();
-    if line.starts_with("/g ") {
-        line = line[3..].trim_end_matches('\n').to_string();
-        if line.starts_with('#') {
-            let trimmed = &line[1..];
-            if let Some(sp) = trimmed.find(' ') {
-                group_name = trimmed[..sp].to_string();
-                line = trimmed[sp + 1..].to_string();
-            }
-        }
-    }
+    let _ = sscanf!(line.as_str(), "/g #{} {}", group_name, line).is_ok()
+        || sscanf!(line.as_str(), "/g {}", line).is_ok();
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
