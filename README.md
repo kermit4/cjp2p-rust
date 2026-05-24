@@ -19,7 +19,7 @@ this git bundle self hosted at http://localhost:24255/latest/0xe13a614dff88de239
 # building (optional)
 
 - https://github.com/kermit4/cjp2p-rust/ 
-- https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z4NaokAHdQyjkF562Cj9PpHpGH5f1 (but ive seen it a week behind on the same node I was pushing to daily so I don't think I know how to use Radicle)
+- https://app.radicle.xyz/nodes/iris.radicle.xyz/rad:z4NaokAHdQyjkF562Cj9PpHpGH5f1 (but ive seen it a week behind on the same Radical node I was pushing to daily so I'm not sure if this is working right.  It seems to be now, though)
 
 make release
 
@@ -43,11 +43,11 @@ join the fully p2p group chat http://localhost:24255/latest/0xe13a614dff88de239a
 
 This uses about 400MB/day out and 100MB/day in
 
-This also works great on Android.  It seems to use very little battery, but I haven't done controlled tests.
+This also works great on Android.  It does use "StartForeground" but the base maintenance timer is ~2 seconds on Android ( ~1 elsewhere ) so it uses less than 1%/hr more than not, on wifi . I haven't done cellular or longer longer tests yet.
 
 # updating
 
-`/update` works for locally built installs, not binary installs yet
+`/update` for locally built installs, `/update bin` for binary installs yet, or just do whatever you initially did again.  No method wipes your cjp2p/ (state, your hosted files, downloads, or key)
 
 # hints
 
@@ -103,11 +103,9 @@ or look at attempts to host HTML and components on the network
 - just default stream url for people not dated
 - it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - chat UX
-- general UX .. for devs though ..DX
+- general UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - on status page steer users to group_chat, fade out old chat
 - try to get github workflows to use make some?
-- test android battery usage, maybe do maintenance at 2s on android, or less
-- figure out what was broken about radicle
-- reimplement a group chat as a signature chain
 - just rev dns on internal top page..rest dynamic
+- celluar battery usage test

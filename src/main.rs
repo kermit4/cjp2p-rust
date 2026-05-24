@@ -455,8 +455,10 @@ impl PeerState {
     fn probe(&mut self) -> () {
         let mut peers = vec![]; //        self.best_peers(10, 2);
 
-        // some possibly pointless attempt to time peer probes to match NAT/firewall states on both
-        // sides
+        // some possibly pointless attempt to time peer probes to match NAT/firewall states on both sides, i have no idea how much it helps or is needed, it's just an idea, it might even hurt depending on the peer due to forcing everyone on a ~4 minute timer vs just best peers preferred and more frequent
+        // this was just a best_peers() call for a long time, which definately works
+        // better in some scenarios.   its just an idea i coded up with results yet to be
+        // determined
         let nowi = Instant::now();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -817,7 +819,7 @@ impl PeerState {
                     debug!("UPNP Your gateway's IP: {ip}");
                 }
             } else {
-                info!("UPNP no gateway found");
+                debug!("UPNP no gateway found");
             }
         });
     }
