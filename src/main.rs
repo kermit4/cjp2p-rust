@@ -1897,7 +1897,6 @@ fn status_page(
     mut stream: TcpStream,
 ) {
     let public_key_hex = ps.keypair.public.to_string();
-    let all_chats = ps.all_chats.clone();
     let current_dir = std::env::current_dir().unwrap().display().to_string();
 
     let mut highly_recommended_content: HashMap<String, (i32, u64)> = HashMap::new();
@@ -1961,18 +1960,10 @@ fn status_page(
             <p>
             <p> your public key {}
             <p> node uptime: {:?}
-            <div style='height: 200px; overflow: auto; border: 1px solid #ccc;'>",
+            ",
             env!("BUILD_VERSION"),
             env!("BUILD_VERSION"),
             public_key_hex,ps.boot.elapsed());
-
-    for (their_pub_hex, msg) in all_chats.iter().rev() {
-        page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?{} target=_blank>0x{}</a> {}</p>\n",
-                their_pub_hex,
-                their_pub_hex,
-                msg);
-    }
-    page += &format!("</div>");
 
     page += &format!("<p><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/>lots of HTML+JS front ends here, like the <b><big>GROUP CHAT YOU SHOULD BE IN</big></b></a>.  You can host pages in cjp2p/origin/ and it will show up at a similar link for you, see the 'home' links below. <p>");
 
