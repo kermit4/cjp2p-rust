@@ -1805,17 +1805,14 @@ fn handle_stdin(
     }
     let mut group_name = ps.last_group.clone();
     if line.starts_with("/g ") {
-        let rest = line[3..].trim_end_matches('\n');
-        (group_name, line) = if rest.starts_with('#') {
-            let trimmed = &rest[1..];
+        line = line[3..].trim_end_matches('\n').to_string();
+        if line.starts_with('#') {
+            let trimmed = &line[1..];
             if let Some(sp) = trimmed.find(' ') {
-                (trimmed[..sp].to_string(), trimmed[sp + 1..].to_string())
-            } else {
-                (ps.last_group.clone(), rest.to_string())
+                group_name = trimmed[..sp].to_string();
+                line = trimmed[sp + 1..].to_string();
             }
-        } else {
-            (ps.last_group.clone(), rest.to_string())
-        };
+        }
     }
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
