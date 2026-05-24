@@ -1526,6 +1526,7 @@ fn handle_stdin(
 ) {
     let mut line = String::new();
     io::stdin().read_line(&mut line).unwrap();
+    line = line.trim_end_matches('\n').to_string();
     if line.len() == 0 {
         return;
     }
@@ -1538,7 +1539,7 @@ fn handle_stdin(
         if let Ok(pub_key) = arg.parse::<Ed25519Pub>() {
             chat_to_pub(ps, pub_key, &arg2);
         }
-    } else if line == "/quit\n" {
+    } else if line == "/quit" {
         ps.save_peers();
         ps.p.save();
         std::process::exit(0);
@@ -1587,7 +1588,7 @@ fn handle_stdin(
             }
         }
         ps.socket.set_nonblocking(true).unwrap();
-    } else if line == "/save\n" {
+    } else if line == "/save" {
         ps.save_peers();
         ps.p.save();
     } else if sscanf!(line.as_str(), "/addpeer {}",arg).is_ok() {
@@ -1614,7 +1615,7 @@ fn handle_stdin(
         } else {
             warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
         }
-    } else if line == "/peers\n" {
+    } else if line == "/peers" {
         println!("========== active peer/ports");
         for v in ps.peer_vec.iter().rev() {
             let d = ps.peer_map[v].delay;
@@ -1645,7 +1646,7 @@ fn handle_stdin(
                 .unwrap()
                 .len(),
         });
-    } else if line == "/pending\n" {
+    } else if line == "/pending" {
         println!("{} pending",inbound_states.len());
         for (_, i) in inbound_states.iter_mut() {
             println!("pending download {} {}/{}",i.id,i.bytes_complete,i.eof);
@@ -1653,7 +1654,7 @@ fn handle_stdin(
         for (_, i) in stream_states.iter_mut() {
             println!("streaming {} {}",i.id,i.eof);
         }
-    } else if line == "/trending\n" {
+    } else if line == "/trending" {
         let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
         for (_, v) in &ps.peer_map {
             if let Some(p) = &v.i_just_saw_this {
@@ -1671,7 +1672,7 @@ fn handle_stdin(
         for (k, v) in &sorted_list_results {
             println!("{} {} {}",v.0,k,v.1);
         }
-    } else if line == "/recommended\n" {
+    } else if line == "/recommended" {
         let mut highly_recommended_content: HashMap<String, (i32, u64)> = HashMap::new();
         for (_, v) in &ps.peer_map {
             if let Some(p) = &v.you_should_see_this {
@@ -1689,7 +1690,7 @@ fn handle_stdin(
         for (k, v) in &sorted_list_results {
             println!("{} {} {}",v.0,k,v.1);
         }
-    } else if line == "/list\n" {
+    } else if line == "/list" {
         ps.list_results = HashMap::new();
         ps.list_time = Instant::now();
         println!("searching");
@@ -1702,8 +1703,8 @@ fn handle_stdin(
             trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
-    } else if line == "/update\n" || line.starts_with("/update ") {
-        let do_bin = line.trim_end_matches('\n').ends_with(" bin");
+    } else if line == "/update" || line.starts_with("/update ") {
+        let do_bin = line.ends_with(" bin");
         let exe = env::current_exe().unwrap();
         let args: Vec<String> = env::args().collect();
         if do_bin {
@@ -1781,7 +1782,7 @@ fn handle_stdin(
                 let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
             });
         }
-    } else if line == "/help\n" {
+    } else if line == "/help" {
         println!("
                         - /ping
                         - /get hash
@@ -1801,33 +1802,44 @@ fn handle_stdin(
                         - /help
                         - default action is /g #main 
                 ");
-        return;
+    } else if line.starts_with("/ping") || line.starts_with("/version") {
+        let peers = ps.best_peers(100, 5);
+        info!("spamming  {} peers",peers.len());
+        for sa in peers {
+            let mut message_out = ChatMessage::new(&ps, line.clone());
+            message_out.append(&mut ps.always_returned(sa));
+            // no point in encrypting spam
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+            trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
+            ps.socket.send_to(&message_out_bytes, sa).ok();
+        }
+    } else {
+        let mut group_name = ps.last_group.clone();
+        let _ = sscanf!(line.as_str(), "/g #{} {}", group_name, line).is_ok()
+            || sscanf!(line.as_str(), "/g {}", line).is_ok();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        ps.last_group = group_name.clone();
+        let gcm = GroupChatMessage {
+            group_name: group_name.clone(),
+            text: line.clone(),
+            timestamp,
+        };
+        let my_pub = ps.keypair.public.to_string();
+        ps.displayed_group_chat_ids
+            .insert((my_pub.clone(), timestamp));
+        print_group_chat_msg(&my_pub, &gcm);
+        let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm.clone())).unwrap();
+        let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
+        for pub_key in peers {
+            msgs_to_pub(ps, pub_key, &vec![msg_val.clone()]);
+        }
+        ps.group_chat_outbox.push(gcm);
+        ps.group_chat_backoff_delay_ms = 500.0;
+        ps.group_chat_backoff_next = Some(Instant::now() + Duration::from_millis(500));
     }
-    let mut group_name = ps.last_group.clone();
-    let _ = sscanf!(line.as_str(), "/g #{} {}", group_name, line).is_ok()
-        || sscanf!(line.as_str(), "/g {}", line).is_ok();
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
-    ps.last_group = group_name.clone();
-    let gcm = GroupChatMessage {
-        group_name: group_name.clone(),
-        text: line.clone(),
-        timestamp,
-    };
-    let my_pub = ps.keypair.public.to_string();
-    ps.displayed_group_chat_ids
-        .insert((my_pub.clone(), timestamp));
-    print_group_chat_msg(&my_pub, &gcm);
-    let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm.clone())).unwrap();
-    let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
-    for pub_key in peers {
-        msgs_to_pub(ps, pub_key, &vec![msg_val.clone()]);
-    }
-    ps.group_chat_outbox.push(gcm);
-    ps.group_chat_backoff_delay_ms = 500.0;
-    ps.group_chat_backoff_next = Some(Instant::now() + Duration::from_millis(500));
 }
 fn status_json(ps: &PeerState, mut stream: TcpStream) {
     let public_key = format!("0x{}", ps.keypair.public);
