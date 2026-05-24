@@ -1625,7 +1625,7 @@ fn handle_stdin(
                             v);
             }
         }
-        println!("{} total peers",ps.peer_map.len());
+        println!("{} total peers",ps.peer_map_by_pub.len());
         let mut unique_ips = HashSet::new();
         for (k, _) in &ps.peer_map {
             unique_ips.insert(k.ip());
@@ -1925,8 +1925,6 @@ fn status_page(
         }
     }
 
-    let total_peers = ps.peer_map.len();
-
     let mut seen_pubs: HashSet<Ed25519Pub> = HashSet::new();
     let mut active_peers: Vec<(SocketAddr, Ed25519Pub)> = Vec::new();
     for (k, v) in &ps.peer_map {
@@ -1963,19 +1961,17 @@ fn status_page(
         .filter(|(d, _)| *d < Duration::from_millis(250))
         .collect();
 
-    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=10><title>cjp2p status {}</title></head><body>\n\
-            {}\n\n\
-            <p>
-            <p> your public key {}
-            <p> node uptime: {:?}
+    let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=10><title>cjp2p status {}</title>\
+            <style>body{{font-family:monospace;font-size:13px;margin:1em}}b{{color:#0ff}}</style></head><body>\n\
+            <b>{}</b>\n\n\
+            <p><b>pubkey</b> {}<br><b>uptime</b> {:?}<p>
             ",
             env!("BUILD_VERSION"),
             env!("BUILD_VERSION"),
             public_key_hex,ps.boot.elapsed());
 
-
-    page += &format!("\n{} total peers\n", total_peers);
-    page += &format!("--- active public keys (recently responding in under than 600ms). <big><b>click on 0xe13a6...'s 'home'</b></big> for lots of LCDP apps including the <b><big>GROUP CHAT YOU SHOULD BE IN</big></b>.  You can host your own updateable signed contentin cjp2p/origin/, like an index.html which the 'home's below go to<p><pre>");
+    page += &format!("<b>known peers</b> {} <p>\n", ps.peer_map_by_pub.len());
+    page += &format!("<b>active keys</b> -- group chat + apps at 0xe13a6's home -- host your own content in cjp2p/origin/<p><pre>");
     let inbound_info: Vec<(String, usize, usize)> = inbound_states
         .values()
         .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
@@ -1993,7 +1989,7 @@ fn status_page(
         }
         page += "</pre>";
         page += &format!("
-          <pre> start a download (it will be in {}/cjp2p/public/ when done, \nalso put stuff there by its sha256 to share): <form><input name=get></form>\n\n", current_dir);
+          <pre><b>download</b> (saved to {}/cjp2p/public/; also drop files there by sha256 to share): <form><input name=get></form>\n\n", current_dir);
         for (id, bytes_complete, eof) in &inbound_info {
             page += &format!("{} {}/{}\n", id, bytes_complete, eof);
         }
@@ -2047,7 +2043,7 @@ fn status_page(
 
         let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
         sorted_list_results.sort_by_key(|&(_, b)| b.0);
-        page += &format!("<pre>most recommended content (results of '/recommend sha256' in the CLI):\n");
+        page += &format!("<pre><b>recommended</b> (via '/recommend sha256' CLI):\n");
         for (k, v) in &sorted_list_results {
             page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
         }
@@ -2055,13 +2051,13 @@ fn status_page(
 
         let mut sorted_list_results: Vec<_> = trending.iter().collect();
         sorted_list_results.sort_by_key(|&(_, b)| b.0);
-        page += &format!("<pre>most recently downloaded content:\n");
+        page += &format!("<pre><b>trending</b> (most recently downloaded):\n");
         for (k, v) in sorted_list_results.into_iter().rev() {
             page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
         }
         page += "</pre>";
 
-        page += &format!("<pre>{} total unique IPs seen\n--- recent/fast port:ips \n", unique_ips_count);
+        page += &format!("<pre><b>IPs</b> {} unique seen -- <b>fast peers</b> (&lt;250ms):\n", unique_ips_count);
         for (d, v) in &fast_peers {
             page += &format!("{:21?} {:21}\n", d, v);
         }
