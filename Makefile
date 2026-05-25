@@ -19,14 +19,16 @@ pins: bundle
 	for _x in . .;do find cjp2p/origin/ -not -name '.*' -type f -not -path '*/.*' -printf "%P\n"|xargs -P 0 -i curl    -Ss http://azai.net:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/{}  |wc -c;sleep .3;done ;fi
 
 debug: target/debug/cjp2p bundle
-target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png
+target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png 
 	cargo build
 	rm -f target/*/libcjp
 
 release: target/release/cjp2p bundle
-target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png
+target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png 
 	RUSTFLAGS="-C target-cpu=native"  cargo build --release
 	rm -f target/*/libcjp
+
+
 
 check: Makefile Cargo.toml src/*.rs src/bin/*.rs src/favicon.png
 	cargo check 
@@ -74,6 +76,7 @@ $(CARGO_TAURI):
 tauri-cli: $(CARGO_TAURI)
 
 src/favicon.png: gen-icons.py
+	which rsvg-convert ||   pkg install librsvg || sudo apt install librsvg2-bin
 	./gen-icons.py
 
 icons:  src/favicon.png
