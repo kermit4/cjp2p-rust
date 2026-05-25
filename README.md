@@ -105,8 +105,6 @@ or look at attempts to host HTML and components on the network
 - chat UX
 - general UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
-- on status page steer users to group_chat, fade out old chat
 - try to get github workflows to use make some?
-- just rev dns on internal top page..rest dynamic
 - celluar battery usage test
 - put some readme example links on my hosted home page

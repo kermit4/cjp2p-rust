@@ -1827,10 +1827,6 @@ fn handle_stdin(
             text: line.clone(),
             timestamp,
         };
-        let my_pub = ps.keypair.public.to_string();
-        ps.displayed_group_chat_ids
-            .insert((my_pub.clone(), timestamp));
-        print_group_chat_msg(&my_pub, &gcm);
         let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm.clone())).unwrap();
         let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
         for pub_key in peers {
@@ -1971,7 +1967,7 @@ fn status_page(
             public_key_hex,ps.boot.elapsed());
 
     page += &format!("<h3>known peers ({})</h3>\n", ps.peer_map_by_pub.len());
-    page += "<h3>active keys</h3><p>group chat + apps at 0xe13a6's home &mdash; host your own content in cjp2p/origin/</p><pre>";
+    page += "<h3>active keys</h3><p>group chat + apps at 0xe13a6's home &mdash; host your own content in cjp2p/origin/ -- checks for updates but still works when you're offline if anyone online has a copy</p><pre>";
     let inbound_info: Vec<(String, usize, usize)> = inbound_states
         .values()
         .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
