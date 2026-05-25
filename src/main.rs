@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256, Sha512};
 use snow::Builder;
 //use std::cmp;
 use std::collections::{HashMap, HashSet};
-use std::io::{BufReader, BufWriter, IsTerminal, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 //use std::convert::TryInto;
 use std::env;
 use std::os::unix::process::CommandExt;
@@ -1425,14 +1425,14 @@ fn run_engine(
     }
 
     let stdin = std::io::stdin();
-    let stdin_is_tty = stdin.is_terminal();
+    let mut stdin_open = true;
     'main: loop {
         let mut read_fds = FdSet::new();
         let mut write_fds = FdSet::new();
         maintenance(&mut stream_states, &mut inbound_states, &mut ps);
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
-        if stdin_is_tty {
+        if stdin_open {
             read_fds.insert(stdin.as_fd());
         }
 
@@ -1479,7 +1479,9 @@ fn run_engine(
 
         if read_fds.contains(stdin.as_fd()) {
             info!("handling stdin");
-            handle_stdin(&mut ps, &mut stream_states, &mut inbound_states);
+            if !handle_stdin(&mut ps, &mut stream_states, &mut inbound_states) {
+                stdin_open = false;
+            }
             continue 'main;
         }
         if read_fds.contains(web_server.as_fd()) {
@@ -1527,12 +1529,15 @@ fn handle_stdin(
     ps: &mut PeerState,
     stream_states: &mut HashMap<String, StreamState>,
     inbound_states: &mut HashMap<String, InboundState>,
-) {
+) -> bool {
     let mut line = String::new();
-    io::stdin().read_line(&mut line).unwrap();
+    let n = io::stdin().read_line(&mut line).unwrap_or(0);
+    if n == 0 {
+        return false;
+    }
     line = line.trim_end_matches('\n').to_string();
     if line.len() == 0 {
-        return;
+        return true;
     }
     let mut arg: String = "".to_string();
     let mut arg2: String = "".to_string();
@@ -1840,6 +1845,7 @@ fn handle_stdin(
         ps.group_chat_backoff_delay_ms = 500.0;
         ps.group_chat_backoff_next = Some(Instant::now() + Duration::from_millis(500));
     }
+    true
 }
 fn status_json(ps: &PeerState, mut stream: TcpStream) {
     let public_key = format!("0x{}", ps.keypair.public);
