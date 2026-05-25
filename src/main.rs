@@ -68,18 +68,7 @@ impl Ed25519Pub {
 impl<'de> serde::Deserialize<'de> for Ed25519Pub {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
-        let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
-        let arr: [u8; 32] = bytes
-            .try_into()
-            .map_err(|_| serde::de::Error::custom("expected 32 bytes"))?;
-        let p = Ed25519Pub(arr);
-        if !p.is_valid_edwards_point() {
-            warn!("rejecting Ed25519Pub {} -- not a valid Edwards point", s);
-            return Err(serde::de::Error::custom(
-                format!("invalid Edwards point: {}", s),
-            ));
-        }
-        Ok(p)
+        s.parse::<Ed25519Pub>().map_err(serde::de::Error::custom)
     }
 }
 impl std::fmt::Display for Ed25519Pub {
@@ -102,7 +91,8 @@ impl std::str::FromStr for Ed25519Pub {
             .map_err(|_| "expected 32 bytes".to_string())?;
         let p = Self(arr);
         if !p.is_valid_edwards_point() {
-            return Err(format!("invalid Edwards point: {}", hex::encode(arr)));
+            warn!("rejecting Ed25519Pub {} -- not a valid Edwards point", s);
+            return Err(format!("invalid Edwards point: {}", s));
         }
         Ok(p)
     }
@@ -1945,7 +1935,7 @@ fn status_page(
 
     let mut found_special = false;
     active_peers.sort_by_key(|(_, pub_)| {
-        if pub_.to_string() == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb" {
+        if *pub_ == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb".parse::<Ed25519Pub>().unwrap() {
             found_special = true;
             0u8
         } else {
