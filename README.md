@@ -109,3 +109,4 @@ or look at attempts to host HTML and components on the network
 - try to get github workflows to use make some?
 - just rev dns on internal top page..rest dynamic
 - celluar battery usage test
+- put some readme example links on my hosted home page

@@ -1978,12 +1978,13 @@ fn status_page(
         .collect();
     thread::spawn(move || {
         for (sa, pub_) in &active_peers {
-            page += &format!("<p>0x{} <a href=/latest/{}/>home</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>call</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>pong</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?ed25519={}>chat</a> {}", 
-                pub_.to_string(),
-                pub_.to_string(),
-                pub_.to_string(),
-                pub_.to_string(),
-                pub_.to_string(),
+            let pub_str = pub_.to_string();
+            let home_link = if pub_str == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb" {
+                format!("<span style=\"display:inline-block;border:4px solid gold;border-radius:50%;padding:10px 18px;background:rgba(255,215,0,0.25);font-weight:bold;box-shadow:0 0 0 5px rgba(255,215,0,0.4);\"><a href=/latest/{pub_str}/>home</a></span>")
+            } else {
+                format!("<a href=/latest/{pub_str}/>home</a>")
+            };
+            page += &format!("<p>0x{pub_str} {home_link} <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={pub_str}>call</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={pub_str}>pong</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?ed25519={pub_str}>chat</a> {}",
                 if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
             );
         }
