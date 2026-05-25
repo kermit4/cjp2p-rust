@@ -426,8 +426,10 @@ impl PeerState {
     }
 
     fn probe_interfaces(&mut self) -> () {
+        let nowi = Instant::now();
         let to_probe: &mut HashSet<SocketAddr> = &mut HashSet::new();
         let addrs = nix::ifaddrs::getifaddrs().unwrap();
+        log_if_slow(nowi, line!().to_string());
         for ifaddr in addrs {
             match ifaddr.broadcast {
                 Some(address) => match address.as_sockaddr_in() {
@@ -442,6 +444,7 @@ impl PeerState {
                 },
                 None => (),
             }
+            log_if_slow(nowi, line!().to_string());
         }
         to_probe.insert("224.0.0.1:24254".parse().unwrap());
         to_probe.insert("[ff02::1]:24254".parse().unwrap());
@@ -450,6 +453,7 @@ impl PeerState {
                 serde_json::to_vec(&vec![Message::PleaseSendPeers(PleaseSendPeers {})]).unwrap();
             trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             self.socket.send_to(&message_out_bytes, sa).ok();
+            log_if_slow(nowi, line!().to_string());
         }
     }
     fn probe(&mut self) -> () {
@@ -1975,7 +1979,9 @@ fn status_page(
     thread::spawn(move || {
         for (sa, pub_) in &active_peers {
             let pub_str = pub_.to_string();
-            let home_link = if pub_str == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb" {
+            let home_link = if pub_str
+                == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb"
+            {
                 format!("<span style=\"display:inline-block;border:4px solid gold;border-radius:50%;padding:10px 18px;background:rgba(255,215,0,0.25);font-weight:bold;box-shadow:0 0 0 5px rgba(255,215,0,0.4);\"><a href=/latest/{pub_str}/>home</a></span>")
             } else {
                 format!("<a href=/latest/{pub_str}/>home</a>")
