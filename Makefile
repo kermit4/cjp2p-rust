@@ -76,8 +76,8 @@ $(CARGO_TAURI):
 tauri-cli: $(CARGO_TAURI)
 
 src/favicon.png: gen-icons.py
-	which rsvg-convert ||   pkg install librsvg || sudo apt install librsvg2-bin
-	./gen-icons.py
+	[[ -e $@ ]] || which rsvg-convert ||   pkg install librsvg || sudo apt install librsvg2-bin
+	[[ -e $@ ]] || ./gen-icons.py
 
 icons:  src/favicon.png
 
