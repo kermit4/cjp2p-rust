@@ -1970,8 +1970,8 @@ fn status_page(
             env!("BUILD_VERSION"),
             public_key_hex,ps.boot.elapsed());
 
-    page += &format!("<b>known peers</b> {} <p>\n", ps.peer_map_by_pub.len());
-    page += &format!("<b>active keys</b> -- group chat + apps at 0xe13a6's home -- host your own content in cjp2p/origin/<p><pre>");
+    page += &format!("<h3>known peers ({})</h3>\n", ps.peer_map_by_pub.len());
+    page += "<h3>active keys</h3><p>group chat + apps at 0xe13a6's home &mdash; host your own content in cjp2p/origin/</p><pre>";
     let inbound_info: Vec<(String, usize, usize)> = inbound_states
         .values()
         .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
@@ -1989,8 +1989,7 @@ fn status_page(
             );
         }
         page += "</pre>";
-        page += &format!("
-          <pre><b>download</b> (saved to {}/cjp2p/public/; also drop files there by sha256 to share): <form><input name=get></form>\n\n", current_dir);
+        page += &format!("<h3>download</h3><div>saved to {}/cjp2p/public/ &mdash; also drop files there by sha256 to share: <form style='display:inline'><input name=get></form></div><pre>\n", current_dir);
         for (id, bytes_complete, eof) in &inbound_info {
             page += &format!("{} {}/{}\n", id, bytes_complete, eof);
         }
@@ -2020,7 +2019,7 @@ fn status_page(
             }
             downloads.sort_by(|a, b| b.3.cmp(&a.3));
             downloads.truncate(30);
-            page += "<p><b>your recent downloads</b></p><table style='font-family:monospace'>\n";
+            page += "<h3>your recent downloads</h3><table style='font-family:monospace'>\n";
             if downloads.is_empty() {
                 page += "<tr><td>(none yet)</td></tr>\n";
             }
@@ -2044,7 +2043,7 @@ fn status_page(
 
         let mut sorted_list_results: Vec<_> = highly_recommended_content.iter().collect();
         sorted_list_results.sort_by_key(|&(_, b)| b.0);
-        page += &format!("<pre><b>recommended</b> (via '/recommend sha256' CLI):\n");
+        page += "<h3>recommended</h3><p>via '/recommend sha256' CLI</p><pre>";
         for (k, v) in &sorted_list_results {
             page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
         }
@@ -2052,13 +2051,13 @@ fn status_page(
 
         let mut sorted_list_results: Vec<_> = trending.iter().collect();
         sorted_list_results.sort_by_key(|&(_, b)| b.0);
-        page += &format!("<pre><b>trending</b> (most recently downloaded):\n");
+        page += "<h3>trending</h3><p>most recently downloaded</p><pre>";
         for (k, v) in sorted_list_results.into_iter().rev() {
             page += &format!("<a href={}>{}</a> {} {}\n",k,k,v.0,v.1);
         }
         page += "</pre>";
 
-        page += &format!("<pre><b>IPs</b> {} unique seen -- <b>fast peers</b> (&lt;250ms):\n", unique_ips_count);
+        page += &format!("<h3>fast peers</h3><p>{} unique IPs seen &mdash; peers with &lt;250ms latency</p><pre>", unique_ips_count);
         for (d, v) in &fast_peers {
             page += &format!("{:21?} {:21}\n", d, v);
         }
