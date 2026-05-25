@@ -52,6 +52,7 @@ use std::path::Path;
 //use std::io::copy;
 
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
+const SPECIAL_PUB: &str = "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb";
 
 #[serde_as]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -1753,7 +1754,7 @@ fn handle_stdin(
                 let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
             });
         } else {
-            let bundle_url = format!("http://localhost:{}/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle",ps.http_port);
+            let bundle_url = format!("http://127.0.0.1:{}/latest/{SPECIAL_PUB}/cjp2p.bundle",ps.http_port);
             thread::spawn(move || {
                 let status = std::process::Command::new("wget")
                     .args(["-q", "-O", "bundle", bundle_url.as_str()])
@@ -1935,7 +1936,7 @@ fn status_page(
 
     let mut found_special = false;
     active_peers.sort_by_key(|(_, pub_)| {
-        if *pub_ == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb".parse::<Ed25519Pub>().unwrap() {
+        if *pub_ == SPECIAL_PUB.parse::<Ed25519Pub>().unwrap() {
             found_special = true;
             0u8
         } else {
@@ -1974,7 +1975,7 @@ fn status_page(
         .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
         .collect();
     if !found_special {
-        let pub_str = "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb";
+        let pub_str = SPECIAL_PUB;
         page += &format!("<p><a href=/latest/{pub_str}/><big>click here for network hosted group chat, files, demos, and other apps</big></a></p>");
     }
     page += "<h3>active keys</h3><pre>";
@@ -1982,13 +1983,13 @@ fn status_page(
         for (sa, pub_) in &active_peers {
             let pub_str = pub_.to_string();
             let home_link = if pub_str
-                == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb"
+                == SPECIAL_PUB
             {
                 format!("<span style=\"position:relative;display:inline-block;vertical-align:middle;\"><span style=\"display:inline-block;border:4px solid gold;border-radius:50%;padding:10px 18px;background:rgba(255,215,0,0.25);font-weight:bold;box-shadow:0 0 0 5px rgba(255,215,0,0.4);\"><a href=/latest/{pub_str}/>home</a></span><span style=\"position:absolute;bottom:calc(100% + 12px);left:0;white-space:nowrap;pointer-events:none;\"><span style=\"display:inline-block;background:#fffde7;border:2px solid #aaa;border-radius:14px;padding:4px 12px;font-size:11px;color:#333;font-weight:normal;\">go here for group chat &amp; apps!</span><span style=\"position:absolute;bottom:-10px;left:18px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:10px solid #aaa;\"></span><span style=\"position:absolute;bottom:-8px;left:19px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #fffde7;\"></span></span></span>")
             } else {
                 format!("<a href=/latest/{pub_str}/>home</a>")
             };
-            page += &format!("<p>0x{pub_str} {home_link} <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={pub_str}>call</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={pub_str}>pong</a> <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?ed25519={pub_str}>chat</a> {}",
+            page += &format!("<p>0x{pub_str} {home_link} <a href=/latest/{SPECIAL_PUB}/video.html?ed25519={pub_str}>call</a> <a href=/latest/{SPECIAL_PUB}/pong.html?ed25519={pub_str}>pong</a> <a href=/latest/{SPECIAL_PUB}/chat.html?ed25519={pub_str}>chat</a> {}",
                 if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
             );
         }
@@ -2142,10 +2143,10 @@ fn handle_web_request(
                     try /ping or /version. \n\
                 If they can't find you through main page, the URL they need to get here (not the same as yours) is 
                 <a href=http://127.0.0.1:{}/chat/{}>http://127.0.0.1:{}/chat/{}</a>
-                    <br><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/video.html?ed25519={}>click here</a> for high quality video call (just mute the video for audio only)</a>\n
-                    <br><a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/pong.html?ed25519={}>click here</a> to play pong</a>\n
+                    <br><a href=/latest/{SPECIAL_PUB}/video.html?ed25519={}>click here</a> for high quality video call (just mute the video for audio only)</a>\n
+                    <br><a href=/latest/{SPECIAL_PUB}/pong.html?ed25519={}>click here</a> to play pong</a>\n
                     send a message (type fast before the next page refresh) : <form><input name=line_chat_msg></form>\n\n\
-                    <a href=/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/chat.html?{}>click here</a> to switch to character-by-character mode\n\
+                    <a href=/latest/{SPECIAL_PUB}/chat.html?{}>click here</a> to switch to character-by-character mode\n\
                     "
                     ,their_pub
                     ,their_pub
