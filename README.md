@@ -86,7 +86,6 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - dot file, env var, commmand line options..too many ways to pass options
 - lcdp crate now? send to ed25519 and big hash getter are basic legos .. the killer app for this i think is a lib that is a drop in socket replacement that takes a pub (oh https://www.iroh.computer/ does that), or maybe libp2p semantics..look into how you actually send a message with libp2p, or transport for it as long as the app can still direct message on the socket.
 - focus on enabling devs, i've done enough demoing
-- kind of heavy on bandwidth forever if someone requests something that just plain doesnt exist, static or /latest
 - just default stream url for people not dated
 - it is time to make various mini apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - general UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages
