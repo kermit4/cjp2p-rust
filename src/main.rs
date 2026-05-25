@@ -1971,7 +1971,7 @@ fn status_page(
             public_key_hex,ps.boot.elapsed());
 
     page += &format!("<h3>known peers ({})</h3>\n", ps.peer_map_by_pub.len());
-    page += "<h3>active keys</h3><p>group chat + apps at 0xe13a6's home &mdash; host your own content in cjp2p/origin/ -- checks for updates but still works when you're offline if anyone online has a copy</p><pre>";
+    page += "<h3>active keys</h3><pre>";
     let inbound_info: Vec<(String, usize, usize)> = inbound_states
         .values()
         .map(|i| (i.id.clone(), i.bytes_complete, i.eof))
@@ -1979,10 +1979,8 @@ fn status_page(
     thread::spawn(move || {
         for (sa, pub_) in &active_peers {
             let pub_str = pub_.to_string();
-            let home_link = if pub_str
-                == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb"
-            {
-                format!("<span style=\"display:inline-block;border:4px solid gold;border-radius:50%;padding:10px 18px;background:rgba(255,215,0,0.25);font-weight:bold;box-shadow:0 0 0 5px rgba(255,215,0,0.4);\"><a href=/latest/{pub_str}/>home</a></span>")
+            let home_link = if pub_str == "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb" {
+                format!("<span style=\"position:relative;display:inline-block;vertical-align:middle;\"><span style=\"display:inline-block;border:4px solid gold;border-radius:50%;padding:10px 18px;background:rgba(255,215,0,0.25);font-weight:bold;box-shadow:0 0 0 5px rgba(255,215,0,0.4);\"><a href=/latest/{pub_str}/>home</a></span><span style=\"position:absolute;bottom:calc(100% + 12px);left:0;white-space:nowrap;pointer-events:none;\"><span style=\"display:inline-block;background:#fffde7;border:2px solid #aaa;border-radius:14px;padding:4px 12px;font-size:11px;color:#333;font-weight:normal;\">go here for group chat &amp; apps!</span><span style=\"position:absolute;bottom:-10px;left:18px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:10px solid #aaa;\"></span><span style=\"position:absolute;bottom:-8px;left:19px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #fffde7;\"></span></span></span>")
             } else {
                 format!("<a href=/latest/{pub_str}/>home</a>")
             };
