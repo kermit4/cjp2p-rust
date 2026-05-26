@@ -92,5 +92,4 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - celluar battery usage test
 - /publish should overwrite
-- less indent on handle_web_request
-- WEB: easy share file path web ..publish dynamic. dynamic only if link works.
+- WEB: web publish dynamic content path

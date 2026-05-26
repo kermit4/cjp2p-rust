@@ -2223,70 +2223,74 @@ fn handle_web_request(
 ) {
     let mut stream = ps.http_clients.remove(index);
     let mut buf = [0; 16];
-    if let Ok(len) = stream.peek(&mut buf) {
-        if len < 7 {
-            if len > 0 {
-                debug!("got short http request, {len} bytes, discarding");
-            }
-            return;
+    let Ok(len) = stream.peek(&mut buf) else {
+        return;
+    };
+    if len < 7 {
+        if len > 0 {
+            debug!("got short http request, {len} bytes, discarding");
         }
-        if is_local(&stream) && buf.starts_with(b"GET /wt") {
-            let mut ws = accept(stream).unwrap();
-            info!("websocket connected");
-            let message_out_string = if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
-                format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]", ps.keypair.public)
-            } else {
-                format!("[{{\"YourEd25519\":{{\"ed25519\":\"{}\"}}}}]", ps.keypair.public)
-            };
-            info!("sending websocktet: {}",message_out_string);
-            ws.write(tungstenite::Message::Text(message_out_string.into()))
-                .unwrap();
-            ws.flush().ok();
-            ps.ws_vec.push(ws);
-            return;
-        }
+        return;
+    }
+    if is_local(&stream) && buf.starts_with(b"GET /wt") {
+        let mut ws = accept(stream).unwrap();
+        info!("websocket connected");
+        let message_out_string = if ps.p.my_ed25519_signed_by_web_wallet.is_none() {
+            format!("[{{\"PleaseSignYourPub\":{{\"ed25519\":\"{}\"}}}}]", ps.keypair.public)
+        } else {
+            format!("[{{\"YourEd25519\":{{\"ed25519\":\"{}\"}}}}]", ps.keypair.public)
+        };
+        info!("sending websocktet: {}",message_out_string);
+        ws.write(tungstenite::Message::Text(message_out_string.into()))
+            .unwrap();
+        ws.flush().ok();
+        ps.ws_vec.push(ws);
+        return;
+    }
 
-        let mut page = format!("");
-        if let Some(req) = parse_header(&mut stream) {
-            let mut start: usize = 0;
-            let mut end: usize = 0;
-            if req.path == "/" {
-                debug!("got http request for {:?}",req);
-                status_page(inbound_states, ps, stream);
-                return;
-            }
-            if req.path == "/status.json" {
-                debug!("got http request for {:?}",req);
-                status_json(ps, stream);
-                return;
-            }
-            if req.path == "/favicon.ico" {
-                let data = include_bytes!("favicon.png");
-                let hdr = format!("HTTP/1.0 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\n\r\n", data.len());
-                stream.write_all(hdr.as_bytes()).ok();
-                stream.write_all(data).ok();
-                return;
-            }
+    let mut page = format!("");
+    let Some(req) = parse_header(&mut stream) else {
+        return;
+    };
+    let mut start: usize = 0;
+    let mut end: usize = 0;
+    if req.path == "/" {
+        debug!("got http request for {:?}",req);
+        status_page(inbound_states, ps, stream);
+        return;
+    }
+    if req.path == "/status.json" {
+        debug!("got http request for {:?}",req);
+        status_json(ps, stream);
+        return;
+    }
+    if req.path == "/favicon.ico" {
+        let data = include_bytes!("favicon.png");
+        let hdr = format!("HTTP/1.0 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\n\r\n", data.len());
+        stream.write_all(hdr.as_bytes()).ok();
+        stream.write_all(data).ok();
+        return;
+    }
 
-            info!("got http request for {:?}",req);
-            if let Ok(mut file) = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .write(true)
-                .read(true)
-                .open("./cjp2p/log/http.v3.json")
-            {
-                file.write_all(&serde_json::to_vec(&json![req]).unwrap())
-                    .ok();
-                file.write(b"\n").ok();
-            }
+    info!("got http request for {:?}",req);
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .write(true)
+        .read(true)
+        .open("./cjp2p/log/http.v3.json")
+    {
+        file.write_all(&serde_json::to_vec(&json![req]).unwrap())
+            .ok();
+        file.write(b"\n").ok();
+    }
 
-            if is_local(&stream) && req.path.starts_with("/chat/") {
-                let v = &req.path[6..];
-                let their_pub = v.split('?').next().unwrap();
-                page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ><title>cjp2p chat {}</title></head><body><pre>\n\
+    if is_local(&stream) && req.path.starts_with("/chat/") {
+        let v = &req.path[6..];
+        let their_pub = v.split('?').next().unwrap();
+        page += &format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content='6; url=/chat/{}' ><title>cjp2p chat {}</title></head><body><pre>\n\
                     try /ping or /version. \n\
-                If they can't find you through main page, the URL they need to get here (not the same as yours) is 
+                If they can't find you through main page, the URL they need to get here (not the same as yours) is
                 <a href=http://127.0.0.1:{}/chat/{}>http://127.0.0.1:{}/chat/{}</a>
                     <br><a href=/latest/{SPECIAL_PUB}/video.html?ed25519={}>click here</a> for high quality video call (just mute the video for audio only)</a>\n
                     <br><a href=/latest/{SPECIAL_PUB}/pong.html?ed25519={}>click here</a> to play pong</a>\n
@@ -2303,260 +2307,254 @@ fn handle_web_request(
                     ,their_pub
                     ,their_pub
                     );
-                if !ps.recorded_chats.get_mut(their_pub).is_some() {
-                    let mut past_chats = vec![];
-                    for (their_pub_hex, msg) in &ps.all_chats {
-                        if their_pub_hex == their_pub {
-                            past_chats.push(msg.to_string());
-                        }
-                    }
-                    ps.recorded_chats.insert(their_pub.to_string(), past_chats);
+        if !ps.recorded_chats.get_mut(their_pub).is_some() {
+            let mut past_chats = vec![];
+            for (their_pub_hex, msg) in &ps.all_chats {
+                if their_pub_hex == their_pub {
+                    past_chats.push(msg.to_string());
                 }
-                for m in (&ps.recorded_chats[their_pub]).into_iter().rev() {
-                    page += &format!("{}\n",m);
-                }
+            }
+            ps.recorded_chats.insert(their_pub.to_string(), past_chats);
+        }
+        for m in (&ps.recorded_chats[their_pub]).into_iter().rev() {
+            page += &format!("{}\n",m);
+        }
 
-                if req.path.contains("?line_chat_msg=") {
-                    let mut parts = v.split("?line_chat_msg=");
-                    let _ = parts.next().unwrap().to_string();
-                    let msg_ = parts.next().unwrap().to_string();
-                    let msg = urlencoding::decode(&msg_).unwrap().to_string();
-                    if let Ok(pub_key) = their_pub.parse::<Ed25519Pub>() {
-                        chat_to_pub(ps, pub_key, &msg);
-                    }
-                    page += &format!("\n\n{} sent..",msg);
-                    ps.recorded_chats.get_mut(their_pub).unwrap().push(msg);
-                }
-                stream.write_all(page.as_bytes()).ok();
+        if req.path.contains("?line_chat_msg=") {
+            let mut parts = v.split("?line_chat_msg=");
+            let _ = parts.next().unwrap().to_string();
+            let msg_ = parts.next().unwrap().to_string();
+            let msg = urlencoding::decode(&msg_).unwrap().to_string();
+            if let Ok(pub_key) = their_pub.parse::<Ed25519Pub>() {
+                chat_to_pub(ps, pub_key, &msg);
+            }
+            page += &format!("\n\n{} sent..",msg);
+            ps.recorded_chats.get_mut(their_pub).unwrap().push(msg);
+        }
+        stream.write_all(page.as_bytes()).ok();
+        return;
+    }
+    // /latest/<pub_hex>/<name> -- updatable named content via signed Latest message
+    if req.path.starts_with("/latest/") {
+        let rest = &req.path[8..];
+        let mut parts = rest.splitn(2, '?').next().unwrap().splitn(2, '/');
+        let Some(raw_pub) = parts.next() else { return };
+        let name_raw = match parts.next() {
+            Some(p) =>
+                if p.len() > 0 && !p.ends_with('/') {
+                    p
+                } else {
+                    &(p.to_owned() + "index.html")
+                },
+            None => {
+                let qs = req
+                    .path
+                    .splitn(2, '?')
+                    .nth(1)
+                    .map_or(String::new(), |q| format!("?{}", q));
+                let redirect = format!(
+                        "HTTP/1.0 301 Moved Permanently\r\nLocation: /latest/{}/{}\r\n\r\n",
+                        raw_pub, qs);
+                stream.write_all(redirect.as_bytes()).ok();
                 return;
             }
-            // /latest/<pub_hex>/<name> -- updatable named content via signed Latest message
-            if req.path.starts_with("/latest/") {
-                let rest = &req.path[8..];
-                let mut parts = rest.splitn(2, '?').next().unwrap().splitn(2, '/');
-                if let Some(raw_pub) = parts.next() {
-                    let name_raw = match parts.next() {
-                        Some(p) =>
-                            if p.len() > 0 && !p.ends_with('/') {
-                                p
-                            } else {
-                                &(p.to_owned() + "index.html")
-                            },
-                        None => {
-                            let qs = req
-                                .path
-                                .splitn(2, '?')
-                                .nth(1)
-                                .map_or(String::new(), |q| format!("?{}", q));
-                            let redirect = format!(
-                                "HTTP/1.0 301 Moved Permanently\r\nLocation: /latest/{}/{}\r\n\r\n",
-                                raw_pub, qs);
-                            stream.write_all(redirect.as_bytes()).ok();
-                            return;
-                        }
-                    };
-                    let name = urlencoding::decode(name_raw)
-                        .unwrap_or_default()
-                        .to_string();
-                    if is_safe_relative_path(&name) {
-                        if let Ok(ed25519) = raw_pub.parse::<Ed25519Pub>() {
-                            let gl = GetLatest {
-                                ed25519,
-                                name: name.clone(),
-                            };
-                            gl.clone().receive(
-                                ps,
-                                &Source::S(stream.peer_addr().unwrap()),
-                                &mut false,
-                                stream_states,
-                                inbound_states,
-                                None,
-                            );
-                            let mut start: usize = 0;
-                            let mut end: usize = 0;
-                            let mut ranged = false;
-                            if let Some(range) = req.headers.get("range") {
-                                sscanf!(range, "bytes={}-{}", start, end).ok();
-                                info!("got ranged http req {} range {:?}",req.path,range);
-                                ranged = true;
-                            } else {
-                                info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
-                            }
-                            let cache_path = latest_cache_path(&ed25519.to_string(), &name);
-                            let sha256_opt = load_sha256_from_latest_cache(&cache_path);
-                            if !is_local(&stream) && sha256_opt.is_none() {
-                                stream.write_all(b"HTTP/1.0 403 Forbidden\r\n\n").ok();
-                                return;
-                            }
-                            let pending_latest = if sha256_opt.is_none() {
-                                Some(LatestData {
-                                    pub_key: ed25519,
-                                    name: name.clone(),
-                                    highest_version: -1,
-                                    delay_for_newest_until: Some(
-                                        Instant::now() + Duration::from_millis(300),
-                                    ),
-                                })
-                            } else {
-                                Some(LatestData {
-                                    pub_key: ed25519,
-                                    name: name.clone(),
-                                    highest_version: load_seq_from_latest_cache(&cache_path) as i64,
-                                    delay_for_newest_until: Some(
-                                        Instant::now() + Duration::from_millis(300),
-                                    ),
-                                })
-                            };
-                            if ed25519 != ps.keypair.public {
-                                let mut peers = ps.best_peers(250, 6);
-                                if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&ed25519) {
-                                    let mut msg_out = vec![Message::GetLatest(gl.clone())];
-                                    msg_out.append(&mut ps.always_returned(*sa));
-                                    ps.socket
-                                        .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
-                                        .ok();
-                                    peers.insert(*sa);
-                                }
-                                if is_local(&stream) {
-                                    // dont do an aggressive search for just anyone
-                                    for sa in &peers {
-                                        let mut msg_out = vec![Message::GetLatest(gl.clone())];
-                                        msg_out.append(&mut ps.always_returned(*sa));
-                                        ps.socket
-                                            .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
-                                            .ok();
-                                    }
-                                }
-                            }
-                            let index = ps.content_gateways.len();
-                            ps.content_gateways.push(ContentGateway {
-                                id: sha256_opt.unwrap_or_default(),
-                                http_start: start,
-                                http_end: end,
-                                ranged: ranged,
-                                http_socket: stream,
-                                waiting_for_browser: false,
-                                http_done: false,
-                                sent_header: false,
-                                eof: None,
-                                pending_latest,
-                                initiator: Initiator::Latest,
-                            });
-                            if ps.content_gateways[index].pending_latest.is_none() {
-                                ps.serve_http_content(stream_states, inbound_states, index);
-                            }
-                        }
-                    }
+        };
+        let name = urlencoding::decode(name_raw)
+            .unwrap_or_default()
+            .to_string();
+        if is_safe_relative_path(&name) {
+            if let Ok(ed25519) = raw_pub.parse::<Ed25519Pub>() {
+                let gl = GetLatest {
+                    ed25519,
+                    name: name.clone(),
+                };
+                gl.clone().receive(
+                    ps,
+                    &Source::S(stream.peer_addr().unwrap()),
+                    &mut false,
+                    stream_states,
+                    inbound_states,
+                    None,
+                );
+                let mut start: usize = 0;
+                let mut end: usize = 0;
+                let mut ranged = false;
+                if let Some(range) = req.headers.get("range") {
+                    sscanf!(range, "bytes={}-{}", start, end).ok();
+                    info!("got ranged http req {} range {:?}",req.path,range);
+                    ranged = true;
+                } else {
+                    info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
                 }
-                return;
-            }
-            // /stream/{pubkey_hex}/{stream_id} route
-            if req.path.starts_with("/stream/") && is_local(&stream) {
-                let rest = &req.path[8..];
-                let mut parts = rest.splitn(2, '/');
-                if let (Some(pubkey_hex), Some(stream_id)) = (parts.next(), parts.next()) {
-                    let stream_id = stream_id.split('?').next().unwrap_or("");
-                    if !is_safe_relative_path(&stream_id) {
-                        return;
-                    }
-                    let origin_pubkey = match pubkey_hex.parse::<Ed25519Pub>() {
-                        Ok(p) => p,
-                        _ => return,
-                    };
-                    let full_id = format!("stream/{}/{}", pubkey_hex, stream_id);
-                    if !stream_states.contains_key(&full_id) {
-                        let new_ss = StreamState::new(origin_pubkey, &full_id);
-                        stream_states.insert(full_id.clone(), new_ss);
-                    }
-                    // Send initial PleaseSendContent to best peers
-                    if let Some(ss) = stream_states.get_mut(&full_id) {
-                        let peers = ps.best_peers(250, 6);
-                        ss.request_blocks(ps, peers);
-                    }
-                    let mut ranged = false;
-                    if let Some(range) = req.headers.get("range") {
-                        info!("got ranged http req {} range {:?}",req.path,range);
-                        sscanf!(range, "bytes={}-{}",start,end).ok();
-                        ranged = true;
-                    } else {
-                        info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
-                    }
-
-                    info!("http start end {start} {end}");
-                    let index = ps.content_gateways.len();
-                    ps.content_gateways.push(ContentGateway {
-                        id: full_id,
-                        http_start: start,
-                        http_end: if end != 0 { end } else { 0x7fffffffff },
-                        http_socket: stream,
-                        ranged: ranged,
-                        waiting_for_browser: false,
-                        http_done: false,
-                        sent_header: false,
-                        eof: None,
-                        pending_latest: None,
-                        initiator: Initiator::Stream,
-                    });
-                    ps.serve_http_content(stream_states, inbound_states, index);
-                }
-                return;
-            }
-
-            if is_local(&stream) && req.method == "POST" && req.path == "/upload" {
-                handle_upload(stream, req);
-                return;
-            }
-
-            if req.path.starts_with("/?get=") {
-                if !is_local(&stream) {
-                    let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
-                    stream.write_all(page.as_bytes()).ok();
+                let cache_path = latest_cache_path(&ed25519.to_string(), &name);
+                let sha256_opt = load_sha256_from_latest_cache(&cache_path);
+                if !is_local(&stream) && sha256_opt.is_none() {
+                    stream.write_all(b"HTTP/1.0 403 Forbidden\r\n\n").ok();
                     return;
                 }
-                let v = &req.path[6..];
-                inbound_states.insert(v.to_string(), InboundState::new(v, ps));
-                println!("http requested ordinary download of {}",v);
-                let response = format!(
-                            "HTTP/1.0 301 OK\r\n\
-                             Location: /\r\n\r\n");
-                stream.write_all(response.as_bytes()).ok();
-                return;
+                let pending_latest = if sha256_opt.is_none() {
+                    Some(LatestData {
+                        pub_key: ed25519,
+                        name: name.clone(),
+                        highest_version: -1,
+                        delay_for_newest_until: Some(Instant::now() + Duration::from_millis(300)),
+                    })
+                } else {
+                    Some(LatestData {
+                        pub_key: ed25519,
+                        name: name.clone(),
+                        highest_version: load_seq_from_latest_cache(&cache_path) as i64,
+                        delay_for_newest_until: Some(Instant::now() + Duration::from_millis(300)),
+                    })
+                };
+                if ed25519 != ps.keypair.public {
+                    let mut peers = ps.best_peers(250, 6);
+                    if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&ed25519) {
+                        let mut msg_out = vec![Message::GetLatest(gl.clone())];
+                        msg_out.append(&mut ps.always_returned(*sa));
+                        ps.socket
+                            .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
+                            .ok();
+                        peers.insert(*sa);
+                    }
+                    if is_local(&stream) {
+                        // dont do an aggressive search for just anyone
+                        for sa in &peers {
+                            let mut msg_out = vec![Message::GetLatest(gl.clone())];
+                            msg_out.append(&mut ps.always_returned(*sa));
+                            ps.socket
+                                .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
+                                .ok();
+                        }
+                    }
+                }
+                let index = ps.content_gateways.len();
+                ps.content_gateways.push(ContentGateway {
+                    id: sha256_opt.unwrap_or_default(),
+                    http_start: start,
+                    http_end: end,
+                    ranged: ranged,
+                    http_socket: stream,
+                    waiting_for_browser: false,
+                    http_done: false,
+                    sent_header: false,
+                    eof: None,
+                    pending_latest,
+                    initiator: Initiator::Latest,
+                });
+                if ps.content_gateways[index].pending_latest.is_none() {
+                    ps.serve_http_content(stream_states, inbound_states, index);
+                }
             }
-
-            let mut ranged = false;
-            if let Some(range) = req.headers.get("range") {
-                info!("got ranged http req {} range {:?}",req.path,range);
-                sscanf!(range, "bytes={}-{}",start,end).ok();
-                ranged = true;
-            } else {
-                info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
-            }
-
-            info!("http start end {start} {end}");
-            let index = ps.content_gateways.len();
-            let id = &req.path[1..].split('?').next().unwrap();
-            let id = &id.split('/').next().unwrap();
-            let id = id.strip_prefix("0x").unwrap_or(id);
-            if !is_safe_relative_path(id) || id.find("/") != None || id == "favicon.ico" {
-                return;
-            }
-            ps.content_gateways.push(ContentGateway {
-                id: id.to_string(),
-                //                http_time: Instant::now(),
-                http_start: start,
-                http_end: end,
-                ranged: ranged,
-                http_socket: stream,
-                waiting_for_browser: false,
-                http_done: false,
-                sent_header: false,
-                eof: None,
-                pending_latest: None,
-                initiator: Initiator::ByHash,
-            });
-            ps.serve_http_content(stream_states, inbound_states, index);
         }
+        return;
     }
+    // /stream/{pubkey_hex}/{stream_id} route
+    if req.path.starts_with("/stream/") && is_local(&stream) {
+        let rest = &req.path[8..];
+        let mut parts = rest.splitn(2, '/');
+        let (Some(pubkey_hex), Some(stream_id)) = (parts.next(), parts.next()) else {
+            return;
+        };
+        let stream_id = stream_id.split('?').next().unwrap_or("");
+        if !is_safe_relative_path(&stream_id) {
+            return;
+        }
+        let origin_pubkey = match pubkey_hex.parse::<Ed25519Pub>() {
+            Ok(p) => p,
+            _ => return,
+        };
+        let full_id = format!("stream/{}/{}", pubkey_hex, stream_id);
+        if !stream_states.contains_key(&full_id) {
+            let new_ss = StreamState::new(origin_pubkey, &full_id);
+            stream_states.insert(full_id.clone(), new_ss);
+        }
+        // Send initial PleaseSendContent to best peers
+        if let Some(ss) = stream_states.get_mut(&full_id) {
+            let peers = ps.best_peers(250, 6);
+            ss.request_blocks(ps, peers);
+        }
+        let mut ranged = false;
+        if let Some(range) = req.headers.get("range") {
+            info!("got ranged http req {} range {:?}",req.path,range);
+            sscanf!(range, "bytes={}-{}",start,end).ok();
+            ranged = true;
+        } else {
+            info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
+        }
+
+        info!("http start end {start} {end}");
+        let index = ps.content_gateways.len();
+        ps.content_gateways.push(ContentGateway {
+            id: full_id,
+            http_start: start,
+            http_end: if end != 0 { end } else { 0x7fffffffff },
+            http_socket: stream,
+            ranged: ranged,
+            waiting_for_browser: false,
+            http_done: false,
+            sent_header: false,
+            eof: None,
+            pending_latest: None,
+            initiator: Initiator::Stream,
+        });
+        ps.serve_http_content(stream_states, inbound_states, index);
+        return;
+    }
+
+    if is_local(&stream) && req.method == "POST" && req.path == "/upload" {
+        handle_upload(stream, req);
+        return;
+    }
+
+    if req.path.starts_with("/?get=") {
+        if !is_local(&stream) {
+            let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
+            stream.write_all(page.as_bytes()).ok();
+            return;
+        }
+        let v = &req.path[6..];
+        inbound_states.insert(v.to_string(), InboundState::new(v, ps));
+        println!("http requested ordinary download of {}",v);
+        let response = format!(
+                    "HTTP/1.0 301 OK\r\n\
+                     Location: /\r\n\r\n");
+        stream.write_all(response.as_bytes()).ok();
+        return;
+    }
+
+    let mut ranged = false;
+    if let Some(range) = req.headers.get("range") {
+        info!("got ranged http req {} range {:?}",req.path,range);
+        sscanf!(range, "bytes={}-{}",start,end).ok();
+        ranged = true;
+    } else {
+        info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
+    }
+
+    info!("http start end {start} {end}");
+    let index = ps.content_gateways.len();
+    let id = &req.path[1..].split('?').next().unwrap();
+    let id = &id.split('/').next().unwrap();
+    let id = id.strip_prefix("0x").unwrap_or(id);
+    if !is_safe_relative_path(id) || id.find("/") != None || id == "favicon.ico" {
+        return;
+    }
+    ps.content_gateways.push(ContentGateway {
+        id: id.to_string(),
+        //                http_time: Instant::now(),
+        http_start: start,
+        http_end: end,
+        ranged: ranged,
+        http_socket: stream,
+        waiting_for_browser: false,
+        http_done: false,
+        sent_header: false,
+        eof: None,
+        pending_latest: None,
+        initiator: Initiator::ByHash,
+    });
+    ps.serve_http_content(stream_states, inbound_states, index);
 }
 fn handle_network(
     ps: &mut PeerState,
@@ -2931,19 +2929,20 @@ impl Receive for PleaseSendContent {
             }
         }
         message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
-        if let Source::S(src) = *src {
-            if message_out.len() == 0
-                || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0)
-            {
-                message_out.append(&mut InboundState::send_content_peers_from_disk(
-                    &self.id,
-                    3 + 45 * !*might_be_ip_spoofing as usize,
-                    &src,
-                ));
-            }
-            if *might_be_ip_spoofing && message_out.len() > 0 {
-                message_out.push(ps.please_always_return(src));
-            }
+        let Source::S(src) = *src else {
+            return message_out;
+        };
+        if message_out.len() == 0
+            || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0)
+        {
+            message_out.append(&mut InboundState::send_content_peers_from_disk(
+                &self.id,
+                3 + 45 * !*might_be_ip_spoofing as usize,
+                &src,
+            ));
+        }
+        if *might_be_ip_spoofing && message_out.len() > 0 {
+            message_out.push(ps.please_always_return(src));
         }
         return message_out;
     }
@@ -4027,22 +4026,23 @@ impl Receive for WhereAreThey {
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        if let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&self.ed25519h) {
-            if let Some(p) = ps.peer_map.get(&sa) {
-                let mpk = MyPublicKey {
-                    ed25519h: self.ed25519h,
-                    ed25519_eth_signed: p.ed25519_eth_signed.clone(),
-                };
-                let message_out = vec![Message::MyPublicKey(mpk)];
-                let from_ed25519 = None;
-                let maybe_ed25519 = None;
-                let messages = serde_json::to_string(&message_out).unwrap();
-                trace!("sending {:?} ed25519 {} from  {}",src,self.ed25519h,sa);
-                let src = *sa;
-                return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
-            }
-        }
-        return vec![];
+        let Some(Source::S(sa)) = ps.peer_map_by_pub.get(&self.ed25519h) else {
+            return vec![];
+        };
+        let Some(p) = ps.peer_map.get(&sa) else {
+            return vec![];
+        };
+        let mpk = MyPublicKey {
+            ed25519h: self.ed25519h,
+            ed25519_eth_signed: p.ed25519_eth_signed.clone(),
+        };
+        let message_out = vec![Message::MyPublicKey(mpk)];
+        let from_ed25519 = None;
+        let maybe_ed25519 = None;
+        let messages = serde_json::to_string(&message_out).unwrap();
+        trace!("sending {:?} ed25519 {} from  {}",src,self.ed25519h,sa);
+        let src = *sa;
+        return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
     }
 }
 #[serde_as]
@@ -4303,62 +4303,63 @@ impl Receive for ChatMessage {
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        if let Source::S(src) = *src {
-            if *might_be_ip_spoofing {
-                info!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
-                return vec![];
-            }
-            let their_pub_hex = if let Some(p) = &ps.peer_map[&src].ed25519 {
-                p.to_string()
-            } else {
-                "unknown".to_string()
-            };
-            println!("\x1b[7m{} {src} 0x{} from {:?} away said \x1b[33m{}\x1b[m",
+        let Source::S(src) = *src else {
+            return vec![];
+        };
+        if *might_be_ip_spoofing {
+            info!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
+            return vec![];
+        }
+        let their_pub_hex = if let Some(p) = &ps.peer_map[&src].ed25519 {
+            p.to_string()
+        } else {
+            "unknown".to_string()
+        };
+        println!("\x1b[7m{} {src} 0x{} from {:?} away said \x1b[33m{}\x1b[m",
                 Utc::now().to_rfc3339(),
                 their_pub_hex,
                 ps.peer_map[&src].delay,
                 self.message
             );
-            if (ps.all_chats.len() == 0
-                || ps.all_chats.last().unwrap().0 != their_pub_hex
-                || ps.all_chats.last().unwrap().1 != self.message)
-                && self.message.len() > 0
+        if (ps.all_chats.len() == 0
+            || ps.all_chats.last().unwrap().0 != their_pub_hex
+            || ps.all_chats.last().unwrap().1 != self.message)
+            && self.message.len() > 0
+        {
+            ps.all_chats
+                .push((their_pub_hex.to_string(), self.message.to_owned()));
+        }
+        if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
+            if (v.len() == 0 || v.last().unwrap() != &self.message)
+                && self.message.clone().len() > 0
             {
-                ps.all_chats
-                    .push((their_pub_hex.to_string(), self.message.to_owned()));
+                v.push(self.message.to_owned());
             }
-            if let Some(v) = ps.recorded_chats.get_mut(&their_pub_hex) {
-                if (v.len() == 0 || v.last().unwrap() != &self.message)
-                    && self.message.clone().len() > 0
-                {
-                    v.push(self.message.to_owned());
-                }
-            }
-            if self.message.starts_with("/version") {
-                // encrypt if we know the key
-                let mut message_out = Self::new(ps, format!("VERSION {}\n",env!("BUILD_VERSION")));
-                if let Some(pi) = &ps.peer_map.get(&src) {
-                    if let Some(their_pub) = &pi.ed25519 {
-                        message_out = vec![
+        }
+        if self.message.starts_with("/version") {
+            // encrypt if we know the key
+            let mut message_out = Self::new(ps, format!("VERSION {}\n",env!("BUILD_VERSION")));
+            if let Some(pi) = &ps.peer_map.get(&src) {
+                if let Some(their_pub) = &pi.ed25519 {
+                    message_out = vec![
                 EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
                 ];
-                    }
                 }
-                return message_out;
             }
-            if self.message.starts_with("/ping") {
-                let mut message_out = Self::new(ps, "PONG".to_string());
-                // encrypt if we know the key
-                if let Some(pi) = &ps.peer_map.get(&src) {
-                    if let Some(their_pub) = &pi.ed25519 {
-                        message_out = vec![
+            return message_out;
+        }
+        if self.message.starts_with("/ping") {
+            let mut message_out = Self::new(ps, "PONG".to_string());
+            // encrypt if we know the key
+            if let Some(pi) = &ps.peer_map.get(&src) {
+                if let Some(their_pub) = &pi.ed25519 {
+                    message_out = vec![
                 EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
                 ];
-                    }
                 }
+            }
 
-                return message_out;
-            }
+            return message_out;
         }
         return vec![];
     }
@@ -4455,31 +4456,33 @@ impl Receive for ContentList {
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        if let Source::S(src) = *src {
-            for (id, size) in &self.results {
-                trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
+        let Source::S(src) = *src else {
+            return vec![];
+        };
+        for (id, size) in &self.results {
+            trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
                     Utc::now().to_rfc3339(),
                     ps.peer_map[&src].ed25519.map(|p| p.to_string()).unwrap_or_default(),
                     ps.peer_map[&src].delay,
                     self.results
                 );
-                if !is_safe_relative_path(id) {
-                    return vec![];
-                }
-                if let Some(i) = inbound_states.get_mut(id) {
-                    i.peers.insert(src);
-                } else {
-                    InboundState::send_content_peers_from_disk(&id, 1, &src);
-                }
-                match ps.list_results.get_mut(&id.to_owned()) {
-                    Some(h) => h.0 += 1,
-                    None => {
-                        ps.list_results.insert(id.to_owned(), (1, *size));
-                        ()
-                    }
+            if !is_safe_relative_path(id) {
+                return vec![];
+            }
+            if let Some(i) = inbound_states.get_mut(id) {
+                i.peers.insert(src);
+            } else {
+                InboundState::send_content_peers_from_disk(&id, 1, &src);
+            }
+            match ps.list_results.get_mut(&id.to_owned()) {
+                Some(h) => h.0 += 1,
+                None => {
+                    ps.list_results.insert(id.to_owned(), (1, *size));
+                    ()
                 }
             }
         }
+
         return vec![];
     }
 }
@@ -4525,69 +4528,73 @@ impl Receive for EncryptedMessages {
         inbound_states: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
-        if let Source::S(src) = *src_ {
-            let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
-                .local_private_key(&ps.keypair.x25519_private())
-                .build_responder()
-                .unwrap();
-            let mut message_in_bytes = vec![0u8; 99999];
-            if let Ok(len) = noise.read_message(&self.base64, &mut message_in_bytes) {
-                let their_x25519: [u8; 32] = noise.get_remote_static().unwrap().try_into().unwrap();
-                if let Some((Source::S(_), their_pub)) = ps.x25519_to_ed25519(their_x25519).clone()
-                {
-                    ps.peer_map_by_pub.insert(their_pub, src_.clone());
-                    let pi = ps.peer_map.get_mut(&src).unwrap();
-                    pi.ed25519 = Some(their_pub);
+        let Source::S(src) = *src_ else {
+            return vec![];
+        };
+        let mut noise = Builder::new(NOISE_PARAMS.parse().unwrap())
+            .local_private_key(&ps.keypair.x25519_private())
+            .build_responder()
+            .unwrap();
+        let mut message_in_bytes = vec![0u8; 99999];
+        let Ok(len) = noise.read_message(&self.base64, &mut message_in_bytes) else {
+            info!("failed to decrypt a message from {src}");
+            return vec![];
+        };
+        let their_x25519: [u8; 32] = noise.get_remote_static().unwrap().try_into().unwrap();
+        let Some((Source::S(_), their_pub)) = ps.x25519_to_ed25519(their_x25519).clone() else {
+            return vec![];
+        };
 
-                    message_in_bytes.truncate(len);
-                    trace!("handling decrypted message from {src} {}: {}",
+        ps.peer_map_by_pub.insert(their_pub, src_.clone());
+        let pi = ps.peer_map.get_mut(&src).unwrap();
+        pi.ed25519 = Some(their_pub);
+
+        message_in_bytes.truncate(len);
+        trace!("handling decrypted message from {src} {}: {}",
                     their_pub.to_string(),
                      String::from_utf8_lossy(&message_in_bytes));
-                    let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            debug!( "could not deserialize incoming messages from {} {e}  :  {}",src,
+        let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
+            Ok(r) => r,
+            Err(e) => {
+                debug!( "could not deserialize incoming messages from {} {e}  :  {}",src,
                     String::from_utf8_lossy(&message_in_bytes));
-                            return vec![];
-                        }
-                    };
-                    let messages = messages.0;
+                return vec![];
+            }
+        };
+        let messages = messages.0;
 
-                    *might_be_ip_spoofing &= ps.check_key(&messages, src);
-                    let message_out_string = serde_json::to_string(&json![
+        *might_be_ip_spoofing &= ps.check_key(&messages, src);
+        let message_out_string =
+            serde_json::to_string(
+                &json![
                         [Message::Forwarded(Forwarded{
                             src:src,
                             from_ed25519:Some(their_pub),
                             maybe_ed25519:None,
-                            messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]])
-                    .unwrap();
-                    if ps.ws_vec.len() > 0 {
-                        trace!( "sending decrypted message {} to {} websockets", message_out_string,ps.ws_vec.len());
-                    }
-                    for ws in &mut ps.ws_vec {
-                        if ws
-                            .write(tungstenite::Message::Text(
-                                message_out_string.clone().into(),
-                            ))
-                            .is_ok()
-                        {
-                            ws.flush().ok();
-                        }
-                    }
-                    return ps.handle_messages(
-                        messages,
-                        &Source::S(src),
-                        might_be_ip_spoofing,
-                        stream_states,
-                        inbound_states,
-                        _signer,
-                    );
-                }
-            } else {
-                info!("failed to decrypt a message from {src}");
+                            messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]],
+            )
+            .unwrap();
+        if ps.ws_vec.len() > 0 {
+            trace!( "sending decrypted message {} to {} websockets", message_out_string,ps.ws_vec.len());
+        }
+        for ws in &mut ps.ws_vec {
+            if ws
+                .write(tungstenite::Message::Text(
+                    message_out_string.clone().into(),
+                ))
+                .is_ok()
+            {
+                ws.flush().ok();
             }
         }
-        return vec![];
+        return ps.handle_messages(
+            messages,
+            &Source::S(src),
+            might_be_ip_spoofing,
+            stream_states,
+            inbound_states,
+            _signer,
+        );
     }
 }
 
@@ -4652,39 +4659,41 @@ impl Receive for FastEncryptedMessages {
             sender,
             ciphertext,
         } = self;
-        if let Source::S(src) = *src_ {
-            let sender_x25519 = CompressedEdwardsY(*sender.as_bytes())
-                .decompress()
-                .expect("Ed25519Pub invariant: valid Edwards point")
-                .to_montgomery()
-                .to_bytes();
-            let shared = MontgomeryPoint(sender_x25519)
-                .mul_clamped(ps.keypair.x25519_private())
-                .to_bytes();
-            let aes_key = Sha256::digest(shared);
-            let cipher = Aes256Gcm::new(&aes_key.into());
-            match cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
-                Ok(plaintext) => {
-                    ps.peer_map_by_pub.insert(sender, src_.clone());
-                    let pi = ps.peer_map.get_mut(&src).unwrap();
-                    pi.ed25519 = Some(sender);
+        let Source::S(src) = *src_ else {
+            return vec![];
+        };
+        let sender_x25519 = CompressedEdwardsY(*sender.as_bytes())
+            .decompress()
+            .expect("Ed25519Pub invariant: valid Edwards point")
+            .to_montgomery()
+            .to_bytes();
+        let shared = MontgomeryPoint(sender_x25519)
+            .mul_clamped(ps.keypair.x25519_private())
+            .to_bytes();
+        let aes_key = Sha256::digest(shared);
+        let cipher = Aes256Gcm::new(&aes_key.into());
+        match cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
+            Ok(plaintext) => {
+                ps.peer_map_by_pub.insert(sender, src_.clone());
+                let pi = ps.peer_map.get_mut(&src).unwrap();
+                pi.ed25519 = Some(sender);
 
-                    trace!("handling fast-decrypted message from {src} {}: {}",
+                trace!("handling fast-decrypted message from {src} {}: {}",
                         sender.to_string(),
                         String::from_utf8_lossy(&plaintext));
 
-                    let messages: Messages = match serde_json::from_slice(&plaintext) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            debug!("could not deserialize fast-encrypted messages from {} {e}: {}",
+                let messages: Messages = match serde_json::from_slice(&plaintext) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        debug!("could not deserialize fast-encrypted messages from {} {e}: {}",
                                 src, String::from_utf8_lossy(&plaintext));
-                            return vec![];
-                        }
-                    };
-                    let messages = messages.0;
-                    *might_be_ip_spoofing &= ps.check_key(&messages, src);
+                        return vec![];
+                    }
+                };
+                let messages = messages.0;
+                *might_be_ip_spoofing &= ps.check_key(&messages, src);
 
-                    let message_out_string = serde_json::to_string(&json![
+                let message_out_string = serde_json::to_string(&json![
                         [Message::Forwarded(Forwarded {
                             src: src,
                             from_ed25519: Some(sender),
@@ -4692,32 +4701,31 @@ impl Receive for FastEncryptedMessages {
                             messages: String::from_utf8_lossy(&plaintext).to_string(),
                         })]
                     ])
-                    .unwrap();
-                    if ps.ws_vec.len() > 0 {
-                        trace!("sending fast-decrypted message {} to {} websockets", message_out_string, ps.ws_vec.len());
-                    }
-                    for ws in &mut ps.ws_vec {
-                        if ws
-                            .write(tungstenite::Message::Text(
-                                message_out_string.clone().into(),
-                            ))
-                            .is_ok()
-                        {
-                            ws.flush().ok();
-                        }
-                    }
-                    return ps.handle_messages(
-                        messages,
-                        &Source::S(src),
-                        might_be_ip_spoofing,
-                        stream_states,
-                        inbound_states,
-                        _signer,
-                    );
+                .unwrap();
+                if ps.ws_vec.len() > 0 {
+                    trace!("sending fast-decrypted message {} to {} websockets", message_out_string, ps.ws_vec.len());
                 }
-                Err(_) => {
-                    info!("failed to fast-decrypt a message from {src}");
+                for ws in &mut ps.ws_vec {
+                    if ws
+                        .write(tungstenite::Message::Text(
+                            message_out_string.clone().into(),
+                        ))
+                        .is_ok()
+                    {
+                        ws.flush().ok();
+                    }
                 }
+                return ps.handle_messages(
+                    messages,
+                    &Source::S(src),
+                    might_be_ip_spoofing,
+                    stream_states,
+                    inbound_states,
+                    _signer,
+                );
+            }
+            Err(_) => {
+                info!("failed to fast-decrypt a message from {src}");
             }
         }
         return vec![];
