@@ -1803,6 +1803,34 @@ fn handle_stdin(
                         - /help
                         - default action is /g #main 
                 ");
+    } else if sscanf!(line.as_str(), "/publish {}", arg).is_ok() {
+        let src = std::path::Path::new(&arg);
+        let file_name = match src.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_owned(),
+            None => {
+                println!("publish: can't determine filename from {arg}");
+                return true;
+            }
+        };
+        let dest = format!("./cjp2p/origin/{}", file_name);
+        if std::path::Path::new(&dest).exists() {
+            println!("publish: {} already exists", dest);
+        } else if fs::hard_link(src, &dest).is_ok() {
+            println!("publish: hard linked");
+        } else if std::os::unix::fs::symlink(
+            fs::canonicalize(src).unwrap_or_else(|_| src.to_path_buf()),
+            &dest,
+        )
+        .is_ok()
+        {
+            println!("publish: symlinked");
+        } else if fs::copy(src, &dest).is_ok() {
+            println!("publish: copied");
+        } else {
+            println!("publish: all methods failed for {arg}");
+            return true;
+        }
+        println!("http://localhost:{}/latest/0x{}/{}", ps.http_port, ps.keypair.public, file_name);
     } else if sscanf!(line.as_str(), "/share {}", arg).is_ok() {
         let path = arg.clone();
         let http_port = ps.http_port;
