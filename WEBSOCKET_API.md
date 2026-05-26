@@ -1,6 +1,3 @@
-Claude suggested and then wrote this. I didn't prooof read it yet.
-
-
 # cjp2p WebSocket API
 
 Connect to `ws://localhost:24255/wt` to send and receive messages with any peer on the network.
@@ -155,7 +152,7 @@ function send(peerId, text) {
 
 There is no registry. Pick a name, pick fields, and use it. The node routes anything inside `Forward.messages` without inspecting it. Other nodes and apps silently ignore types they don't know.
 
-Convention from the built-in examples:
+Conventions  from the examples at http://127.0.0.1:24255/latest/e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/
 
 | Type | Direction | Use |
 |---|---|---|
@@ -165,6 +162,9 @@ Convention from the built-in examples:
 | `PongPaddle` | peer<->peer | Paddle position |
 | `PleaseSendContent` | peer<->peer | Request file chunk by SHA-256 hash |
 | `Content` | peer<->peer | File chunk response `{id, offset, eof, data}` (base64) |
+
+
+Post new message types on https://github.com/kermit4/LCDP/wiki to avoid collisions, or just pick names not likely to collide.  The namespace is huge.
 
 ---
 
