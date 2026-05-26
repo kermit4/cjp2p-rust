@@ -57,15 +57,15 @@ Write a real-time 2-player P2P game called "Blob Tag" using the cjp2p WebSocket.
 - One player is "it" -- shown with a bright pulsing ring around their circle.
 - If the "it" player's circle overlaps the other, the other becomes "it" and a
   point is scored for the tagger. Display both scores at the top.
-- The player who opens the page first (serves) starts as "it".
-
---- LATENCY DISPLAY ---
-- Behind the canvas, draw a scrolling RTT bar chart, exactly like the one in
-  pong.html: one pixel column per 200ms real time, bar height = RTT/1000 * canvas
-  height (so 1000ms fills the canvas). Use rgba(30,120,220,0.25).
-- Below the canvas, show: "RTT -- min: Xms  max: Xms  avg: Xms".
-- Implement PongPing / PongPingPong messages for the RTT measurement (same
-  message types pong.html uses so the nodes already support them).
+- Who starts as "it": once both my_ed25519 and their_ed25519 are known, set
+  myIt = (my_ed25519 < their_ed25519) using plain string comparison. Both sides
+  compute this independently and always agree (one key is always smaller).
+  DO NOT derive "it" from URL params or from a "server/client" role -- that
+  breaks whenever both players open the page fresh with no ?ed25519= param,
+  making both think they are "it" or neither is "it".
+- When "it" is first determined, place myX at W*0.25 (if "it") or W*0.75 (if not),
+  and reset the tag cooldown timer to now -- so blobs start on opposite sides and
+  don't immediately score from the default center overlap.
 
 --- NETWORKING (cjp2p WebSocket API) ---
 Connect to: ws://localhost:24255/wt  (let the user edit this URL on the page)
@@ -86,17 +86,21 @@ Messages from your opponent arrive as:
 Parse the inner "messages" field as JSON (it is a JSON-encoded string).
 
 Send your position (BlobPos) every ~16ms (throttle to 60fps max).
+The "it" field in BlobPos is for rendering only (opponent's ring); it does NOT
+determine authoritative "it" state. Do NOT modify myIt based on their BlobPos.
 Send BlobTag when you detect a tag (you are "it" and circles overlap).
-The receiver of BlobTag becomes "it". Both sides track scores locally from
-BlobTag events; no authoritative server needed.
-Send PongPing every 200ms, reply to incoming PongPing with PongPingPong.
+The receiver of BlobTag becomes "it"; the sender is no longer "it".
+Add a 500ms cooldown after any tag event before the next tag can fire, to
+prevent rapid re-tagging while circles are still overlapping.
+Both sides track scores locally: the SENDER of BlobTag increments myScore;
+the RECEIVER of BlobTag increments theirScore. No authoritative server needed.
 
 --- UI ---
 - Input at the top: "Their ed25519:" (pre-filled from ?ed25519= URL param).
-- Below that: "Share this link:" -- auto-populated with
-  http://localhost:24255/latest/<MY_ED25519>/blobtag.html?ed25519=<MY_ED25519> once you know your key.  
-- Status line: "Waiting for opponent..." -> "Connected!" -> game instructions.
-- The first user will have to enter their opponent's key or the share link from their opponinet once they have it.
+- Below that: "Share this link:" -- auto-populated using location.pathname
+  (like pong.html does: "http://localhost:24255" + location.pathname + "?ed25519=" + my_ed25519)
+  once you know your key. Do NOT hardcode any hash into the URL.
+- Status line: "Waiting for opponent..." -> game instructions once connected.
 - A small "Fullscreen" button.
 - Reconnect automatically if the WebSocket closes.
 
