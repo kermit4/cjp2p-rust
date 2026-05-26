@@ -85,30 +85,6 @@ for (const m of inner) {
 
 ---
 
-## Measuring latency -- `PongPing` / `PongPingPong`
-
-Send a ping:
-
-```json
-[{"Forward": {
-  "to_ed25519": "<peer>",
-  "messages": [{"PongPing": {"seq": 1, "t": 1748908800000}}]
-}}]
-```
-
-The peer's node echoes it back automatically:
-
-```json
-[{"Forwarded": {
-  "from_ed25519": "<peer>",
-  "messages": "[{\"PongPingPong\": {\"seq\": 1, \"t\": 1748908800000}}]"
-}}]
-```
-
-RTT in milliseconds: `Date.now() - msg.PongPingPong.t`. Discard pongs older than ~5 seconds.
-
----
-
 ## Peer discovery -- `PleaseSendPeers` / `Peers`
 
 Ask your node for a list of known peers:
