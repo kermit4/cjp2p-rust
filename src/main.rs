@@ -1904,21 +1904,26 @@ fn handle_stdin(
             }
         };
         let dest = format!("./cjp2p/origin/{}", file_name);
-        if std::path::Path::new(&dest).exists() {
-            println!("publish: {} already exists", dest);
-        } else if fs::hard_link(src, &dest).is_ok() {
+        let tmp = format!("./cjp2p/origin/.tmp.{}", file_name);
+        let tmp_path = std::path::Path::new(&tmp);
+        if fs::hard_link(src, tmp_path).is_ok() {
             println!("publish: hard linked");
         } else if std::os::unix::fs::symlink(
             fs::canonicalize(src).unwrap_or_else(|_| src.to_path_buf()),
-            &dest,
+            tmp_path,
         )
         .is_ok()
         {
             println!("publish: symlinked");
-        } else if fs::copy(src, &dest).is_ok() {
+        } else if fs::copy(src, tmp_path).is_ok() {
             println!("publish: copied");
         } else {
             println!("publish: all methods failed for {arg}");
+            return true;
+        }
+        if let Err(e) = fs::rename(tmp_path, &dest) {
+            let _ = fs::remove_file(tmp_path);
+            println!("publish: rename failed: {e}");
             return true;
         }
         println!("http://localhost:{}/latest/0x{}/{}", ps.http_port, ps.keypair.public, file_name);
