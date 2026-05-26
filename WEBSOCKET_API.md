@@ -10,7 +10,7 @@ No account, no login -- your identity is an ed25519 public key the node generate
 
 ## Message format
 
-Every message is a **JSON array containing one object** whose single key is the message type:
+Every message is a an object in a **JSON array ** whose single key is the message type:
 
 ```json
 [{"TypeName": { ...fields... }}]
@@ -85,21 +85,34 @@ for (const m of inner) {
 
 ---
 
-## Peer discovery -- `PleaseSendPeers` / `Peers`
+## Node status — `GET /status.json`
 
-Ask your node for a list of known peers:
+Before opening the WebSocket, or any time you need your own identity or a peer list, fetch:
 
-```json
-[{"PleaseSendPeers": {}}]
+```
+GET http://localhost:24255/status.json
 ```
 
 Response:
 
 ```json
-[{"Peers": {"peers": ["192.168.1.100:24254", "192.168.1.101:24254"]}}]
+{
+  "version": "1.2.3",
+  "public_key": "0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb",
+  "total_peers": 42,
+  "unique_ips": 18,
+  "active_peer_count": 7,
+  "fast_peer_count": 4,
+  "active_peers": [
+    {"addr": "192.168.1.12:24254", "pub": "0xa3b9...", "delay_ms": 45},
+    {"addr": "192.168.1.20:24254", "pub": "0xc7f2...", "delay_ms": 112}
+  ],
+  "free_disk_bytes": 21474836480
+}
 ```
 
-These are socket addresses, not public keys. To get a peer's key, communicate with them directly and read `from_ed25519` off an incoming `Forwarded` message.
+`active_peers` are peers with a round-trip time under 250 ms — a good starting list for `Forward.to_ed25519`.
+The endpoint has `Access-Control-Allow-Origin: *`, so it's safe to fetch from any HTML page.
 
 ---
 
