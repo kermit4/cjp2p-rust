@@ -1754,7 +1754,8 @@ fn handle_stdin(
                 let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
             });
         } else {
-            let bundle_url = format!("http://127.0.0.1:{}/latest/{SPECIAL_PUB}/cjp2p.bundle",ps.http_port);
+            let bundle_url =
+                format!("http://127.0.0.1:{}/latest/{SPECIAL_PUB}/cjp2p.bundle",ps.http_port);
             thread::spawn(move || {
                 let status = std::process::Command::new("wget")
                     .args(["-q", "-O", "bundle", bundle_url.as_str()])
@@ -1802,6 +1803,27 @@ fn handle_stdin(
                         - /help
                         - default action is /g #main 
                 ");
+    } else if sscanf!(line.as_str(), "/share {}", arg).is_ok() {
+        let path = arg.clone();
+        let http_port = ps.http_port;
+        thread::spawn(move || {
+            let contents = match fs::read(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    println!("share: {path}: {e}");
+                    return;
+                }
+            };
+            let sha256 = format!("{:x}", Sha256::digest(&contents));
+            let dest = format!("./cjp2p/public/{}", sha256);
+            if !std::path::Path::new(&dest).exists() {
+                if let Err(e) = fs::write(&dest, &contents) {
+                    println!("share: write failed: {e}");
+                    return;
+                }
+            }
+            println!("{path} is shared at http://localhost:{http_port}/{sha256}");
+        });
     } else if line.starts_with("/ping") || line.starts_with("/version") {
         let peers = ps.best_peers(100, 5);
         info!("spamming  {} peers",peers.len());
@@ -1982,9 +2004,7 @@ fn status_page(
     thread::spawn(move || {
         for (sa, pub_) in &active_peers {
             let pub_str = pub_.to_string();
-            let home_link = if pub_str
-                == SPECIAL_PUB
-            {
+            let home_link = if pub_str == SPECIAL_PUB {
                 format!("<span style=\"position:relative;display:inline-block;vertical-align:middle;\"><span style=\"display:inline-block;border:4px solid gold;border-radius:50%;padding:10px 18px;background:rgba(255,215,0,0.25);font-weight:bold;box-shadow:0 0 0 5px rgba(255,215,0,0.4);\"><a href=/latest/{pub_str}/>home</a></span><span style=\"position:absolute;bottom:calc(100% + 12px);left:0;white-space:nowrap;pointer-events:none;\"><span style=\"display:inline-block;background:#fffde7;border:2px solid #aaa;border-radius:14px;padding:4px 12px;font-size:11px;color:#333;font-weight:normal;\">go here for group chat &amp; apps!</span><span style=\"position:absolute;bottom:-10px;left:18px;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:10px solid #aaa;\"></span><span style=\"position:absolute;bottom:-8px;left:19px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid #fffde7;\"></span></span></span>")
             } else {
                 format!("<a href=/latest/{pub_str}/>home</a>")

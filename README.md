@@ -38,7 +38,7 @@ Then type /help or go to http://localhost:24255/ where all the on-network links 
 
 This uses about 400MB/day out and 100MB/day in
 
-This also works great on Android.  It does use "StartForeground" but the base maintenance timer is ~2 seconds on Android ( ~1 elsewhere ) so it uses less than 1%/hr more than not, on wifi . I haven't done cellular or longer longer tests yet.
+This also works great on Android.  It does use "StartForeground" but the base maintenance timer is ~2 seconds on Android ( ~1 elsewhere ).  I don't notice any more battery drain with it running than without, 90 minutes each. 2%/hr either way, wifi or SIM.
 
 # updating
 
