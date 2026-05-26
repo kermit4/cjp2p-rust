@@ -38,7 +38,7 @@ Then type /help or go to http://localhost:24255/ where all the on-network links 
 
 This uses about 400MB/day out and 100MB/day in
 
-This also works great on Android.  It does use "StartForeground" but the base maintenance timer is ~2 seconds on Android ( ~1 elsewhere ).  I don't notice any more battery drain with it running than without, 90 minutes each. 2%/hr either way, wifi or SIM.
+This also works great on Android.  It does use "StartForeground" but the base maintenance timer is ~2 seconds on Android ( ~1 elsewhere ).  I don't notice any more battery drain with it running than without on mobile or wifi.
 
 # updating
 
@@ -91,3 +91,6 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - general UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - celluar battery usage test
+- /publish should overwrite
+- less indent on handle_web_request
+- WEB: easy share file path web ..publish dynamic. dynamic only if link works.

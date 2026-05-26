@@ -1064,25 +1064,37 @@ impl PeerState {
 
 #[derive(Debug, Serialize)]
 struct HttpRequest {
+    method: String,
     path: String,
     headers: HashMap<String, String>,
+    #[serde(skip)]
+    body_prefix: Vec<u8>,
 }
 
 fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
-    let mut buf = [0; 4096];
+    let mut buf = [0u8; 4096];
     let len = stream.read(&mut buf).ok()?;
-    if !buf.is_ascii() {
+    let data = &buf[..len];
+
+    // Split at \r\n\r\n so binary POST bodies don't trip the ASCII check.
+    let header_end = data
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|p| p + 4)
+        .unwrap_or(len);
+    let header_bytes = &data[..header_end];
+    if !header_bytes.is_ascii() {
         warn!("garbage on http port, closing");
         return None;
     }
+    let body_prefix = data[header_end..].to_vec();
 
-    let request_str = String::from_utf8_lossy(&buf[..len]);
-
+    let request_str = String::from_utf8_lossy(header_bytes);
     let mut lines = request_str.lines();
     let request_line = lines.next()?;
     let mut parts = request_line.split_whitespace();
 
-    let _ = parts.next()?.to_string();
+    let method = parts.next()?.to_string();
     let path = parts.next()?.to_string();
     let mut headers = HashMap::new();
     for line in lines {
@@ -1094,7 +1106,86 @@ fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
         }
     }
 
-    Some(HttpRequest { path, headers })
+    Some(HttpRequest {
+        method,
+        path,
+        headers,
+        body_prefix,
+    })
+}
+
+fn free_disk_bytes() -> u64 {
+    unsafe {
+        let mut stat: libc::statvfs64 = std::mem::zeroed();
+        if libc::statvfs64(b".\0".as_ptr() as *const libc::c_char, &mut stat) == 0 {
+            (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64)
+        } else {
+            0
+        }
+    }
+}
+
+fn handle_upload(mut stream: TcpStream, req: HttpRequest) {
+    let content_length: usize = req
+        .headers
+        .get("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    stream.set_nonblocking(false).ok();
+    thread::spawn(move || {
+        let temp_name = format!(".tmp_{:016x}", rand::rng().random::<u64>());
+        let temp_path = format!("./cjp2p/public/{}", temp_name);
+        let mut file = match File::create(&temp_path) {
+            Ok(f) => f,
+            Err(e) => {
+                let body = format!("{{\"error\":\"{e}\"}}");
+                let _ = stream.write_all(
+                    format!("HTTP/1.0 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()
+                );
+                return;
+            }
+        };
+        let mut hasher = Sha256::new();
+        let mut written = 0usize;
+        if !req.body_prefix.is_empty() {
+            file.write_all(&req.body_prefix).ok();
+            hasher.update(&req.body_prefix);
+            written += req.body_prefix.len();
+        }
+        let mut buf = [0u8; 65536];
+        while written < content_length {
+            let to_read = (content_length - written).min(buf.len());
+            match stream.read(&mut buf[..to_read]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if file.write_all(&buf[..n]).is_err() {
+                        break;
+                    }
+                    hasher.update(&buf[..n]);
+                    written += n;
+                }
+                Err(_) => break,
+            }
+        }
+        drop(file);
+        let sha256 = format!("{:x}", hasher.finalize());
+        let dest = format!("./cjp2p/public/{}", sha256);
+        if Path::new(&dest).exists() {
+            fs::remove_file(&temp_path).ok();
+        } else if let Err(e) = fs::rename(&temp_path, &dest) {
+            fs::remove_file(&temp_path).ok();
+            let body = format!("{{\"error\":\"{e}\"}}");
+            let _ = stream.write_all(
+                format!("HTTP/1.0 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()
+            );
+            return;
+        }
+        println!("upload: {} bytes -> {}", written, sha256);
+        let body = format!("{{\"sha256\":\"{sha256}\"}}");
+        let _ = stream.write_all(
+            format!("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()
+        );
+    });
 }
 fn get_local_ip_for_gateway(gateway_ip: Ipv4Addr) -> Ipv4Addr {
     let socket = UdpSocket::bind("0.0.0.0:0").expect("bind failed");
@@ -1921,21 +2012,26 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
         .filter(|v| ps.peer_map[*v].delay < Duration::from_millis(250))
         .count();
 
-    let body = json!({
-        "version": env!("BUILD_VERSION"),
-        "public_key": public_key,
-        "total_peers": total_peers,
-        "unique_ips": unique_ips,
-        "active_peer_count": active_peers.len(),
-        "fast_peer_count": fast_peer_count,
-        "active_peers": active_peers,
+    stream.set_nonblocking(false).ok();
+    thread::spawn(move || {
+        let free_bytes = free_disk_bytes();
+        let body = json!({
+            "version": env!("BUILD_VERSION"),
+            "public_key": public_key,
+            "total_peers": total_peers,
+            "unique_ips": unique_ips,
+            "active_peer_count": active_peers.len(),
+            "fast_peer_count": fast_peer_count,
+            "active_peers": active_peers,
+            "free_disk_bytes": free_bytes,
+        });
+        let body_str = body.to_string();
+        let response = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
+            body_str.len(), body_str
+        );
+        stream.write_all(response.as_bytes()).ok();
     });
-    let body_str = body.to_string();
-    let response = format!(
-        "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
-        body_str.len(), body_str
-    );
-    stream.write_all(response.as_bytes()).ok();
 }
 
 fn status_page(
@@ -2029,6 +2125,7 @@ fn status_page(
         page += &format!("<p><a href=/latest/{pub_str}/><big>click here for network hosted group chat, files, demos, and other apps</big></a></p>");
     }
     page += "<h3>active keys</h3><pre>";
+    stream.set_nonblocking(false).ok();
     thread::spawn(move || {
         for (sa, pub_) in &active_peers {
             let pub_str = pub_.to_string();
@@ -2402,6 +2499,11 @@ fn handle_web_request(
                     });
                     ps.serve_http_content(stream_states, inbound_states, index);
                 }
+                return;
+            }
+
+            if is_local(&stream) && req.method == "POST" && req.path == "/upload" {
+                handle_upload(stream, req);
                 return;
             }
 
@@ -3360,7 +3462,8 @@ impl ContentGateway {
                     }
                 } // seems to improve seeking in Brave
                 format!(
-                                "HTTP/1.1 206 Partial Content\r\n\
+                                "HTTP/1.0 206 Partial Content\r\n\
+                                 Connection: keep-alive\r\n\
                                  Content-Length: {}\r\n\
                                  Content-Disposition: inline\r\n\
                                  Accept-Range: bytes\r\n\
@@ -3370,7 +3473,8 @@ impl ContentGateway {
             } else {
                 debug!("cg {} serve_mmap unranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_str);
                 format!(
-                                "HTTP/1.1 200 OK\r\n\
+                                "HTTP/1.0 200 OK\r\n\
+                                 Connection: keep-alive\r\n\
                                  Content-Length: {}\r\n\
                                  Content-Disposition: inline\r\n\
                                  Accept-Range: bytes\r\n\
