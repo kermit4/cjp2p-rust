@@ -4260,6 +4260,8 @@ struct Forward {
     to_ed25519: Option<Ed25519Pub>,
     #[serde(skip_serializing_if = "Option::is_none")]
     src: Option<SocketAddr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sign: Option<bool>,
     messages: Vec<Value>,
 }
 impl Receive for Forward {
@@ -4294,7 +4296,13 @@ impl Receive for Forward {
             return vec![];
         }
         if let Some(to) = self.to_ed25519 {
-            msgs_to_pub(ps, to, &messages);
+            if self.sign == Some(true) {
+                let payload = serde_json::to_vec(&messages).unwrap();
+                let signed = SignedMessage::new(ps, payload);
+                msgs_to_pub(ps, to, &vec![serde_json::to_value(&signed).unwrap()]);
+            } else {
+                msgs_to_pub(ps, to, &messages);
+            }
         }
         return vec![];
     }
