@@ -1187,6 +1187,82 @@ fn handle_upload(mut stream: TcpStream, req: HttpRequest) {
         );
     });
 }
+fn handle_publish_origin(mut stream: TcpStream, req: HttpRequest) {
+    let raw_filename = req.headers.get("x-filename").cloned().unwrap_or_default();
+    let filename = urlencoding::decode(&raw_filename).unwrap_or_default().to_string();
+    if filename.is_empty() {
+        stream.write_all(b"HTTP/1.0 400 Bad Request\r\nContent-Length: 0\r\n\r\n").ok();
+        return;
+    }
+    let content_length: usize = req
+        .headers
+        .get("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    println!("publish_origin: start filename={:?} content_length={} body_prefix={}",
+        filename, content_length, req.body_prefix.len());
+    stream.set_nonblocking(false).ok();
+    thread::spawn(move || {
+        let temp_name = format!(".tmp_{:016x}", rand::rng().random::<u64>());
+        let temp_path = format!("./cjp2p/origin/{}", temp_name);
+        let dest_path = format!("./cjp2p/origin/{}", filename);
+        if let Some(parent) = Path::new(&dest_path).parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        let mut file = match File::create(&temp_path) {
+            Ok(f) => f,
+            Err(e) => {
+                println!("publish_origin: File::create failed: {e}");
+                let body = format!("{{\"error\":\"{e}\"}}");
+                let _ = stream.write_all(
+                    format!("HTTP/1.0 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()
+                );
+                return;
+            }
+        };
+        let mut written = 0usize;
+        if !req.body_prefix.is_empty() {
+            file.write_all(&req.body_prefix).ok();
+            written += req.body_prefix.len();
+        }
+        let mut buf = [0u8; 65536];
+        let mut stop_reason = "complete";
+        while written < content_length {
+            let to_read = (content_length - written).min(buf.len());
+            match stream.read(&mut buf[..to_read]) {
+                Ok(0) => { stop_reason = "eof"; break; }
+                Ok(n) => {
+                    if file.write_all(&buf[..n]).is_err() {
+                        stop_reason = "write_err"; break;
+                    }
+                    written += n;
+                }
+                Err(e) => {
+                    println!("publish_origin: read error after {}B: {e}", written);
+                    stop_reason = "read_err"; break;
+                }
+            }
+        }
+        println!("publish_origin: read done written={} content_length={} stop={}", written, content_length, stop_reason);
+        drop(file);
+        if let Err(e) = fs::rename(&temp_path, &dest_path) {
+            fs::remove_file(&temp_path).ok();
+            println!("publish_origin: rename failed: {e}");
+            let body = format!("{{\"error\":\"{e}\"}}");
+            let _ = stream.write_all(
+                format!("HTTP/1.0 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()
+            );
+            return;
+        }
+        let escaped = filename.replace('"', "\\\"");
+        let body = format!("{{\"filename\":\"{escaped}\"}}");
+        let resp = format!("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}", body.len(), body);
+        match stream.write_all(resp.as_bytes()) {
+            Ok(_) => println!("publish_origin: ok -> cjp2p/origin/{}", filename),
+            Err(e) => println!("publish_origin: response write failed: {e} (file was written ok)"),
+        }
+    });
+}
 fn get_local_ip_for_gateway(gateway_ip: Ipv4Addr) -> Ipv4Addr {
     let socket = UdpSocket::bind("0.0.0.0:0").expect("bind failed");
     socket.connect((gateway_ip, 1900)).expect("connect failed");
@@ -2509,6 +2585,11 @@ fn handle_web_request(
 
     if is_local(&stream) && req.method == "POST" && req.path == "/upload" {
         handle_upload(stream, req);
+        return;
+    }
+
+    if is_local(&stream) && req.method == "POST" && req.path == "/publish_origin" {
+        handle_publish_origin(stream, req);
         return;
     }
 
