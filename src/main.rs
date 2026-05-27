@@ -3769,13 +3769,13 @@ fn maintenance(
         return;
     }
     debug!("maintenance");
-    let save_battery = if std::env::consts::ARCH == "aarch64" {
+    let save_battery = if cfg!(target_os = "android") {
         2
     } else {
         1
     };
     if save_battery > 1 {
-        debug!("slowing maintenance in half because aarch64, checking if its plugged in is harder than it sounds");
+        debug!("slowing maintenance in half because android, checking if its plugged in is harder than it sounds");
     }
     ps.next_maintenance =
         Instant::now() + Duration::from_millis(rand::rng().random_range(888..999) * save_battery);
@@ -5298,6 +5298,7 @@ fn has_passed(deadline: std::time::Instant) -> bool {
 }
 
 fn log_if_slow(nowi: Instant, line: String) {
+    if cfg!(target_os = "android") { return;}
     let prof = nowi.elapsed();
     let txt = format!("line {} took {:?} since timer set \x1b[m",line,prof);
     if prof > Duration::from_millis(80) {
