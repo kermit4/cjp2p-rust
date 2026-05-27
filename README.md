@@ -48,7 +48,8 @@ If it's not running, `git pull` then `make`
 
 # hints
 
-[build your own p2p app in minutes quick start](quickstart_build_a_p2p_app_with_one_prompt.md)
+[build your own p2p game in minutes quick start](quickstart_build_a_p2p_game_with_one_prompt.md)
+[build your own p2p twitter in minutes quick start](quickstart_build_a_p2p_twitter_with_one_prompt.md)
 
 
 Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its ubuntu-24.04.3-live-server-amd64.iso ) and watch it come from two places with iftop
@@ -92,3 +93,6 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - WEB: web publish dynamic content path
 - make a PWA hosted in cjp2p/origin/ how does that work
+- probably needs a twitter killer or at least a basic example of how it could be done, since so many defi people are into twitter
+-- web UI to change your key?
+- change quickstart_build_a_p2p_app_with_one_prompt.md to let ai read all the existing examples first..it made chirp.html awefully easily
