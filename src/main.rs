@@ -1189,9 +1189,13 @@ fn handle_upload(mut stream: TcpStream, req: HttpRequest) {
 }
 fn handle_publish_origin(mut stream: TcpStream, req: HttpRequest) {
     let raw_filename = req.headers.get("x-filename").cloned().unwrap_or_default();
-    let filename = urlencoding::decode(&raw_filename).unwrap_or_default().to_string();
+    let filename = urlencoding::decode(&raw_filename)
+        .unwrap_or_default()
+        .to_string();
     if filename.is_empty() {
-        stream.write_all(b"HTTP/1.0 400 Bad Request\r\nContent-Length: 0\r\n\r\n").ok();
+        stream
+            .write_all(b"HTTP/1.0 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
+            .ok();
         return;
     }
     let content_length: usize = req
@@ -1230,16 +1234,21 @@ fn handle_publish_origin(mut stream: TcpStream, req: HttpRequest) {
         while written < content_length {
             let to_read = (content_length - written).min(buf.len());
             match stream.read(&mut buf[..to_read]) {
-                Ok(0) => { stop_reason = "eof"; break; }
+                Ok(0) => {
+                    stop_reason = "eof";
+                    break;
+                }
                 Ok(n) => {
                     if file.write_all(&buf[..n]).is_err() {
-                        stop_reason = "write_err"; break;
+                        stop_reason = "write_err";
+                        break;
                     }
                     written += n;
                 }
                 Err(e) => {
                     println!("publish_origin: read error after {}B: {e}", written);
-                    stop_reason = "read_err"; break;
+                    stop_reason = "read_err";
+                    break;
                 }
             }
         }
@@ -3850,11 +3859,7 @@ fn maintenance(
         return;
     }
     debug!("maintenance");
-    let save_battery = if cfg!(target_os = "android") {
-        2
-    } else {
-        1
-    };
+    let save_battery = if cfg!(target_os = "android") { 2 } else { 1 };
     if save_battery > 1 {
         debug!("slowing maintenance in half because android, checking if its plugged in is harder than it sounds");
     }
@@ -5379,7 +5384,9 @@ fn has_passed(deadline: std::time::Instant) -> bool {
 }
 
 fn log_if_slow(nowi: Instant, line: String) {
-    if cfg!(target_os = "android") { return;}
+    if cfg!(target_os = "android") {
+        return;
+    }
     let prof = nowi.elapsed();
     let txt = format!("line {} took {:?} since timer set \x1b[m",line,prof);
     if prof > Duration::from_millis(80) {
