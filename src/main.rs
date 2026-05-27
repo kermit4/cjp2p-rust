@@ -3117,7 +3117,7 @@ impl Content {
             .unwrap();
             return vec![Message::SignedMessage(SignedMessage {
                             ed25519: source_ed25519, signature: arr.to_vec(),
-                            payload: Some(payload), payload_json: None,
+                            payload: None, payload_json: Some(String::from_utf8(payload).unwrap()),
                         })];
         }
 
@@ -4843,8 +4843,8 @@ impl SignedMessage {
         Message::SignedMessage(Self {
             ed25519: ps.keypair.public,
             signature,
-            payload: Some(messages),
-            payload_json: None,
+            payload: None,
+            payload_json: Some(String::from_utf8(messages).unwrap()),
         })
     }
     fn payload_bytes(&self) -> Option<&[u8]> {

@@ -52,8 +52,8 @@ $(APK): $(APK_SRCS) icons
 all: check release debug apk
 
 pull: Makefile
-	wget  -q http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle -O cjp2p.bundle
-	git pull cjp2p.bundle master
+	wget  -q http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle -O bundle
+	git pull bundle master
 
 # -- Tauri targets (Android APK) ----------------------------------------------
 #
