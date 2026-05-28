@@ -49,7 +49,7 @@ Paste the prompt below into Claude as-is. It will produce a single, self-contain
 ### The Prompt
 
 ```
-based on src/main.rs and LCDP_web_apps/ as examples make something like a twitter but p2p, in cjp2p/origin/
+based on src/main.rs and the .html files linked fcom LCDP_web_apps/index.html as examples make something like a twitter but p2p, in cjp2p/origin/
 
 
 ---
