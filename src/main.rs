@@ -5148,6 +5148,7 @@ impl Receive for GetLatest {
         }
 
         if !result.is_empty() {
+            info!("sending Latest {} to {src:?}",self.name);
             if let Ok(mut file) = OpenOptions::new()
                 .create(true)
                 .append(true)
