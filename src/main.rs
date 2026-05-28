@@ -5106,7 +5106,7 @@ impl Receive for GetLatest {
     fn receive(
         self,
         ps: &mut PeerState,
-        _src: &Source,
+        src: &Source,
         _: &mut bool,
         _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
@@ -5117,6 +5117,8 @@ impl Receive for GetLatest {
         }
         let pub_hex = self.ed25519.to_string();
         let cache_path = latest_cache_path(&pub_hex, &self.name);
+        let mut result = vec![];
+        let mut source = "";
 
         if ps.keypair.public == self.ed25519 {
             let origin_path = format!("./cjp2p/origin/{}", self.name);
@@ -5135,14 +5137,37 @@ impl Receive for GetLatest {
                 if cached_seq < origin_seq || !Path::new(&cache_path).exists() {
                     create_and_cache_latest(ps, &self.name, &pub_hex, origin_seq, &cache_path);
                 }
-                return load_latest_signed_message(&cache_path);
+                result = load_latest_signed_message(&cache_path);
+                source = "origin";
             }
         }
 
-        if Path::new(&cache_path).exists() {
-            return load_latest_signed_message(&cache_path);
+        if result.is_empty() && Path::new(&cache_path).exists() {
+            result = load_latest_signed_message(&cache_path);
+            source = "cache";
         }
-        vec![]
+
+        if !result.is_empty() {
+            if let Ok(mut file) = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .write(true)
+                .open("./cjp2p/log/latest.json")
+            {
+                file.write_all(
+                    &serde_json::to_vec(&json!({
+                        "name": self.name,
+                        "source": source,
+                        "src": src,
+                    }))
+                    .unwrap(),
+                )
+                .ok();
+                file.write_all(b"\n").ok();
+            }
+        }
+
+        result
     }
 }
 
