@@ -2224,8 +2224,9 @@ fn status_page(
             } else {
                 format!("<a href=/latest/{pub_str}/>home</a>")
             };
-            page += &format!("<p>0x{pub_str} {home_link} <a href=/latest/{SPECIAL_PUB}/video.html?ed25519={pub_str}>call</a> <a href=/latest/{SPECIAL_PUB}/pong.html?ed25519={pub_str}>pong</a> <a href=/latest/{SPECIAL_PUB}/chat.html?ed25519={pub_str}>chat</a> {}",
+            page += &format!("<p>0x{pub_str} {home_link} <a href=/latest/{SPECIAL_PUB}/video.html?ed25519={pub_str}>call</a> <a href=/latest/{SPECIAL_PUB}/pong.html?ed25519={pub_str}>pong</a> <a href=/latest/{SPECIAL_PUB}/chat.html?ed25519={pub_str}>chat</a> {}:{}",
                 if let Ok(hn) = dns_lookup::lookup_addr(&sa.ip()) { hn } else { sa.ip().to_string() },
+                sa.port(),
             );
         }
         page += "</pre>";
