@@ -1711,10 +1711,6 @@ fn handle_stdin(
     if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
         println!("QUEING FILE {arg}");
         inbound_states.insert(arg.clone(), InboundState::new(&arg, ps));
-    } else if sscanf!(line.as_str(), "/msg 0x{} {}",arg,arg2).is_ok() {
-        if let Ok(pub_key) = arg.parse::<Ed25519Pub>() {
-            chat_to_pub(ps, pub_key, &arg2);
-        }
     } else if line == "/quit" {
         ps.save_peers();
         ps.p.save();
@@ -1771,25 +1767,33 @@ fn handle_stdin(
         let mut pi = PeerInfo::new();
         pi.delay = Duration::ZERO;
         ps.peer_map.insert(arg.parse().unwrap(), pi);
-    } else if sscanf!(line.as_str(), "/msg {} {}",arg,arg2).is_ok() {
-        let mut message_out = ChatMessage::new(&ps, arg2.clone());
-        let dst = arg.parse().unwrap();
-        message_out.append(&mut ps.always_returned(dst));
-        // encrypt if we know the key
-        if let Some(pi) = &ps.peer_map.get(&dst) {
-            if let Some(their_pub) = &pi.ed25519 {
-                message_out = vec![
-                        EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
-                        //FastEncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
-                        ];
-                let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-                trace!( "sending message {:?} to {arg}", String::from_utf8_lossy(&message_out_bytes));
-                ps.socket.send_to(&message_out_bytes, &arg).ok();
-            } else {
-                warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+    } else if line.starts_with("/msg ") {
+        let rest = line[5..].trim_start();
+        if let Some((addr, msg)) = rest.split_once(char::is_whitespace) {
+            let msg = msg.trim_start();
+            if addr.starts_with("0x") {
+                if let Ok(pub_key) = addr[2..].parse::<Ed25519Pub>() {
+                    chat_to_pub(ps, pub_key, &msg.to_string());
+                }
+            } else if let Ok(dst) = addr.parse() {
+                let mut message_out = ChatMessage::new(&ps, msg.to_string());
+                message_out.append(&mut ps.always_returned(dst));
+                if let Some(pi) = &ps.peer_map.get(&dst) {
+                    if let Some(their_pub) = &pi.ed25519 {
+                        message_out = vec![
+                                EncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
+                                //FastEncryptedMessages::new(ps,their_pub, serde_json::to_vec(&message_out).unwrap()),
+                                ];
+                        let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
+                        trace!( "sending message {:?} to {addr}", String::from_utf8_lossy(&message_out_bytes));
+                        ps.socket.send_to(&message_out_bytes, addr).ok();
+                    } else {
+                        warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+                    }
+                } else {
+                    warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
+                }
             }
-        } else {
-            warn!("refusing to send unencrypted 1:1 message.  This probably shouldn't happen.");
         }
     } else if line == "/peers" {
         println!("========== active peer/ports");
