@@ -5111,7 +5111,7 @@ impl Receive for GetLatest {
         _: &mut bool,
         _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
-        _signer: Option<Ed25519Pub>,
+        signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         if !is_safe_relative_path(&self.name) {
             return vec![];
@@ -5149,7 +5149,20 @@ impl Receive for GetLatest {
         }
 
         if !result.is_empty() {
-            info!("sending Latest {} to {src:?}",self.name);
+            let sender = if let Some(pk) = signer {
+                pk.to_string()
+            } else {
+                match src {
+                    Source::S(sa) => ps
+                        .peer_map
+                        .get(sa)
+                        .and_then(|pi| pi.ed25519)
+                        .map(|pk| pk.to_string())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    Source::None => "websocket".to_string(),
+                }
+            };
+            info!("sending Latest {} to {src:?} from {sender}", self.name);
             if let Ok(mut file) = OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -5160,6 +5173,7 @@ impl Receive for GetLatest {
                     &serde_json::to_vec(&json!({
                         "name": self.name,
                         "source": source,
+                        "sender": sender,
                         "src": src,
                     }))
                     .unwrap(),
