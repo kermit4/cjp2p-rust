@@ -53,6 +53,25 @@ use std::path::Path;
 
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
 const SPECIAL_PUB: &str = "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb";
+const HELP_TEXT: &str = "
+                        - /ping
+                        - /get hash
+                        - /addpeer 1.2.3.4:5678
+                        - /save  (because an on-exit handler looks hard)
+                        - /quit
+                        - /list
+                        - /recommend hash
+                        - /recommended
+                        - /trending
+                        - /pending
+                        - /peers
+                        - /msg [ip:port or 0xPubKey] msg
+                        - /g [#group_name] msg  (group chat; omit #group_name to use last or default 'main')
+                        - /version
+                        - /update [bin]  (bin: pull latest release binary from GitHub)
+                        - /help (this help)
+                        - default action is /g #main
+                ";
 
 #[serde_as]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -1563,6 +1582,7 @@ fn run_engine(
     println!("your ed25519 public key, stored in cjp2p/state/key.v2.json, is:  0x{}", ps.keypair.public);
     println!("BUILD_VERSION {}", env!("BUILD_VERSION"));
     println!("web console at        http://127.0.0.1:{http_port}/");
+    println!("{HELP_TEXT}");
     let pub_hex = ps.keypair.public.to_string();
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     let mut stream_states: HashMap<String, StreamState> = HashMap::new();
@@ -1964,25 +1984,7 @@ fn handle_stdin(
             });
         }
     } else if line == "/help" {
-        println!("
-                        - /ping
-                        - /get hash
-                        - /addpeer 1.2.3.4:5678
-                        - /save  (because an on-exit handler looks hard)
-                        - /quit
-                        - /list
-                        - /recommend hash
-                        - /recommended
-                        - /trending
-                        - /pending
-                        - /peers
-                        - /msg [ip:port or 0xPubKey] msg
-                        - /g [#group_name] msg  (group chat; omit #group_name to use last or default 'main')
-                        - /version
-                        - /update [bin]  (bin: pull latest release binary from GitHub)
-                        - /help
-                        - default action is /g #main 
-                ");
+        println!("{HELP_TEXT}");
     } else if sscanf!(line.as_str(), "/publish {}", arg).is_ok() {
         let src = std::path::Path::new(&arg);
         let file_name = match src.file_name().and_then(|n| n.to_str()) {
