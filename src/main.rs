@@ -64,6 +64,7 @@ const HELP_TEXT: &str = "
                         - /recommended
                         - /trending
                         - /pending
+                        - /websockets
                         - /peers
                         - /msg [ip:port or 0xPubKey] msg
                         - /g [#group_name] msg  (group chat; omit #group_name to use last or default 'main')
@@ -725,47 +726,48 @@ impl PeerState {
         inbound_states: &mut HashMap<String, InboundState>,
     ) {
         debug!("handling {} websockets",self.ws_vec.len());
-        match self.ws_vec[index].read() {
-            Ok(buf) => {
-                //dbg!(msg);
-                debug!("websocket sent: {}",buf);
-                let message_in_bytes = buf.into_data();
-                if message_in_bytes.len() > 0 {
-                    let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            debug!( "could not deserialize incoming messages from websocket {e}  :  {}",
+        let Ok(buf) = self.ws_vec[index].read() else {
+            info!("websocket disconnected with error");
+            self.ws_vec.remove(index);
+            return;
+        };
+        debug!("websocket sent: {}",buf);
+        let message_in_bytes = buf.into_data();
+        if message_in_bytes.len() == 0 {
+            info!("websocket disconnected (EOF, empty read)");
+            self.ws_vec.remove(index);
+            return;
+        }
+        let messages: Messages = match serde_json::from_slice(&message_in_bytes) {
+            Ok(r) => r,
+            Err(e) => {
+                debug!("could not deserialize incoming messages from websocket {e}  :  {}",
                     String::from_utf8_lossy(&message_in_bytes));
-                            return;
-                        }
-                    };
-                    let messages = messages.0;
+                return;
+            }
+        };
+        let messages = messages.0;
 
-                    let message_out = self.handle_messages(
-                        messages,
-                        &Source::None,
-                        &mut false,
-                        stream_states,
-                        inbound_states,
-                        None,
-                    );
-                    if message_out.len() == 0 {
-                        return;
-                    }
-                    let message_out_string = serde_json::to_string(&message_out).unwrap();
-                    info!( "sending reply message {:?} to websocket",  message_out_string);
-                    let ws = &mut self.ws_vec[index];
-                    match ws.write(tungstenite::Message::Text(message_out_string.into())) {
-                        Ok(_) => {
-                            ws.flush().ok();
-                        }
-                        _ => {
-                            self.ws_vec.remove(index);
-                        }
-                    }
-                }
+        let message_out = self.handle_messages(
+            messages,
+            &Source::None,
+            &mut false,
+            stream_states,
+            inbound_states,
+            None,
+        );
+        if message_out.len() == 0 {
+            return;
+        }
+        let message_out_string = serde_json::to_string(&message_out).unwrap();
+        info!("sending reply message {:?} to websocket", message_out_string);
+        let ws = &mut self.ws_vec[index];
+        match ws.write(tungstenite::Message::Text(message_out_string.into())) {
+            Ok(_) => {
+                ws.flush().ok();
             }
             _ => {
+                info!("websocket disconnected on write with error");
                 self.ws_vec.remove(index);
             }
         }
@@ -1837,6 +1839,8 @@ fn handle_stdin(
             }
             println!("{} total unique IP peers.  ",unique_ips.len());
         });
+    } else if line == "/websockets" {
+        println!("{} websocket(s) connected", ps.ws_vec.len());
     } else if sscanf!(line.as_str(), "/recommend {}",arg).is_ok() {
         ps.p.you_should_see_this = Some(YouShouldSeeThis {
             id: arg.to_owned(),
@@ -4971,7 +4975,7 @@ impl Receive for SignedMessage {
                     messages: String::from_utf8_lossy(payload_bytes).to_string(),
                 })]])
             .unwrap();
-            trace!("sending signed message from ed25519={} to {} websockets", 
+            trace!("sending signed message from ed25519={} to {} websockets",
             self.ed25519.to_string(),
                 ps.ws_vec.len());
             for ws in &mut ps.ws_vec {
