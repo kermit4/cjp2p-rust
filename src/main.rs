@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256, Sha512};
 use snow::Builder;
 //use std::cmp;
 use std::collections::{HashMap, HashSet};
+//use std::collections::{VecDeque};
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 //use std::convert::TryInto;
 use std::env;
@@ -260,6 +261,7 @@ struct PeerState {
     ws_vec: Vec<WebSocket<TcpStream>>,
     http_clients: Vec<TcpStream>,
     content_gateways: Vec<ContentGateway>,
+    //probe_peer_history: VecDeque<HashSet<SocketAddr>>,
 }
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
@@ -363,6 +365,7 @@ impl PeerState {
             ws_vec: Vec::new(),
             http_clients: Vec::new(),
             content_gateways: Vec::new(),
+            //probe_peer_history: VecDeque::new(),
         };
         if ps.maintenance_period > 1 {
             info!("slowing maintenance in half because android, checking if its plugged in is harder than it sounds");
@@ -478,17 +481,18 @@ impl PeerState {
         }
     }
     fn probe(&mut self) -> () {
+        let nowi = Instant::now();
+        /* extremely premature optimization
         let mut peers = vec![]; //        self.best_peers(10, 2);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
         // some possibly pointless attempt to time peer probes to match NAT/firewall states on both sides, i have no idea how much it helps or is needed, it's just an idea, it might even hurt depending on the peer due to forcing everyone on a ~4 minute timer vs just best peers preferred and more frequent
         // this was just a best_peers() call for a long time, which definately works
         // better in some scenarios.   its just an idea i coded up with results yet to be
         // determined
-        let nowi = Instant::now();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
         for (p, pi) in &self.peer_map {
             let Some(ed25519) = pi.ed25519 else {
                 continue;
@@ -496,12 +500,9 @@ impl PeerState {
             let xor = u64::from_le_bytes(ed25519.as_bytes()[3..11].try_into().unwrap())
                 ^ u64::from_le_bytes(self.keypair.public.as_bytes()[3..11].try_into().unwrap())
                 ^ now;
-            let m = (self.peer_map.len().next_power_of_two() >> 4) as u64;
-            let m = if m >= self.maintenance_period * 2 {
-                m - self.maintenance_period * 2
-            } else {
-                0
-            };
+            let m = ((self.peer_map_by_pub.len().next_power_of_two() >> 4) as u64)
+                .saturating_sub(self.maintenance_period);
+            debug!("PROBE xor mask {:x} of {}",m,self.peer_map_by_pub.len());
             if xor & m == 0 && ed25519 != self.keypair.public {
                 peers.push((*p, pi.delay));
             }
@@ -516,7 +517,7 @@ impl PeerState {
             }
         }
         log_if_slow(nowi, line!().to_string());
-        if peers.len() >= 10 {
+        if peers.len() >= 5 {
             info!("PROBE too many xor peers {}, trimming",peers.len());
             peers.sort_unstable_by(|a, b| a.1.cmp(&b.1));
             let mut rng = rand::rng();
@@ -530,27 +531,34 @@ impl PeerState {
                 }
                 let p = peers[i];
                 peers_trimmed.insert(p);
-                if peers_trimmed.len() >= 10 {
+                if peers_trimmed.len() >= 5 {
                     break;
                 };
             }
             peers = peers_trimmed.into_iter().collect();
         }
-        let mut peers: Vec<SocketAddr> = peers.into_iter().map(|(addr, _)| addr).collect();
-        log_if_slow(nowi, line!().to_string());
         debug!("PROBE probing {} xor peers {:?}",peers.len(),peers);
-        let more = self.best_peers(10 - peers.len(), 2);
-        peers.append(&mut more.into_iter().collect());
-        if peers.len() > 10 {
-            error!("PROBE too many peers to probe {}",peers.len());
-        }
-        if peers.len() < 10 {
-            error!("PROBE too few peers to probe {}",peers.len());
+        let mut peers: HashSet<SocketAddr> = peers.into_iter().map(|(addr, _)| addr).collect();
+        */
+        let mut peers: HashSet<SocketAddr>= Default::default();
+        log_if_slow(nowi, line!().to_string());
+        let more = self.best_peers(10_usize.saturating_sub(peers.len()), 2);
+        peers.extend(more);
+        if peers.len() != 10 {
+            info!("PROBE not 10 peers {}",peers.len());
         }
         log_if_slow(nowi, line!().to_string());
-        log_if_slow(nowi, line!().to_string());
+        /* 
+        debug!("PROBE total before history merge: {} peers {:?}", peers.len(), peers);
 
-        debug!("PROBE probing {} peers",peers.len());
+        self.probe_peer_history.push_back(peers.clone());
+        if self.probe_peer_history.len() > 3 {
+            peers.extend(self.probe_peer_history.pop_front().unwrap_or_default());
+        }
+
+        debug!("PROBE total after history merge: {} peers {:?}", peers.len(), peers);
+        */
+
         for sa in peers {
             let peer_info = self.peer_map.get_mut(&sa).unwrap();
             peer_info.delay = peer_info
@@ -637,12 +645,12 @@ impl PeerState {
             // this should be randomized, whenever there are enough peers that its not just all of them
             // anyway
             for i in self.peer_map_by_pub.values() {
-                if let Source::S(sa) = i {
-                    result.insert(sa.clone());
-                    how_many -= 1;
                     if how_many == 0 {
                         break;
                     }
+                if let Source::S(sa) = i {
+                    result.insert(sa.clone());
+                    how_many -= 1;
                 }
             }
         }
