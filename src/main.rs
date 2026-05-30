@@ -237,6 +237,7 @@ struct PeerState {
     recent_peers: HashSet<SocketAddr>,
     recent_peer_timer: Instant,
     recent_peer_counter_max: usize,
+    maintenance_period: u64,
     socket: UdpSocket,
     lcdp_port: u16,
     http_port: u16,
@@ -315,6 +316,11 @@ impl PeerState {
             recent_peers: HashSet::new(),
             recent_peer_timer: Instant::now(),
             recent_peer_counter_max: 0,
+            maintenance_period: if std::env::consts::OS == "android" {
+                2
+            } else {
+                1
+            },
             socket: (|| -> std::io::Result<UdpSocket> {
                 let sock = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
                 unsafe {
@@ -358,6 +364,10 @@ impl PeerState {
             http_clients: Vec::new(),
             content_gateways: Vec::new(),
         };
+        if ps.maintenance_period > 1 {
+            info!("slowing maintenance in half because android, checking if its plugged in is harder than it sounds");
+        }
+
         for (k, v) in &ps.peer_map {
             if let Some(ed25519) = v.ed25519 {
                 ps.peer_map_by_pub.insert(ed25519, Source::S(k.to_owned()));
@@ -479,28 +489,46 @@ impl PeerState {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        for p in &self.peer_vec {
-            if let Some(ed25519) = self.peer_map[p].ed25519 {
-                if (ed25519.as_bytes()[3] ^ self.keypair.public.as_bytes()[3] ^ (now as u8)) & 0xfe
-                    == 0
-                    && ed25519 != self.keypair.public
-                {
-                    peers.push(p);
+        for (p, pi) in &self.peer_map {
+            let Some(ed25519) = pi.ed25519 else {
+                continue;
+            };
+            let xor = u64::from_le_bytes(ed25519.as_bytes()[3..11].try_into().unwrap())
+                ^ u64::from_le_bytes(self.keypair.public.as_bytes()[3..11].try_into().unwrap())
+                ^ now;
+            let m = (self.peer_map.len().next_power_of_two() >> 4) as u64;
+            let m = if m >= self.maintenance_period * 2 {
+                m - self.maintenance_period * 2
+            } else {
+                0
+            };
+            if xor & m == 0 && ed25519 != self.keypair.public {
+                peers.push((*p, pi.delay));
+            }
+        }
+
+        debug!("PROBE xor peers found {}",peers.len());
+        if log_enabled!(Level::Debug) {
+            for p in &peers {
+                if let Some(ed25519) = self.peer_map[&p.0].ed25519 {
+                    debug!("PROBE xor peer found {ed25519}");
                 }
             }
         }
         log_if_slow(nowi, line!().to_string());
         if peers.len() >= 10 {
-            let mut rng = rand::rng();
-            let mut peers_trimmed: HashSet<&SocketAddr> = HashSet::new();
             info!("PROBE too many xor peers {}, trimming",peers.len());
+            peers.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+            let mut rng = rand::rng();
+            let mut peers_trimmed = HashSet::new();
+
             for _ in 0..10 * 2 {
                 let i =
                     ((rng.random_range(0.0..1.0) as f64).powi(2) * (peers.len() as f64)) as usize;
                 if i >= peers.len() {
                     continue;
                 }
-                let p = &self.peer_vec[i];
+                let p = peers[i];
                 peers_trimmed.insert(p);
                 if peers_trimmed.len() >= 10 {
                     break;
@@ -508,14 +536,21 @@ impl PeerState {
             }
             peers = peers_trimmed.into_iter().collect();
         }
+        let mut peers: Vec<SocketAddr> = peers.into_iter().map(|(addr, _)| addr).collect();
         log_if_slow(nowi, line!().to_string());
+        debug!("PROBE probing {} xor peers {:?}",peers.len(),peers);
         let more = self.best_peers(10 - peers.len(), 2);
+        peers.append(&mut more.into_iter().collect());
+        if peers.len() > 10 {
+            error!("PROBE too many peers to probe {}",peers.len());
+        }
+        if peers.len() < 10 {
+            error!("PROBE too few peers to probe {}",peers.len());
+        }
         log_if_slow(nowi, line!().to_string());
-        debug!("PROBE probing xor peers {:?}",peers);
-        peers.append(&mut more.iter().collect());
         log_if_slow(nowi, line!().to_string());
 
-        trace!("PROBE probing {} peers",peers.len());
+        debug!("PROBE probing {} peers",peers.len());
         for sa in peers {
             let peer_info = self.peer_map.get_mut(&sa).unwrap();
             peer_info.delay = peer_info
@@ -525,7 +560,7 @@ impl PeerState {
             message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
-            message_out.push(self.please_always_return(*sa));
+            message_out.push(self.please_always_return(sa));
             if let Some(v) = &self.p.i_just_saw_this {
                 message_out.push(Message::IJustSawThis(v.clone()));
             }
@@ -533,7 +568,7 @@ impl PeerState {
                 message_out.push(Message::YouShouldSeeThis(v.clone()));
             }
             message_out.push(MyPublicKey::new(self));
-            message_out.append(&mut self.always_returned(*sa));
+            message_out.append(&mut self.always_returned(sa));
             message_out.push(PleaseReturnThisMessage::new(self));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
 
@@ -1583,6 +1618,7 @@ fn run_engine(
     }
     println!("your ed25519 public key, stored in cjp2p/state/key.v2.json, is:  0x{}", ps.keypair.public);
     println!("BUILD_VERSION {}", env!("BUILD_VERSION"));
+    println!("OS {}", std::env::consts::OS);
     println!("web console at        http://127.0.0.1:{http_port}/");
     println!("{HELP_TEXT}");
     let pub_hex = ps.keypair.public.to_string();
@@ -2208,10 +2244,11 @@ fn status_page(
 
     let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=10><title>cjp2p status {}</title>\
             <style>body{{font-family:monospace;font-size:13px;margin:1em}}b{{color:#0ff}}</style></head><body>\n\
-            <b>{}</b>\n\n\
+            <b>{} {}</b>\n\n\
             <p><b>pubkey</b> {}<br><b>uptime</b> {:?}<p>
             ",
             env!("BUILD_VERSION"),
+            std::env::consts::OS,
             env!("BUILD_VERSION"),
             public_key_hex,ps.boot.elapsed());
 
@@ -3870,12 +3907,8 @@ fn maintenance(
         return;
     }
     debug!("maintenance");
-    let save_battery = if cfg!(target_os = "android") { 2 } else { 1 };
-    if save_battery > 1 {
-        debug!("slowing maintenance in half because android, checking if its plugged in is harder than it sounds");
-    }
-    ps.next_maintenance =
-        Instant::now() + Duration::from_millis(rand::rng().random_range(888..999) * save_battery);
+    ps.next_maintenance = Instant::now()
+        + Duration::from_millis(rand::rng().random_range(888..999) * ps.maintenance_period as u64);
     if let Some(next) = ps.group_chat_backoff_next {
         if next.elapsed() > Duration::ZERO && !ps.group_chat_outbox.is_empty() {
             let msgs: Vec<serde_json::Value> = ps
