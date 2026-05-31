@@ -2113,21 +2113,23 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
     let public_key = format!("0x{}", ps.keypair.public);
     let total_peers = ps.peer_map.len();
 
-    let mut seen_pubs: HashSet<Ed25519Pub> = HashSet::new();
-    let mut active_peers: Vec<serde_json::Value> = Vec::new();
-    for (addr, v) in &ps.peer_map {
-        if v.delay < Duration::from_millis(250) {
-            if let Some(pub_) = v.ed25519 {
-                if seen_pubs.insert(pub_) {
-                    active_peers.push(json!({
-                        "addr": addr.to_string(),
+    let active_peers: Vec<serde_json::Value> = ps
+        .peer_map_by_pub
+        .iter()
+        .filter_map(|(pub_, src)| {
+            if let Source::S(sa) = src {
+                let v = ps.peer_map.get(sa)?;
+                if v.delay < Duration::from_millis(250) {
+                    return Some(json!({
+                        "addr": sa.to_string(),
                         "pub": format!("0x{}", pub_),
                         "delay_ms": v.delay.as_millis(),
                     }));
                 }
             }
-        }
-    }
+            None
+        })
+        .collect();
 
     let mut seen_ips: HashSet<IpAddr> = HashSet::new();
     let unique_ips: usize = ps
@@ -2198,17 +2200,19 @@ fn status_page(
         }
     }
 
-    let mut seen_pubs: HashSet<Ed25519Pub> = HashSet::new();
-    let mut active_peers: Vec<(SocketAddr, Ed25519Pub)> = Vec::new();
-    for (k, v) in &ps.peer_map {
-        if v.delay < Duration::from_millis(600) {
-            if let Some(pub_) = v.ed25519 {
-                if seen_pubs.insert(pub_) {
-                    active_peers.push((*k, pub_));
+    let mut active_peers: Vec<(SocketAddr, Ed25519Pub)> = ps
+        .peer_map_by_pub
+        .iter()
+        .filter_map(|(pub_, src)| {
+            if let Source::S(sa) = src {
+                let delay = ps.peer_map.get(sa)?.delay;
+                if delay < Duration::from_millis(600) {
+                    return Some((*sa, *pub_));
                 }
             }
-        }
-    }
+            None
+        })
+        .collect();
 
     let mut found_special = false;
     active_peers.sort_by_key(|(_, pub_)| {
