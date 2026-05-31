@@ -8,6 +8,13 @@ This builds on the following standards:
 
 The current target audience is developers, so the UI is minimal and not well documented.   If you don't intend to develop p2p software, this repo is probably not for you, though the sample implementations are quite powerful.  
 
+APK/Termux builds tested to not use much battery / wakeup timer is 2s (unless you're hosting a bunch of files AND people are downloading them a lot, neither of which is likely right now.)
+
+Useful things this CLI provides without any other UI
+- /publish path  (copy file to cjp2p/origin/ and print its URL, updates will propagate)
+- /share path  (serve file by SHA-256 hash from cjp2p/public/ (updates do NOT propagate, do not modify them!))
+- /get [hash]
+
 This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it, except for /latest/ which are ordinary names that get checked for changes and published by hash in /public/, and the requester is sent the latest hash. (So you have distributed updateable content by your public key.  Make yourself a home page, call it index.html .)
 
 If you create .allow_remote_http in the directory you run this, the next time it starts it will allow any IP to connect to the HTTP port, but it will only serve files you already have, it can't cause it to download anything new, and doesn't have any of special access that localhost does. As of this writing that means it will refuse websockets too. I run it with .allow_remote_http so I think its safe, but I have no crypto keys laying around to worry about.
@@ -48,6 +55,7 @@ If it's not running, `git pull` then `make`
 
 # hints
 
+[WEBSOCKET_API.md] WEBSOCKET_API.md for web devs who just want to write browser side p2p apps (that even work on a LAN without internet)
 [build your own p2p game in minutes quick start](quickstart_build_a_p2p_game_with_one_prompt.md)
 [build your own p2p twitter in minutes quick start](quickstart_build_a_p2p_twitter_with_one_prompt.md)
 

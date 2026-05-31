@@ -70,6 +70,8 @@ const HELP_TEXT: &str = "
                         - /msg [ip:port or 0xPubKey] msg
                         - /g [#group_name] msg  (group chat; omit #group_name to use last or default 'main')
                         - /version
+                        - /publish path  (copy file to cjp2p/origin/ and print its URL)
+                        - /share path  (serve file by SHA-256 hash from cjp2p/public/)
                         - /update [bin]  (bin: pull latest release binary from GitHub)
                         - /help (this help)
                         - default action is /g #main
