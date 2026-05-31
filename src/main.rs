@@ -539,10 +539,10 @@ impl PeerState {
         }
         debug!("PROBE probing {} xor peers {:?}",peers.len(),peers);
         let mut peers: HashSet<SocketAddr> = peers.into_iter().map(|(addr, _)| addr).collect();
-        */
-        let mut peers: HashSet<SocketAddr> = Default::default();
-        log_if_slow(nowi, line!().to_string());
         peers.extend(self.best_peers(10_usize.saturating_sub(peers.len()), 2));
+        log_if_slow(nowi, line!().to_string());
+        */
+        let peers = self.best_peers(10, 2);
         if peers.len() != 10 {
             info!("PROBE not 10 peers {}",peers.len());
         }
