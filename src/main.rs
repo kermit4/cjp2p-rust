@@ -540,15 +540,14 @@ impl PeerState {
         debug!("PROBE probing {} xor peers {:?}",peers.len(),peers);
         let mut peers: HashSet<SocketAddr> = peers.into_iter().map(|(addr, _)| addr).collect();
         */
-        let mut peers: HashSet<SocketAddr>= Default::default();
+        let mut peers: HashSet<SocketAddr> = Default::default();
         log_if_slow(nowi, line!().to_string());
-        let more = self.best_peers(10_usize.saturating_sub(peers.len()), 2);
-        peers.extend(more);
+        peers.extend(self.best_peers(10_usize.saturating_sub(peers.len()), 2));
         if peers.len() != 10 {
             info!("PROBE not 10 peers {}",peers.len());
         }
         log_if_slow(nowi, line!().to_string());
-        /* 
+        /*
         debug!("PROBE total before history merge: {} peers {:?}", peers.len(), peers);
 
         self.probe_peer_history.push_back(peers.clone());
@@ -645,9 +644,9 @@ impl PeerState {
             // this should be randomized, whenever there are enough peers that its not just all of them
             // anyway
             for i in self.peer_map_by_pub.values() {
-                    if how_many == 0 {
-                        break;
-                    }
+                if how_many == 0 {
+                    break;
+                }
                 if let Source::S(sa) = i {
                     result.insert(sa.clone());
                     how_many -= 1;
