@@ -1630,6 +1630,7 @@ fn run_engine(
     println!("OS {}", std::env::consts::OS);
     println!("web console at        http://127.0.0.1:{http_port}/");
     println!("{HELP_TEXT}");
+    announce_version_change(&mut ps);
     let pub_hex = ps.keypair.public.to_string();
     let mut inbound_states: HashMap<String, InboundState> = HashMap::new();
     let mut stream_states: HashMap<String, StreamState> = HashMap::new();
@@ -2103,24 +2104,8 @@ fn handle_stdin(
         let mut group_name = ps.last_group.clone();
         let _ = sscanf!(line.as_str(), "/g #{} {}", group_name, line).is_ok()
             || sscanf!(line.as_str(), "/g {}", line).is_ok();
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
         ps.last_group = group_name.clone();
-        let gcm = GroupChatMessage {
-            group_name: group_name.clone(),
-            text: line.clone(),
-            timestamp,
-        };
-        let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm.clone())).unwrap();
-        let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
-        for pub_key in peers {
-            msgs_to_pub(ps, pub_key, &vec![msg_val.clone()]);
-        }
-        ps.group_chat_outbox.push(gcm);
-        ps.group_chat_backoff_delay_ms = 500.0;
-        ps.group_chat_backoff_next = Some(Instant::now() + Duration::from_millis(500));
+        GroupChatMessage::send(ps, group_name, line);
     }
     true
 }
@@ -4551,6 +4536,40 @@ impl Receive for GroupChatMessage {
             print_group_chat_msg(&pub_key_hex, &self);
         }
         vec![]
+    }
+}
+impl GroupChatMessage {
+    fn send(ps: &mut PeerState, group_name: String, text: String) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let gcm = GroupChatMessage {
+            group_name,
+            text,
+            timestamp,
+        };
+        let msg_val = serde_json::to_value(&Message::GroupChatMessage(gcm.clone())).unwrap();
+        let peers: Vec<Ed25519Pub> = ps.peer_map_by_pub.keys().cloned().collect();
+        for pub_key in peers {
+            msgs_to_pub(ps, pub_key, &vec![msg_val.clone()]);
+        }
+        ps.group_chat_outbox.push(gcm);
+        ps.group_chat_backoff_delay_ms = 500.0;
+        ps.group_chat_backoff_next = Some(Instant::now() + Duration::from_millis(500));
+    }
+}
+fn announce_version_change(ps: &mut PeerState) {
+    let current_version = env!("BUILD_VERSION");
+    let last_version_path = "./cjp2p/state/last_version.txt";
+    let last_version = fs::read_to_string(last_version_path).unwrap_or_default();
+    let _ = fs::write(last_version_path, current_version);
+    if !last_version.trim().is_empty() && last_version.trim() != current_version {
+        GroupChatMessage::send(
+            ps,
+            ps.last_group.clone(),
+            format!("* now running {}", current_version),
+        );
     }
 }
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
