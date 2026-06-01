@@ -68,9 +68,7 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - remember to talk like people not a computer (naming, especially on the wire)
 - make it easy for other people to build on, make easy for UI devs on websockets
 ## UI
--   can browsers be p2p nodes in tab?  though if not, a browser plugin isnt inconceiveable.  https://github.com/webtorrent/webtorrent  webrtc but webtransport is probably better now
-- public websocket support/ browser light node, its easy, just treat non-localhost as network..easy, right? update Source enum..  the code is intended to possibly allow this but there are gaps to fully implementing it, if i even want to
-- more orderly useful chat interface, with history on dashboard page, like make this a social focused space , with clicking on a id to open the 1:1 chat
+-   webtransport?
 ## scarcity related
 - proof of latency? signature chain of somewhat verifiable latency?
 - valuable numbers? (PoW?  or valuable just because the issuer, based on their public key, limits the issuance.  every person their own "coin" as value derived from their reputation?  reputation granting fungible negotiable scarcity? be your own CENTRAL bank!)
@@ -82,8 +80,7 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - web of trust - direct referal trust or public reputation..and is that the scarcity   reputation is not absolute, its from your point of view, that solves sybil attacks
 ## public collaboration 
 - needs some scarcity, eventually, right?  to not be spam?  as long as the spam cant be automated without limit
-- news feed
-- group chats - or just another field in chat message, an array of tags? for public chats
+- news feed - or extend chirp.html
 - reviews of content
 - reviews of anything
 - polls, approval voting style
@@ -98,4 +95,3 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - it is time to make various mini stand-alone apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - focus on enabling devs, i've done enough demoing.. general dev UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages ..start from total noob, dev exp
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
-- there needs to be a messaging, not just group and single char..or some notice that someone l eft a single char chat for you to check
