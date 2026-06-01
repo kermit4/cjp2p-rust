@@ -4393,7 +4393,13 @@ impl Receive for MyPublicKey {
                 return vec![];
             }
         }
-        ps.peer_map_by_pub.insert(self.ed25519h, src.to_owned());
+        if ps
+            .peer_map_by_pub
+            .insert(self.ed25519h, src.to_owned())
+            .is_none()
+        {
+            info!("new pub found: {}", self.ed25519h);
+        }
         if let Source::S(src) = *src {
             let pi = ps.peer_map.get_mut(&src).unwrap();
             pi.ed25519 = Some(self.ed25519h);
@@ -4717,7 +4723,9 @@ impl Receive for EncryptedMessages {
             return vec![];
         };
 
-        ps.peer_map_by_pub.insert(their_pub, src_.clone());
+        if ps.peer_map_by_pub.insert(their_pub, src_.clone()).is_none() {
+            info!("new pub found: {}", their_pub);
+        }
         let pi = ps.peer_map.get_mut(&src).unwrap();
         pi.ed25519 = Some(their_pub);
 
@@ -4846,7 +4854,9 @@ impl Receive for FastEncryptedMessages {
         let cipher = Aes256Gcm::new(&aes_key.into());
         match cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
             Ok(plaintext) => {
-                ps.peer_map_by_pub.insert(sender, src_.clone());
+                if ps.peer_map_by_pub.insert(sender, src_.clone()).is_none() {
+                    info!("new pub found: {}", sender);
+                }
                 let pi = ps.peer_map.get_mut(&src).unwrap();
                 pi.ed25519 = Some(sender);
 

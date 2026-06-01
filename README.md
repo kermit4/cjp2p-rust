@@ -98,5 +98,4 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - it is time to make various mini stand-alone apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - focus on enabling devs, i've done enough demoing.. general dev UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages ..start from total noob, dev exp
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
-- ud
 - there needs to be a messaging, not just group and single char..or some notice that someone l eft a single char chat for you to check
