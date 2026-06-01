@@ -49,7 +49,7 @@ This also works great on Android.  It does use "StartForeground" but the base ma
 
 # updating
 
-`/update` for locally built installs, `/update bin` for binary installs yet, or just do whatever you initially did again.  No method wipes your cjp2p/ (state, your hosted files, downloads, or key)
+`/update` -- if the exe is in a /target/ path it will get a bundle off the network and build and run it, otherwise it will get the latest release (verified by Github to match the source at the time) off Github.
 
 If it's not running, `git pull` then `make`
 
@@ -98,3 +98,5 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - it is time to make various mini stand-alone apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - focus on enabling devs, i've done enough demoing.. general dev UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages ..start from total noob, dev exp
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
+- ud
+- there needs to be a messaging, not just group and single char..or some notice that someone l eft a single char chat for you to check

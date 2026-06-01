@@ -72,7 +72,7 @@ const HELP_TEXT: &str = "
                         - /version
                         - /publish path  (copy file to cjp2p/origin/ and print its URL)
                         - /share path  (serve file by SHA-256 hash from cjp2p/public/)
-                        - /update [bin]  (bin: pull latest release binary from GitHub)
+                        - /update  (auto-detects local build vs release binary)
                         - /help (this help)
                         - default action is /g #main
                 ";
@@ -1953,22 +1953,23 @@ fn handle_stdin(
             trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
-    } else if line == "/update" || line.starts_with("/update ") {
-        let do_bin = line.ends_with(" bin");
+    } else if line == "/update" {
         let exe = env::current_exe().unwrap();
         let args: Vec<String> = env::args().collect();
-        if do_bin {
-            thread::spawn(move || {
+        let bundle_url =
+            format!("http://127.0.0.1:{}/latest/{SPECIAL_PUB}/cjp2p.bundle",ps.http_port);
+        thread::spawn(move || {
+            if !exe.to_string_lossy().contains("/target/") {
                 use std::os::unix::fs::{MetadataExt, PermissionsExt};
                 let meta = match std::fs::metadata(&exe) {
                     Ok(m) => m,
                     Err(e) => {
-                        eprintln!("/update bin: stat failed: {e}");
+                        eprintln!("/update: stat failed: {e}");
                         return;
                     }
                 };
                 if meta.uid() == 0 && unsafe { libc::getuid() } != 0 {
-                    eprintln!("/update bin: binary is owned by root but running as a regular user -- re-run as root to update");
+                    eprintln!("/update: binary is owned by root but running as a regular user -- re-run as root to update");
                     return;
                 }
                 let os = std::env::consts::OS;
@@ -1976,13 +1977,13 @@ fn handle_stdin(
                 let bin_name = format!("cjp2p-{os}-{arch}");
                 let url = format!("https://github.com/kermit4/cjp2p-rust/releases/latest/download/{bin_name}");
                 let tmp = exe.with_extension("tmp");
-                eprintln!("/update bin: downloading {url}");
+                eprintln!("/update: downloading {url}");
                 let status = std::process::Command::new("wget")
                     .args(["-q", "-O", tmp.to_str().unwrap(), url.as_str()])
                     .status()
                     .expect("wget failed");
                 if !status.success() {
-                    eprintln!("/update bin: wget failed");
+                    eprintln!("/update: wget failed");
                     let _ = std::fs::remove_file(&tmp);
                     return;
                 }
@@ -1991,22 +1992,18 @@ fn handle_stdin(
                 let _ = std::fs::set_permissions(&tmp, perms);
                 let bak = exe.with_extension("bak");
                 if let Err(e) = std::fs::rename(&exe, &bak) {
-                    eprintln!("/update bin: failed to back up old binary: {e}");
+                    eprintln!("/update: failed to back up old binary: {e}");
                     let _ = std::fs::remove_file(&tmp);
                     return;
                 }
                 if let Err(e) = std::fs::rename(&tmp, &exe) {
-                    eprintln!("/update bin: failed to move new binary into place: {e}");
+                    eprintln!("/update: failed to move new binary into place: {e}");
                     let _ = std::fs::rename(&bak, &exe);
                     return;
                 }
-                eprintln!("/update bin: updated, restarting");
+                eprintln!("/update: updated, restarting");
                 let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
-            });
-        } else {
-            let bundle_url =
-                format!("http://127.0.0.1:{}/latest/{SPECIAL_PUB}/cjp2p.bundle",ps.http_port);
-            thread::spawn(move || {
+            } else {
                 let status = std::process::Command::new("wget")
                     .args(["-q", "-O", "bundle", bundle_url.as_str()])
                     .status()
@@ -2031,8 +2028,8 @@ fn handle_stdin(
                     return;
                 }
                 let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
-            });
-        }
+            }
+        });
     } else if line == "/help" {
         println!("{HELP_TEXT}");
     } else if sscanf!(line.as_str(), "/publish {}", arg).is_ok() {
