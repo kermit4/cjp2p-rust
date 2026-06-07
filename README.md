@@ -102,4 +102,3 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - have claude document video.html in similish style as the share and publish, and first add an optoin to video to use lower quality or pixels the keyframe size down, or maybe just an simple user option to lower keyframe
 - note more why not relay..dont give up, dont lose p2p, in docs
 - p2p virtual universe
-- new blake3 tree file needs to be able to recover itself in part on corruption, so this really scales to massive files
