@@ -2413,7 +2413,6 @@ fn handle_stdin(
                 println!("share: empty file");
                 return;
             }
-            println!("hashing: {path} {file_size}");
             let src = match unsafe { Mmap::map(&src_file) } {
                 Ok(m) => m,
                 Err(e) => {
@@ -3749,11 +3748,7 @@ impl Receive for Content {
                     Some(mm) if verify_tree_mmap(&mm[..], &hash) => mm.make_read_only().ok(),
                     Some(mm) => {
                         i.mmap = Some(mm);
-                        i.bytes_complete = 0;
-                        i.bitmap.fill(false);
-                        i.next_block = 0;
-                        i.hash_failures += 1;
-                        warn!("tree verification failed for blake3/{} (attempt {})", hash, i.hash_failures);
+                        warn!("tree verification failed for blake3/{}", hash);
                         None
                     }
                     None => None,
@@ -4368,14 +4363,6 @@ impl InboundState {
             return false;
         }
         if self.id.starts_with("blake3_trees/") {
-            if self.hash_failures > 2 {
-                error!("{} tree verification failed {} times, giving up", self.id, self.hash_failures);
-                fs::remove_file(format!("./cjp2p/incoming/{}", self.id)).ok();
-                return true;
-            }
-            if self.bytes_complete != self.eof {
-                return false;
-            }
             let path = format!("./cjp2p/incoming/{}", self.id);
             let new_path = format!("./cjp2p/public/{}", self.id);
             match fs::rename(&path, &new_path) {
