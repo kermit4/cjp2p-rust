@@ -3596,6 +3596,9 @@ impl Content {
         let mut buf = vec![0; length];
         let length = ofr.file.read_at(&mut buf, req.offset as u64).unwrap();
         buf.truncate(length);
+        if req.id.starts_with("blake3_tree_v2/") && req.offset == 0 && buf.len() >= 4 && &buf[..4] != b"B3T\x02" {
+            warn!("SERVING block0 of {} with bad magic {:02x}{:02x}{:02x}{:02x} len={} file_eof={}", req.id, buf[0], buf[1], buf[2], buf[3], buf.len(), ofr.eof);
+        }
         return vec![Message::Content(Self {
             id: req.id.clone(),
             offset: req.offset,
@@ -4183,6 +4186,9 @@ impl InboundState {
         };
 
         if this_eof != self.eof || self.mmap.is_none() {
+            let old_eof = self.eof;
+            let old_bytes_complete = self.bytes_complete;
+            let old_bitmap_any = self.bitmap.any();
             self.eof = this_eof;
             let blocks = (self.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
             self.bitmap.resize(blocks, false);
@@ -4194,6 +4200,9 @@ impl InboundState {
                 .unwrap();
             file.set_len(self.eof as u64).unwrap();
             self.mmap = Some(unsafe { MmapMut::map_mut(&file).unwrap() });
+            if old_bitmap_any || old_bytes_complete > 0 {
+                warn!("{} mmap recreated eof {}->{}  bytes_complete={} bitmap_had_bits={} -- stale bitmap bits possible!", self.id, old_eof, this_eof, old_bytes_complete, old_bitmap_any);
+            }
         }
 
         if content.offset >= self.eof {
@@ -4226,6 +4235,12 @@ impl InboundState {
         } else if content.base64.len() == BLOCK_SIZE!()
             || content.base64.len() + content.offset == self.eof
         {
+            if self.id.starts_with("blake3_tree_v2/") && block_number == 0 && content.base64.len() >= 4 {
+                let magic = &content.base64[..4];
+                if magic != b"B3T\x02" {
+                    warn!("{} writing block0 with bad magic {:02x}{:02x}{:02x}{:02x} (len={} eof={}) -- sender gave zeros?", self.id, magic[0], magic[1], magic[2], magic[3], content.base64.len(), self.eof);
+                }
+            }
             self.mmap.as_mut().unwrap()[content.offset..content.base64.len() + content.offset]
                 .copy_from_slice(content.base64.as_ref());
             self.bytes_complete += content.base64.len();
