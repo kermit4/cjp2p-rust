@@ -314,9 +314,9 @@ impl PeerState {
         fs::create_dir("./cjp2p/log").ok();
         fs::create_dir("./cjp2p/metadata/latest").ok();
         fs::create_dir("./cjp2p/streams").ok();
-        fs::create_dir("./cjp2p/incoming").ok();
         fs::create_dir("./cjp2p/public/blake3").ok();
         fs::create_dir("./cjp2p/public/blake3_tree_v2").ok();
+        fs::create_dir("./cjp2p/incoming").ok();
         fs::create_dir("./cjp2p/incoming/blake3").ok();
         fs::create_dir("./cjp2p/incoming/blake3_tree_v2").ok();
         use std::net::Ipv6Addr;
@@ -634,6 +634,7 @@ impl PeerState {
             peers_to_save.push((ssrc.clone(), self.peer_map[ssrc].clone()))
         }
 
+        fs::create_dir_all("./cjp2p/state").ok();
         OpenOptions::new()
             .create(true)
             .write(true)
@@ -1594,6 +1595,7 @@ fn handle_publish_origin(mut stream: TcpStream, req: HttpRequest) {
     stream.set_nonblocking(false).ok();
     thread::spawn(move || {
         let temp_name = format!(".tmp_{:016x}", rand::rng().random::<u64>());
+        fs::create_dir_all("./cjp2p/origin").ok();
         let temp_path = format!("./cjp2p/origin/{}", temp_name);
         let dest_path = format!("./cjp2p/origin/{}", filename);
         if let Some(parent) = Path::new(&dest_path).parent() {
@@ -2767,6 +2769,7 @@ fn handle_web_request(
     }
 
     info!("got http request for {:?}",req);
+    fs::create_dir_all("./cjp2p/log").ok();
     if let Ok(mut file) = OpenOptions::new()
         .create(true)
         .append(true)
@@ -4137,6 +4140,10 @@ impl InboundState {
         if inbound_states.contains_key(id) {
             return;
         }
+        fs::create_dir_all("./cjp2p/public/blake3").ok();
+        fs::create_dir_all("./cjp2p/public/blake3_tree_v2").ok();
+        fs::create_dir_all("./cjp2p/incoming/blake3").ok();
+        fs::create_dir_all("./cjp2p/incoming/blake3_tree_v2").ok();
         let mut peers: HashSet<SocketAddr> = HashSet::new();
         let peers_from_disk = InboundState::send_content_peers_from_disk(
             &id.to_string(),
@@ -5833,6 +5840,7 @@ impl Receive for GetLatest {
                 }
             };
             info!("sending Latest {} to {src:?} from {sender}", self.name);
+            fs::create_dir_all("./cjp2p/log").ok();
             if let Ok(mut file) = OpenOptions::new()
                 .create(true)
                 .append(true)
