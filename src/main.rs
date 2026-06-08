@@ -1321,13 +1321,9 @@ fn tree_check_subtree(
     false
 }
 
-// Read the incoming tree file, check the header hash and parent-child consistency.
+// Check the header hash and parent-child consistency of a tree v2 data slice.
 // Returns the set of 4KB block indices suspected bad. Empty = all good, rename to public.
-fn check_tree_v2_blocks(id: &str, expected_hash: &str, n_leaves: usize) -> Vec<usize> {
-    let path = format!("./cjp2p/incoming/{}", id);
-    let f = match File::open(&path) { Ok(f) => f, Err(_) => return vec![0] };
-    let mm = match unsafe { Mmap::map(&f) } { Ok(m) => m, Err(_) => return vec![0] };
-    let data = &mm[..];
+fn check_tree_v2_data(data: &[u8], expected_hash: &str, n_leaves: usize) -> Vec<usize> {
     if data.len() < 64 || &data[0..4] != b"B3T\x02" {
         return (0..(data.len() + BLOCK_SIZE!() - 1) / BLOCK_SIZE!()).collect();
     }
@@ -1430,7 +1426,7 @@ fn upgrade_to_blake3(public_path: &str) {
                 std::os::unix::fs::symlink(public_path, &blake3_path).ok();
             }
         }
-        info!("upgraded {} to blake3 {}", public_path, blake3_id);
+        info!("upgraded {} to blake3/{}", public_path, blake3_id);
         println!("blake3: {}", blake3_id);
     }
 }
@@ -3725,13 +3721,13 @@ impl Receive for Content {
         let tree_eof = i.eof;
         if i.bytes_complete == i.eof && i.eof > 0 && self.id.starts_with("blake3_tree_v2/") {
             let hash = self.id["blake3_tree_v2/".len()..].to_string();
-            let bad = match n_leaves_from_tree_v2_eof(tree_eof) {
-                Some(n) => check_tree_v2_blocks(&self.id, &hash, n),
-                None => {
-                    error!("{} cannot derive n_leaves from eof {}", self.id, tree_eof);
-                    vec![0]
+            let bad: Vec<usize> = inbound_states.get(&self.id).map_or(vec![0], |ti| {
+                match (n_leaves_from_tree_v2_eof(tree_eof), ti.mmap.as_deref()) {
+                    (Some(n), Some(data)) => check_tree_v2_data(data, &hash, n),
+                    (None, _) => { error!("{} cannot derive n_leaves from eof {}", self.id, tree_eof); vec![0] },
+                    (_, None) => vec![0],
                 }
-            };
+            });
             if bad.is_empty() {
                 let incoming = format!("./cjp2p/incoming/{}", self.id);
                 let public = format!("./cjp2p/public/{}", self.id);
@@ -4198,7 +4194,7 @@ impl InboundState {
             };
             let cv = block_chaining_value(&content.base64, (block_number * BLOCK_SIZE!()) as u64);
             if cv != expected_cv {
-                error!("{} block {} blake3 CV mismatch, re-requesting", self.id, block_number);
+                warn!("{} block {} blake3 CV mismatch, re-requesting", self.id, block_number);
                 self.last_activity = Instant::now();
                 return vec![];
             }
