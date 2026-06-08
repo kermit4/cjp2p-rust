@@ -3735,6 +3735,12 @@ impl Receive for Content {
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
+        if i.done {
+            // Duplicate block arrived after download already completed (e.g. in-flight twin request).
+            // Avoid recreating the mmap (which was taken for segment_hashes) onto a fresh zero file.
+            debug!("ignoring late dup block {} for completed {}", self.offset / BLOCK_SIZE!(), self.id);
+            return vec![];
+        }
         let block_number = self.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
         let mut message_out = i.receive_content(&self, ps);
