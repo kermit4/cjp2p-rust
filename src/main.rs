@@ -3722,13 +3722,12 @@ impl Receive for Content {
         let tree_eof = i.eof;
         if i.bytes_complete == i.eof && i.eof > 0 && self.id.starts_with("blake3_tree_v2/") {
             let hash = self.id["blake3_tree_v2/".len()..].to_string();
-            let bad: Vec<usize> = inbound_states.get(&self.id).map_or({error!("missing inboundstate"); vec![0]}, |ti| {
-                match (n_leaves_from_tree_v2_eof(tree_eof), ti.mmap.as_deref()) {
+            let bad: Vec<usize> = 
+                match (n_leaves_from_tree_v2_eof(tree_eof), inbound_states.get(&self.id).unwrap().mmap.as_deref()) {
                     (Some(n), Some(data)) => check_tree_v2_data(data, &hash, n),
                     (None, _) => { error!("{} cannot derive n_leaves from eof {}", self.id, tree_eof); vec![0] },
                     (_, None) => { error!("{} missing mmap",self.id); vec![0] }
-                }
-            });
+                };
             if bad.is_empty() {
                 let incoming = format!("./cjp2p/incoming/{}", self.id);
                 let public = format!("./cjp2p/public/{}", self.id);
