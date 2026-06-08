@@ -3390,6 +3390,7 @@ impl PleaseSendContent {
         // Don't request content blocks until leaf CVs are loaded; every block
         // must be CV-checked on receipt, so there is no point starting earlier.
         if i.id.starts_with("blake3/") && i.segment_hashes.is_none() {
+            info!("waiting for blake3 tree for {} before startind download",i.id);
             return vec![];
         }
         for cg in &ps.content_gateways {
@@ -3756,6 +3757,7 @@ impl Receive for Content {
                         ti.done = true;
                     } else {
                         for b in bad {
+                            warn!("{} tree bad block {b} found, retrying", self.id);
                             if b < ti.bitmap.len() && ti.bitmap[b] {
                                 ti.bitmap.set(b, false);
                                 let byte_start = b * BLOCK_SIZE!();
@@ -3764,7 +3766,6 @@ impl Receive for Content {
                             }
                         }
                         ti.next_block = 0;
-                        warn!("{} tree bad blocks found, retrying", self.id);
                     }
                 }
             }
@@ -4140,7 +4141,8 @@ impl InboundState {
                 if let Ok(mm) = unsafe { Mmap::map(&f) } {
                     new_i.segment_hashes = Some(mm);
                 }
-            } else {
+            }
+            if new_i.segment_hashes.is_none() {
                 let tree_id = format!("blake3_tree_v2/{}", hash);
                 InboundState::new(&tree_id, ps, inbound_states);
             }
