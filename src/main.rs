@@ -1325,6 +1325,7 @@ fn tree_check_subtree(
 // Returns the set of 4KB block indices suspected bad. Empty = all good, rename to public.
 fn check_tree_v2_data(data: &[u8], expected_hash: &str, n_leaves: usize) -> Vec<usize> {
     if data.len() < 64 || &data[0..4] != b"B3T\x02" {
+        warn!("check_tree_v2_data: bad magic {:02x}{:02x}{:02x}{:02x} len={}", data.get(0).copied().unwrap_or(0), data.get(1).copied().unwrap_or(0), data.get(2).copied().unwrap_or(0), data.get(3).copied().unwrap_or(0), data.len());
         return (0..(data.len() + BLOCK_SIZE!() - 1) / BLOCK_SIZE!()).collect();
     }
     let expected: blake3::Hash = match expected_hash.parse() {
@@ -1332,7 +1333,9 @@ fn check_tree_v2_data(data: &[u8], expected_hash: &str, n_leaves: usize) -> Vec<
         Err(_) => return vec![],
     };
     let mut bad: HashSet<usize> = HashSet::new();
-    if data[32..64] != *expected.as_bytes() {
+    let header_hash_bad = data[32..64] != *expected.as_bytes();
+    if header_hash_bad {
+        warn!("check_tree_v2_data: root hash mismatch in block0 header: stored={} expected={} n_leaves={} len={}", hex::encode(&data[32..64]), expected_hash, n_leaves, data.len());
         bad.insert(0);
     }
     if n_leaves < 2 {
@@ -1351,8 +1354,21 @@ fn check_tree_v2_data(data: &[u8], expected_hash: &str, n_leaves: usize) -> Vec<
         offsets.push(total - from_end);
     }
     let l = level_sizes.len();
+    let pre_tree_bad_count = bad.len();
     tree_check_subtree(data, &level_sizes, &offsets, l - 1, 0, &mut bad);
     tree_check_subtree(data, &level_sizes, &offsets, l - 1, 1, &mut bad);
+    if bad.len() > pre_tree_bad_count {
+        let mut bad_sorted: Vec<usize> = bad.iter().copied().collect();
+        bad_sorted.sort();
+        let block0_from_tree = !header_hash_bad && bad_sorted.contains(&0);
+        warn!("check_tree_v2_data: tree structure fail n_leaves={} len={} bad_blocks={:?} block0_from_tree={}", n_leaves, data.len(), bad_sorted, block0_from_tree);
+        // Top-level hashes are at bytes 64..128 (always block 0). When only leaf/mid blocks
+        // are bad, block 0 is a propagated side effect, not genuinely corrupt.
+        if block0_from_tree {
+            let non_zero_bad: Vec<usize> = bad_sorted.iter().copied().filter(|&b| b != 0).collect();
+            warn!("check_tree_v2_data: block0 added by tree propagation, actual suspect blocks: {:?}", non_zero_bad);
+        }
+    }
     bad.into_iter().collect()
 }
 
@@ -3755,13 +3771,18 @@ impl Receive for Content {
                         fs::remove_file(format!("./cjp2p/incoming/{}", self.id)).ok();
                         ti.done = true;
                     } else {
+                        let mut bad_sorted = bad.clone();
+                        bad_sorted.sort();
+                        warn!("{} tree check attempt {} failed, bad blocks: {:?} (eof={} bytes_complete={})", self.id, ti.hash_failures, bad_sorted, ti.eof, ti.bytes_complete);
                         for b in bad {
-                            warn!("{} tree bad block {b} found, retrying", self.id);
                             if b < ti.bitmap.len() && ti.bitmap[b] {
                                 ti.bitmap.set(b, false);
                                 let byte_start = b * BLOCK_SIZE!();
                                 let byte_end = (byte_start + BLOCK_SIZE!()).min(ti.eof);
                                 ti.bytes_complete = ti.bytes_complete.saturating_sub(byte_end - byte_start);
+                                warn!("{} clearing block {} (bytes {}-{}) for retry", self.id, b, byte_start, byte_end);
+                            } else {
+                                warn!("{} bad block {} not in bitmap (bitmap_len={} set={})", self.id, b, ti.bitmap.len(), b < ti.bitmap.len() && ti.bitmap[b]);
                             }
                         }
                         ti.next_block = 0;
