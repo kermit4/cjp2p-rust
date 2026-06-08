@@ -11,11 +11,13 @@ use enum_dispatch::enum_dispatch;
 use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
-use memmap2::MmapMut;
+use memmap2::{Mmap, MmapMut};
 use mmap_bitvec::{BitVector, MmapBitVec};
 use serde_with::hex::Hex;
 use std::net::IpAddr;
 //use nix::NixPath;
+use blake3::hazmat::{merge_subtrees_non_root, merge_subtrees_root, HasherExt, Mode};
+use blake3::Hasher as Blake3Hasher;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use serde_with::{base64::Base64, serde_as, InspectError, VecSkipError};
@@ -58,8 +60,8 @@ const HELP_TEXT: &str = "
                         - /ping
                         - /get hash
                         - /addpeer 1.2.3.4:5678
-                        - /save  (because an on-exit handler looks hard)
-                        - /quit
+                        - /save  (because an on-exit handler looks hard, but it saves on a timer anynay so don't worry about it)
+                        - /quit -- calls /save then exits
                         - /list
                         - /recommend hash
                         - /recommended
@@ -147,6 +149,7 @@ enum Source {
 
 macro_rules! BLOCK_SIZE {
     () => {
+        // must be a multiple of 1024 or BLAKE3 stuff breaks
         0x1000 // 4k
     };
 }
@@ -312,6 +315,10 @@ impl PeerState {
         fs::create_dir("./cjp2p/metadata/latest").ok();
         fs::create_dir("./cjp2p/streams").ok();
         fs::create_dir("./cjp2p/incoming").ok();
+        fs::create_dir("./cjp2p/public/blake3").ok();
+        fs::create_dir("./cjp2p/public/blake3_tree_v2").ok();
+        fs::create_dir("./cjp2p/incoming/blake3").ok();
+        fs::create_dir("./cjp2p/incoming/blake3_tree_v2").ok();
         use std::net::Ipv6Addr;
         let mut ps = Self {
             peer_map: PeerState::load_peers(),
@@ -748,9 +755,8 @@ impl PeerState {
                     return;
                 }
 
-                let new_i = InboundState::new(&id, self);
+                InboundState::new(&id, self, inbound_states);
                 info!("http scheduling inbound file {:?}", id);
-                inbound_states.insert(id.to_string(), new_i);
                 inbound_states.get_mut(&id).unwrap()
             }
         };
@@ -1190,6 +1196,245 @@ fn free_disk_bytes() -> u64 {
     }
 }
 
+// Compute the blake3 chaining value for a block at the given byte offset.
+// BLOCK_SIZE must be a power-of-2 multiple of blake3::CHUNK_LEN (1024), which 4096 is.
+fn block_chaining_value(data: &[u8], byte_offset: u64) -> [u8; 32] {
+    let mut h = Blake3Hasher::new();
+    h.set_input_offset(byte_offset);
+    h.update(data);
+    h.finalize_non_root()
+}
+
+
+fn leaf_cv_in_tree_v2(mmap: &Mmap, block_num: usize) -> Option<[u8; 32]> {
+    let n_leaves = n_leaves_from_tree_v2_eof(mmap.len())?;
+    if block_num >= n_leaves { return None; }
+    let leaf_start = mmap.len() - n_leaves * 32 + block_num * 32;
+    Some(mmap[leaf_start..leaf_start + 32].try_into().unwrap())
+}
+
+// Tree file v2 format (64-byte header, then top-down levels, leaves last):
+//   [4 bytes: magic b"B3T\x02"] [28 bytes: reserved] [32 bytes: root hash]
+//   [intermediate levels highest-first, each level including passed-up odd entries]
+//   [N x 32 bytes: leaf CVs at the end]
+// N (leaf count) is not stored; derive it from content file size or eof.
+fn tree_file_size(n_leaves: usize) -> usize {
+    let mut total = 4 + n_leaves * 32;
+    let mut n = n_leaves;
+    while n > 2 {
+        n = (n + 1) / 2;
+        total += n * 32;
+    }
+    total
+}
+
+fn tree_file_size_v2(n_leaves: usize) -> usize {
+    60 + tree_file_size(n_leaves)
+}
+
+// Fills in the 64-byte v2 header and all intermediate levels of a tree mmap whose leaf
+// section (last n_leaves*32 bytes) has already been written by the caller.
+// Writes magic, reserved zeroes, and (for n_leaves>=2) the computed root hash.
+// For n_leaves==1 the root is blake3::hash(content) which the caller must write to [32..64].
+// Returns the blake3 root hash for n_leaves >= 2; None for n_leaves == 1.
+fn finalize_tree_mmap_v2(mmap: &mut MmapMut, n_leaves: usize) -> Option<blake3::Hash> {
+    mmap[0..4].copy_from_slice(b"B3T\x02");
+    mmap[4..32].fill(0);
+    if n_leaves < 2 {
+        return None;
+    }
+    let total = mmap.len();
+    let mut level_sizes: Vec<usize> = vec![n_leaves];
+    while *level_sizes.last().unwrap() > 2 {
+        let n = *level_sizes.last().unwrap();
+        level_sizes.push((n + 1) / 2);
+    }
+    let mut offsets: Vec<usize> = Vec::with_capacity(level_sizes.len());
+    let mut from_end = 0;
+    for &s in &level_sizes {
+        from_end += s * 32;
+        offsets.push(total - from_end);
+    }
+    for k in 0..level_sizes.len() - 1 {
+        let src = offsets[k];
+        let dst = offsets[k + 1];
+        let n = level_sizes[k];
+        for i in 0..n / 2 {
+            let l: [u8; 32] = mmap[src + 2 * i * 32..src + (2 * i + 1) * 32].try_into().unwrap();
+            let r: [u8; 32] = mmap[src + (2 * i + 1) * 32..src + (2 * i + 2) * 32].try_into().unwrap();
+            mmap[dst + i * 32..dst + (i + 1) * 32].copy_from_slice(&merge_subtrees_non_root(&l, &r, Mode::Hash));
+        }
+        if n % 2 == 1 {
+            let last: [u8; 32] = mmap[src + (n - 1) * 32..src + n * 32].try_into().unwrap();
+            mmap[dst + (n / 2) * 32..dst + (n / 2 + 1) * 32].copy_from_slice(&last);
+        }
+    }
+    let top = *offsets.last().unwrap();
+    let a: [u8; 32] = mmap[top..top + 32].try_into().unwrap();
+    let b: [u8; 32] = mmap[top + 32..top + 64].try_into().unwrap();
+    let root = merge_subtrees_root(&a, &b, Mode::Hash);
+    mmap[32..64].copy_from_slice(root.as_bytes());
+    Some(root)
+}
+
+// Derive n_leaves from a v2 tree file's eof. Walks upward from approximation.
+fn n_leaves_from_tree_v2_eof(eof: usize) -> Option<usize> {
+    if eof < 128 { return None; }
+    let target = eof - 60;
+    let mut n = (target.saturating_sub(4)) / 64;
+    if n < 2 { n = 2; }
+    while tree_file_size(n) < target { n += 1; }
+    while n > 0 && tree_file_size(n) > target { n -= 1; }
+    if tree_file_size(n) == target { Some(n) } else { None }
+}
+
+// Recursive top-down consistency check for tree v2 files.
+// Returns true if stored[level][idx] equals merge_non_root of its children.
+// Adds suspect 4KB block indices to `bad` on inconsistency.
+fn tree_check_subtree(
+    data: &[u8],
+    level_sizes: &[usize],
+    offsets: &[usize],
+    level: usize,
+    idx: usize,
+    bad: &mut HashSet<usize>,
+) -> bool {
+    if level == 0 { return true; }
+    let li = 2 * idx;
+    let ri = li + 1;
+    if ri >= level_sizes[level - 1] {
+        return tree_check_subtree(data, level_sizes, offsets, level - 1, li, bad);
+    }
+    let co = offsets[level - 1];
+    let po = offsets[level];
+    let l: [u8; 32] = data[co + li * 32..co + (li + 1) * 32].try_into().unwrap();
+    let r: [u8; 32] = data[co + ri * 32..co + (ri + 1) * 32].try_into().unwrap();
+    let p: [u8; 32] = data[po + idx * 32..po + (idx + 1) * 32].try_into().unwrap();
+    if merge_subtrees_non_root(&l, &r, Mode::Hash) == p { return true; }
+    let l_ok = tree_check_subtree(data, level_sizes, offsets, level - 1, li, bad);
+    let r_ok = tree_check_subtree(data, level_sizes, offsets, level - 1, ri, bad);
+    bad.insert((po + idx * 32) / BLOCK_SIZE!());
+    if l_ok && r_ok {
+        bad.insert((co + li * 32) / BLOCK_SIZE!());
+        bad.insert((co + ri * 32) / BLOCK_SIZE!());
+    }
+    false
+}
+
+// Read the incoming tree file, check the header hash and parent-child consistency.
+// Returns the set of 4KB block indices suspected bad. Empty = all good, rename to public.
+fn check_tree_v2_blocks(id: &str, expected_hash: &str, n_leaves: usize) -> Vec<usize> {
+    let path = format!("./cjp2p/incoming/{}", id);
+    let f = match File::open(&path) { Ok(f) => f, Err(_) => return vec![0] };
+    let mm = match unsafe { Mmap::map(&f) } { Ok(m) => m, Err(_) => return vec![0] };
+    let data = &mm[..];
+    if data.len() < 64 || &data[0..4] != b"B3T\x02" {
+        return (0..(data.len() + BLOCK_SIZE!() - 1) / BLOCK_SIZE!()).collect();
+    }
+    let expected: blake3::Hash = match expected_hash.parse() {
+        Ok(h) => h,
+        Err(_) => return vec![],
+    };
+    let mut bad: HashSet<usize> = HashSet::new();
+    if data[32..64] != *expected.as_bytes() {
+        bad.insert(0);
+    }
+    if n_leaves < 2 {
+        return bad.into_iter().collect();
+    }
+    let total = data.len();
+    let mut level_sizes = vec![n_leaves];
+    while *level_sizes.last().unwrap() > 2 {
+        let last = *level_sizes.last().unwrap();
+        level_sizes.push((last + 1) / 2);
+    }
+    let mut offsets = Vec::with_capacity(level_sizes.len());
+    let mut from_end = 0usize;
+    for &s in &level_sizes {
+        from_end += s * 32;
+        offsets.push(total - from_end);
+    }
+    let l = level_sizes.len();
+    tree_check_subtree(data, &level_sizes, &offsets, l - 1, 0, &mut bad);
+    tree_check_subtree(data, &level_sizes, &offsets, l - 1, 1, &mut bad);
+    bad.into_iter().collect()
+}
+
+
+// Build the tree file from a source mmap in one pass.
+// If sha256 is Some, updates it with every chunk in the same pass.
+// Returns the blake3 hex ID, or None on I/O error.
+fn build_tree_from_mmap(
+    src: &Mmap,
+    file_size: usize,
+    mut sha256: Option<&mut Sha256>,
+) -> Option<String> {
+    let n_leaves = (file_size + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
+    let tree_tmp = format!("./cjp2p/public/.tmp_tree_{:016x}", rand::rng().random::<u64>());
+    let tf = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(&tree_tmp)
+        .ok()?;
+    let tsize = tree_file_size_v2(n_leaves);
+    tf.set_len(tsize as u64).ok()?;
+    let mut tmm = unsafe { MmapMut::map_mut(&tf) }.ok()?;
+    let leaf_base = tsize - n_leaves * 32;
+    let mut offset: u64 = 0;
+    for (i, chunk) in src.chunks(BLOCK_SIZE!()).enumerate() {
+        if let Some(ref mut h) = sha256 {
+            h.update(chunk);
+        }
+        let cv = block_chaining_value(chunk, offset);
+        tmm[leaf_base + i * 32..leaf_base + (i + 1) * 32].copy_from_slice(&cv);
+        offset += chunk.len() as u64;
+    }
+    let blake3_id = if n_leaves == 1 {
+        finalize_tree_mmap_v2(&mut tmm, 1);
+        let h = blake3::hash(&src[..file_size]);
+        tmm[32..64].copy_from_slice(h.as_bytes());
+        format!("{}", h)
+    } else {
+        format!("{}", finalize_tree_mmap_v2(&mut tmm, n_leaves).unwrap())
+    };
+    drop(tmm);
+    drop(tf);
+    let tree_path = format!("./cjp2p/public/blake3_tree_v2/{}", blake3_id);
+    if Path::new(&tree_path).exists() {
+        fs::remove_file(&tree_tmp).ok();
+    } else {
+        fs::rename(&tree_tmp, &tree_path).ok();
+    }
+    Some(blake3_id)
+}
+
+fn create_tree_for_file(file_path: &str) -> Option<String> {
+    let file = File::open(file_path).ok()?;
+    let file_size = file.metadata().ok()?.len() as usize;
+    if file_size == 0 {
+        return None;
+    }
+    let src = unsafe { Mmap::map(&file) }.ok()?;
+    build_tree_from_mmap(&src, file_size, None)
+}
+
+// After a sha256 download completes, write its tree and link the blake3 path.
+// Hard link is tried first; symlink as fallback; if both fail (e.g. cross-fs on
+// Android) the tree still lands so a future blake3 InboundState can use it.
+fn upgrade_to_blake3(public_path: &str) {
+    if let Some(blake3_id) = create_tree_for_file(public_path) {
+        let blake3_path = format!("./cjp2p/public/blake3/{}", blake3_id);
+        if !Path::new(&blake3_path).exists() {
+            if fs::hard_link(public_path, &blake3_path).is_err() {
+                std::os::unix::fs::symlink(public_path, &blake3_path).ok();
+            }
+        }
+        info!("upgraded {} to blake3 {}", public_path, blake3_id);
+        println!("blake3: {}", blake3_id);
+    }
+}
+
 fn handle_upload(mut stream: TcpStream, req: HttpRequest) {
     let content_length: usize = req
         .headers
@@ -1210,43 +1455,107 @@ fn handle_upload(mut stream: TcpStream, req: HttpRequest) {
                 return;
             }
         };
-        let mut hasher = Sha256::new();
-        let mut written = 0usize;
-        if !req.body_prefix.is_empty() {
-            file.write_all(&req.body_prefix).ok();
-            hasher.update(&req.body_prefix);
-            written += req.body_prefix.len();
-        }
-        let mut buf = [0u8; 65536];
-        while written < content_length {
-            let to_read = (content_length - written).min(buf.len());
-            match stream.read(&mut buf[..to_read]) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if file.write_all(&buf[..n]).is_err() {
-                        break;
-                    }
-                    hasher.update(&buf[..n]);
-                    written += n;
-                }
-                Err(_) => break,
-            }
-        }
-        drop(file);
-        let sha256 = format!("{:x}", hasher.finalize());
-        let dest = format!("./cjp2p/public/{}", sha256);
-        if Path::new(&dest).exists() {
-            fs::remove_file(&temp_path).ok();
-        } else if let Err(e) = fs::rename(&temp_path, &dest) {
-            fs::remove_file(&temp_path).ok();
-            let body = format!("{{\"error\":\"{e}\"}}");
-            let _ = stream.write_all(
-                format!("HTTP/1.0 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()
-            );
+        if content_length == 0 {
+            stream
+                .write_all(b"HTTP/1.0 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
+                .ok();
             return;
         }
-        println!("upload: {} bytes -> {}", written, sha256);
-        let body = format!("{{\"sha256\":\"{sha256}\"}}");
+        let n_leaves = (content_length + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
+        let tree_tmp = format!("./cjp2p/public/.tmp_tree_{:016x}", rand::rng().random::<u64>());
+        let tf = match OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&tree_tmp)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                let body = format!("{{\"error\":\"{e}\"}}");
+                let _ = stream.write_all(
+                    format!("HTTP/1.0 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()
+                );
+                return;
+            }
+        };
+        let tsize = tree_file_size_v2(n_leaves);
+        tf.set_len(tsize as u64).ok();
+        let mut tree_mmap = unsafe { MmapMut::map_mut(&tf) }.unwrap();
+        let leaf_base = tsize - n_leaves * 32;
+        let mut sha256_hasher = Sha256::new();
+        let mut blake3_hasher = if n_leaves == 1 { Some(Blake3Hasher::new()) } else { None };
+        let prefix_len = req.body_prefix.len();
+        let mut written = prefix_len;
+        let mut block_offset: u64 = 0;
+        let mut leaf_count = 0usize;
+        {
+            let mut on_leaf = |cv: [u8; 32]| {
+                tree_mmap[leaf_base + leaf_count * 32..leaf_base + (leaf_count + 1) * 32]
+                    .copy_from_slice(&cv);
+                leaf_count += 1;
+            };
+            let mut block = [0u8; BLOCK_SIZE!()];
+            block[..prefix_len].copy_from_slice(&req.body_prefix);
+            let mut fill = prefix_len;
+            if prefix_len > 0 {
+                file.write_all(&req.body_prefix).ok();
+                sha256_hasher.update(&req.body_prefix);
+                if let Some(ref mut h) = blake3_hasher { h.update(&req.body_prefix); }
+            }
+            loop {
+                while fill < BLOCK_SIZE!() && written < content_length {
+                    let want = (BLOCK_SIZE!() - fill).min(content_length - written);
+                    match stream.read(&mut block[fill..fill + want]) {
+                        Ok(0) | Err(_) => { written = content_length; break; }
+                        Ok(n) => {
+                            file.write_all(&block[fill..fill + n]).ok();
+                            sha256_hasher.update(&block[fill..fill + n]);
+                            if let Some(ref mut h) = blake3_hasher { h.update(&block[fill..fill + n]); }
+                            fill += n;
+                            written += n;
+                        }
+                    }
+                }
+                if fill == 0 { break; }
+                on_leaf(block_chaining_value(&block[..fill], block_offset));
+                block_offset += fill as u64;
+                fill = 0;
+                if written >= content_length { break; }
+            }
+        } // on_leaf dropped here, releasing &mut tree_mmap and &mut leaf_count
+        drop(file);
+        let sha256 = format!("{:x}", sha256_hasher.finalize());
+        let blake3 = if leaf_count == 1 {
+            finalize_tree_mmap_v2(&mut tree_mmap, 1);
+            let h = blake3_hasher.unwrap().finalize();
+            tree_mmap[32..64].copy_from_slice(h.as_bytes());
+            format!("{}", h)
+        } else {
+            format!("{}", finalize_tree_mmap_v2(&mut tree_mmap, leaf_count).unwrap())
+        };
+        drop(tree_mmap);
+        drop(tf);
+        let blake3_dest = format!("./cjp2p/public/blake3/{}", blake3);
+        if let Err(e) = fs::rename(&temp_path, &blake3_dest) {
+            let body = format!("{{\"error\":\"{e}\"}}");
+            let _ = stream.write_all(
+                format!("HTTP/1.0 500 Internal Server Error\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()
+            );
+            fs::remove_file(&tree_tmp).ok();
+            return;
+        }
+        let sha256_dest = format!("./cjp2p/public/{}", sha256);
+        if fs::hard_link(&blake3_dest, &sha256_dest).is_err() {
+            std::os::unix::fs::symlink(&blake3_dest, &sha256_dest).ok();
+        }
+        let tree_path = format!("./cjp2p/public/blake3_tree_v2/{}", blake3);
+        if Path::new(&tree_path).exists() {
+            fs::remove_file(&tree_tmp).ok();
+        } else {
+            fs::rename(&tree_tmp, &tree_path).ok();
+        }
+        println!("upload: {} bytes -> blake3:{} sha256:{}", written, blake3, sha256);
+        let body = format!("{{\"sha256\":\"{sha256}\",\"blake3\":\"{blake3}\"}}");
         let _ = stream.write_all(
             format!("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}", body.len(), body).as_bytes()
         );
@@ -1655,7 +1964,7 @@ fn run_engine(
             );
         } else {
             info!("queing inbound file {:?}", v);
-            inbound_states.insert(v.to_string(), InboundState::new(&v, &mut ps));
+            InboundState::new(&v, &mut ps, &mut inbound_states);
         }
     }
 
@@ -1778,7 +2087,7 @@ fn handle_stdin(
     let mut arg2: String = "".to_string();
     if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
         println!("QUEING FILE {arg}");
-        inbound_states.insert(arg.clone(), InboundState::new(&arg, ps));
+        InboundState::new(&arg, ps, inbound_states);
     } else if line == "/quit" {
         ps.save_peers();
         ps.p.save();
@@ -2069,22 +2378,57 @@ fn handle_stdin(
         let path = arg.clone();
         let http_port = ps.http_port;
         thread::spawn(move || {
-            let contents = match fs::read(&path) {
-                Ok(c) => c,
+            let src_file = match File::open(&path) {
+                Ok(f) => f,
                 Err(e) => {
                     println!("share: {path}: {e}");
                     return;
                 }
             };
-            let sha256 = format!("{:x}", Sha256::digest(&contents));
-            let dest = format!("./cjp2p/public/{}", sha256);
-            if !std::path::Path::new(&dest).exists() {
-                if let Err(e) = fs::write(&dest, &contents) {
-                    println!("share: write failed: {e}");
+            let file_size = match src_file.metadata() {
+                Ok(m) => m.len() as usize,
+                Err(e) => {
+                    println!("share: metadata: {e}");
                     return;
                 }
+            };
+            if file_size == 0 {
+                println!("share: empty file");
+                return;
             }
-            println!("{path} is shared at http://localhost:{http_port}/{sha256}");
+            println!("hashing: {path} {file_size}");
+            let src = match unsafe { Mmap::map(&src_file) } {
+                Ok(m) => m,
+                Err(e) => {
+                    println!("share: mmap: {e}");
+                    return;
+                }
+            };
+            let mut sha256_hasher = Sha256::new();
+            let blake3 = match build_tree_from_mmap(&src, file_size, Some(&mut sha256_hasher)) {
+                Some(id) => id,
+                None => {
+                    error!("share: build_tree failed");
+                    return;
+                }
+            };
+            let sha256 = format!("{:x}", sha256_hasher.finalize());
+            let blake3_dest = format!("./cjp2p/public/blake3/{}", blake3);
+            if !Path::new(&blake3_dest).exists() {
+                let abs =
+                    fs::canonicalize(&path).unwrap_or_else(|_| std::path::PathBuf::from(&path));
+                if fs::hard_link(&path, &blake3_dest).is_err() {
+                    std::os::unix::fs::symlink(&abs, &blake3_dest).ok();
+                }
+            }
+            let sha256_dest = format!("./cjp2p/public/{}", sha256);
+            if !Path::new(&sha256_dest).exists() {
+                if fs::hard_link(&blake3_dest, &sha256_dest).is_err() {
+                    std::os::unix::fs::symlink(&blake3_dest, &sha256_dest).ok();
+                }
+            }
+            println!("{path} is shared at http://localhost:{http_port}/blake3/{blake3}");
+            println!("  sha256: http://localhost:{http_port}/{sha256}");
         });
     } else if line.starts_with("/ping") || line.starts_with("/version") {
         let peers = ps.best_peers(100, 5);
@@ -2280,24 +2624,29 @@ fn status_page(
 
         if is_local(&stream) {
             let mut downloads: Vec<(String, u64, String, std::time::SystemTime)> = Vec::new();
-            if let Ok(entries) = fs::read_dir("./cjp2p/public") {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().into_string().unwrap_or_default();
-                    if name.len() != 64 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
-                        continue;
+            for (dir, prefix) in [("./cjp2p/public/blake3", "blake3/"), ("./cjp2p/public", "")] {
+                if let Ok(entries) = fs::read_dir(dir) {
+                    for entry in entries.flatten() {
+                        if entry.path().is_dir() {
+                            continue;
+                        }
+                        let name = entry.file_name().into_string().unwrap_or_default();
+                        if name.len() != 64 || !name.chars().all(|c| c.is_ascii_hexdigit()) {
+                            continue;
+                        }
+                        let Ok(meta) = entry.metadata() else { continue };
+                        let size = meta.len();
+                        let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                        let mime = File::open(entry.path())
+                            .ok()
+                            .and_then(|mut f| {
+                                let mut buf = [0u8; 512];
+                                let n = f.read(&mut buf).ok()?;
+                                Some(mimetype_detector::detect(&buf[..n]).mime().to_string())
+                            })
+                            .unwrap_or_else(|| "application/octet-stream".to_string());
+                        downloads.push((format!("{}{}", prefix, name), size, mime, modified));
                     }
-                    let Ok(meta) = entry.metadata() else { continue };
-                    let size = meta.len();
-                    let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                    let mime = File::open(entry.path())
-                        .ok()
-                        .and_then(|mut f| {
-                            let mut buf = [0u8; 512];
-                            let n = f.read(&mut buf).ok()?;
-                            Some(mimetype_detector::detect(&buf[..n]).mime().to_string())
-                        })
-                        .unwrap_or_else(|| "application/octet-stream".to_string());
-                    downloads.push((name, size, mime, modified));
                 }
             }
             downloads.sort_by(|a, b| b.3.cmp(&a.3));
@@ -2318,7 +2667,7 @@ fn status_page(
                 page += &format!(
                     "<tr><td><a href='/{hash}' target='_blank'>{hash}</a></td>\
                      <td>&nbsp;{size_str}&nbsp;</td><td>{mime}</td><td>{}</td></tr>\n",
-                    DateTime::<Utc>::from(*modified).format("%Y-%m-%d %H:%M:%S") 
+                    DateTime::<Utc>::from(*modified).format("%Y-%m-%d %H:%M:%S")
                 );
             }
             page += "</table>\n";
@@ -2652,11 +3001,28 @@ fn handle_web_request(
             return;
         }
         let v = &req.path[6..];
-        inbound_states.insert(v.to_string(), InboundState::new(v, ps));
+        InboundState::new(v, ps, inbound_states);
         println!("http requested ordinary download of {}",v);
         let response = format!(
                     "HTTP/1.0 301 OK\r\n\
                      Location: /\r\n\r\n");
+        stream.write_all(response.as_bytes()).ok();
+        return;
+    }
+
+    if req.path.starts_with("/?getb3=") {
+        if !is_local(&stream) {
+            let page = format!("HTTP/1.0 403 Forbidden\r\n\n");
+            stream.write_all(page.as_bytes()).ok();
+            return;
+        }
+        let v = req.path[8..].split('&').next().unwrap_or("");
+        if is_safe_relative_path(v) {
+            let id = format!("blake3/{}", v);
+            InboundState::new(&id, ps, inbound_states);
+            info!("http requested blake3 download of {}", v);
+        }
+        let response = format!("HTTP/1.0 301 OK\r\nLocation: /blake3/{}\r\n\r\n", v);
         stream.write_all(response.as_bytes()).ok();
         return;
     }
@@ -2670,17 +3036,36 @@ fn handle_web_request(
         info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
     }
 
+    let content_id: String = if req.path.starts_with("/blake3/") {
+        let hash = req.path[8..]
+            .split('?')
+            .next()
+            .unwrap_or("")
+            .split('/')
+            .next()
+            .unwrap_or("");
+        if !is_safe_relative_path(hash) {
+            return;
+        }
+        format!("blake3/{}", hash)
+    } else {
+        let id = req.path[1..]
+            .split('?')
+            .next()
+            .unwrap_or("")
+            .split('/')
+            .next()
+            .unwrap_or("");
+        let id = id.strip_prefix("0x").unwrap_or(id);
+        if !is_safe_relative_path(id) || id.contains('/') || id == "favicon.ico" {
+            return;
+        }
+        id.to_string()
+    };
     info!("http start end {start} {end}");
     let index = ps.content_gateways.len();
-    let id = &req.path[1..].split('?').next().unwrap();
-    let id = &id.split('/').next().unwrap();
-    let id = id.strip_prefix("0x").unwrap_or(id);
-    if !is_safe_relative_path(id) || id.find("/") != None || id == "favicon.ico" {
-        return;
-    }
     ps.content_gateways.push(ContentGateway {
-        id: id.to_string(),
-        //                http_time: Instant::now(),
+        id: content_id,
         http_start: start,
         http_end: end,
         ranged: ranged,
@@ -3006,6 +3391,11 @@ struct Content {
 
 impl PleaseSendContent {
     fn new_messages(i: &mut InboundState, ps: &PeerState) -> Vec<Message> {
+        // Don't request content blocks until leaf CVs are loaded; every block
+        // must be CV-checked on receipt, so there is no point starting earlier.
+        if i.id.starts_with("blake3/") && i.segment_hashes.is_none() {
+            return vec![];
+        }
         for cg in &ps.content_gateways {
             let new_next_block = cg.http_start as usize / BLOCK_SIZE!();
             if !cg.http_done && !cg.waiting_for_browser && cg.id == i.id {
@@ -3064,9 +3454,15 @@ impl Receive for PleaseSendContent {
             if let Some(i) = inbound_states.get_mut(&self.id) {
                 i.peers.insert(src);
                 message_out.append(&mut i.send_content_peers(*might_be_ip_spoofing, src));
+                // For verified blake3 in-progress downloads, serve already-verified blocks
+                if let Some(content) = i.serve_block(self.offset / BLOCK_SIZE!()) {
+                    message_out.push(Message::Content(content));
+                }
             }
         }
-        message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
+        if message_out.len() == 0 {
+            message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
+        }
         let Source::S(src) = *src else {
             return message_out;
         };
@@ -3326,6 +3722,57 @@ impl Receive for Content {
         let block_number = self.offset / BLOCK_SIZE!();
         debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
         let mut message_out = i.receive_content(&self, ps);
+        let tree_eof = i.eof;
+        if i.bytes_complete == i.eof && i.eof > 0 && self.id.starts_with("blake3_tree_v2/") {
+            let hash = self.id["blake3_tree_v2/".len()..].to_string();
+            let bad = match n_leaves_from_tree_v2_eof(tree_eof) {
+                Some(n) => check_tree_v2_blocks(&self.id, &hash, n),
+                None => {
+                    error!("{} cannot derive n_leaves from eof {}", self.id, tree_eof);
+                    vec![0]
+                }
+            };
+            if bad.is_empty() {
+                let incoming = format!("./cjp2p/incoming/{}", self.id);
+                let public = format!("./cjp2p/public/{}", self.id);
+                if fs::rename(&incoming, &public).is_ok() {
+                    info!("{} tree complete", self.id);
+                    println!("{} tree complete", self.id);
+                    let content_id = format!("blake3/{}", hash);
+                    let ro_mmap = inbound_states.get_mut(&self.id)
+                        .and_then(|ti| ti.mmap.take())
+                        .and_then(|mm| mm.make_read_only().ok());
+                    if let Some(mm) = ro_mmap {
+                        if let Some(ci) = inbound_states.get_mut(&content_id) {
+                            ci.segment_hashes = Some(mm);
+                        }
+                    }
+                }
+                if let Some(ti) = inbound_states.get_mut(&self.id) {
+                    ti.done = true;
+                }
+            } else {
+                if let Some(ti) = inbound_states.get_mut(&self.id) {
+                    ti.hash_failures += 1;
+                    if ti.hash_failures > 2 {
+                        error!("{} tree check failed 3 times, giving up", self.id);
+                        fs::remove_file(format!("./cjp2p/incoming/{}", self.id)).ok();
+                        ti.done = true;
+                    } else {
+                        for b in bad {
+                            if b < ti.bitmap.len() && ti.bitmap[b] {
+                                ti.bitmap.set(b, false);
+                                let byte_start = b * BLOCK_SIZE!();
+                                let byte_end = (byte_start + BLOCK_SIZE!()).min(ti.eof);
+                                ti.bytes_complete = ti.bytes_complete.saturating_sub(byte_end - byte_start);
+                            }
+                        }
+                        ti.next_block = 0;
+                        warn!("{} tree bad blocks found, retrying", self.id);
+                    }
+                }
+            }
+        }
         if message_out.len() == 0 {
             for (_, i) in inbound_states.iter_mut() {
                 if i.next_block * BLOCK_SIZE!() >= i.eof || i.bytes_complete == i.eof {
@@ -3359,6 +3806,8 @@ struct InboundState {
     last_activity: Instant,
     hash_failures: i32,
     hash_future: Option<std::sync::mpsc::Receiver<bool>>,
+    segment_hashes: Option<Mmap>,
+    done: bool,
 }
 
 struct StreamState {
@@ -3658,7 +4107,10 @@ impl ContentGateway {
     }
 }
 impl InboundState {
-    fn new(id: &str, ps: &mut PeerState) -> Self {
+    fn new(id: &str, ps: &mut PeerState, inbound_states: &mut HashMap<String, InboundState>) {
+        if inbound_states.contains_key(id) {
+            return;
+        }
         let mut peers: HashSet<SocketAddr> = HashSet::new();
         let peers_from_disk = InboundState::send_content_peers_from_disk(
             &id.to_string(),
@@ -3682,14 +4134,28 @@ impl InboundState {
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
             hash_future: None,
+            segment_hashes: None,
+            done: false,
         };
+        if id.starts_with("blake3/") {
+            let hash = &id["blake3/".len()..];
+            let tree_path = format!("./cjp2p/public/blake3_tree_v2/{}", hash);
+            if let Ok(f) = File::open(&tree_path) {
+                if let Ok(mm) = unsafe { Mmap::map(&f) } {
+                    new_i.segment_hashes = Some(mm);
+                }
+            } else {
+                let tree_id = format!("blake3_tree_v2/{}", hash);
+                InboundState::new(&tree_id, ps, inbound_states);
+            }
+        }
         for _ in 0..(1 + 5 / (1 + new_i.peers.len())) {
             new_i.request_blocks(ps, new_i.peers.clone()); // resume (un-stall)
         }
         let peers = ps.best_peers(250, 6);
         info!("searchng  {} peers",peers.len());
         new_i.request_blocks(ps, peers);
-        return new_i;
+        inbound_states.insert(id.to_string(), new_i);
     }
 
     fn receive_content(&mut self, content: &Content, ps: &mut PeerState) -> Vec<Message> {
@@ -3717,6 +4183,26 @@ impl InboundState {
             return vec![];
         }
         let block_number = content.offset / BLOCK_SIZE!();
+        if self.id.starts_with("blake3/") {
+            if self.segment_hashes.is_none() {
+                let hash = &self.id["blake3/".len()..];
+                if let Ok(f) = File::open(format!("./cjp2p/public/blake3_tree_v2/{}", hash)) {
+                    if let Ok(mm) = unsafe { Mmap::map(&f) } { self.segment_hashes = Some(mm); }
+                }
+            }
+            let Some(ref tree_mmap) = self.segment_hashes else {
+                return vec![];
+            };
+            let Some(expected_cv) = leaf_cv_in_tree_v2(tree_mmap, block_number) else {
+                return vec![];
+            };
+            let cv = block_chaining_value(&content.base64, (block_number * BLOCK_SIZE!()) as u64);
+            if cv != expected_cv {
+                error!("{} block {} blake3 CV mismatch, re-requesting", self.id, block_number);
+                self.last_activity = Instant::now();
+                return vec![];
+            }
+        }
         if self.bitmap[block_number] {
             debug!("dup {block_number}");
         } else if content.base64.len() == BLOCK_SIZE!()
@@ -3738,6 +4224,39 @@ impl InboundState {
             }
         }
         self.last_activity = Instant::now();
+        if self.bytes_complete == self.eof && self.id.starts_with("blake3/") {
+            let path = "./cjp2p/incoming/".to_owned() + &self.id;
+            let new_path = "./cjp2p/public/".to_owned() + &self.id;
+            if fs::rename(&path, &new_path).is_ok() {
+                info!("{0} finished {1} bytes", self.id, self.eof);
+                println!("{0} finished {1} bytes", self.id, self.eof);
+                self.save_content_peers();
+            }
+            self.done = true;
+        } else if self.bytes_complete == self.eof && !self.id.starts_with("blake3_tree_v2/") && self.hash_future.is_none() {
+            let id = self.id.clone();
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.hash_future = Some(rx);
+            debug!("{} starting sha256 verification", id);
+            thread::spawn(move || {
+                let path = "./cjp2p/incoming/".to_owned() + &id;
+                let matched = (|| -> Option<bool> {
+                    let mut file = fs::File::open(&path).ok()?;
+                    let mut buf = vec![0u8; 1 << 16];
+                    let mut hasher = Sha256::new();
+                    loop {
+                        let n = file.read(&mut buf).ok()?;
+                        if n == 0 { break; }
+                        hasher.update(&buf[..n]);
+                    }
+                    let hash = format!("{:x}", hasher.finalize());
+                    info!("{} sha256sum {}", id, hash);
+                    Some(hash == id.to_lowercase())
+                })().unwrap_or(false);
+                debug!("sha256 thread for {path} sending {}", matched);
+                tx.send(matched).ok();
+            });
+        }
         let message_out = PleaseSendContent::new_messages(self, ps);
         self.next_block += 1;
         return message_out;
@@ -3759,6 +4278,7 @@ impl InboundState {
             ps.socket.send_to(&message_out_bytes, sa).ok();
         }
     }
+
     fn save_content_peers(&self) -> () {
         debug!("saving inbound state peers");
         let filename = "./cjp2p/metadata/".to_owned() + &self.id + ".json";
@@ -3814,6 +4334,33 @@ impl InboundState {
             peers: peers.iter().take(at_most).cloned().collect(),
         })];
     }
+    // Serve a verified block from an in-progress blake3 download.
+    // Only safe for blake3 IDs: each received block was CV-checked before writing,
+    // so we can forward it without propagating corruption.
+    fn serve_block(&self, block_number: usize) -> Option<Content> {
+        if !self.id.starts_with("blake3/") {
+            return None;
+        }
+        let mmap = self.mmap.as_ref()?;
+        if self.eof == 0 {
+            return None;
+        }
+        if block_number >= self.bitmap.len() || !self.bitmap[block_number] {
+            return None;
+        }
+        let offset = block_number * BLOCK_SIZE!();
+        if offset >= self.eof {
+            return None;
+        }
+        let end = (offset + BLOCK_SIZE!()).min(self.eof);
+        Some(Content {
+            id: self.id.clone(),
+            offset,
+            base64: mmap[offset..end].to_vec(),
+            eof: Some(self.eof),
+        })
+    }
+
     fn send_content_peers(&self, might_be_ip_spoofing: bool, src: SocketAddr) -> Vec<Message> {
         debug!("{} sending peers", self.id);
         let at_most = 3 + 45 * !might_be_ip_spoofing as usize;
@@ -3827,69 +4374,40 @@ impl InboundState {
             peers: peers,
         })];
     }
-    fn finished(&mut self) -> bool {
-        if let Some(ref rx) = self.hash_future {
-            match rx.try_recv() {
-                Ok(matched) => {
-                    self.hash_future = None;
-                    if matched {
-                        info!("{0} finished {1} bytes", self.id, self.eof);
-                        println!("{0} finished {1} bytes", self.id, self.eof);
-                        let path = "./cjp2p/incoming/".to_owned() + &self.id;
-                        let new_path = "./cjp2p/public/".to_owned() + &self.id;
-                        fs::rename(path, new_path).unwrap();
-                        self.save_content_peers();
-                        return true;
-                    }
+    fn finished(&mut self) {
+        if self.done || self.hash_future.is_none() { return; }
+        match self.hash_future.as_ref().unwrap().try_recv() {
+            Ok(matched) => {
+                self.hash_future = None;
+                if matched {
+                    info!("{0} finished {1} bytes", self.id, self.eof);
+                    println!("{0} finished {1} bytes", self.id, self.eof);
+                    let path = "./cjp2p/incoming/".to_owned() + &self.id;
+                    let new_path = "./cjp2p/public/".to_owned() + &self.id;
+                    fs::rename(path, &new_path).unwrap();
+                    self.save_content_peers();
+                    thread::spawn(move || upgrade_to_blake3(&new_path));
+                    self.done = true;
+                } else {
                     error!("{} hash doesnt match! restarting", self.id);
                     self.hash_failures += 1;
                     if self.hash_failures > 2 {
                         error!("{} hash failed 3 times, giving up!", self.id);
-                        return true;
+                        self.done = true;
+                    } else {
+                        self.bitmap.fill(false);
+                        self.mmap = None;
+                        self.next_block = 0;
+                        self.bytes_complete = 0;
                     }
-                    self.bitmap.fill(false);
-                    self.mmap = None;
-                    self.next_block = 0;
-                    self.bytes_complete = 0;
-                    return false;
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => return false,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.hash_future = None;
-                    self.hash_failures += 1;
-                    return false;
                 }
             }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.hash_future = None;
+                self.hash_failures += 1;
+            }
         }
-        if self.bytes_complete != self.eof {
-            return false;
-        }
-        let id = self.id.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.hash_future = Some(rx);
-        debug!("{} starting sha256sum (background thread)", id);
-        thread::spawn(move || {
-            let path = "./cjp2p/incoming/".to_owned() + &id;
-            let matched = (|| -> Option<bool> {
-                let mut file = fs::File::open(&path).ok()?;
-                let mut hasher = Sha256::new();
-                let mut buf = vec![0u8; 1 << 16];
-                loop {
-                    let n = file.read(&mut buf).ok()?;
-                    if n == 0 {
-                        break;
-                    }
-                    hasher.update(&buf[..n]);
-                }
-                let hash = format!("{:x}", hasher.finalize());
-                info!("{} sha256sum {}", id, hash);
-                Some(hash == id.to_lowercase())
-            })()
-            .unwrap_or(false);
-            debug!("sha thread for {path} sendding {}",matched);
-            tx.send(matched).ok();
-        });
-        false
     }
 }
 
@@ -3969,7 +4487,10 @@ fn maintenance(
     log_if_slow(nowi, line!().to_string());
     ps.open_file_cache = HashMap::new(); // clear the cache
     log_if_slow(nowi, line!().to_string());
-    inbound_states.retain(|_, i| !i.finished());
+    for (_, i) in inbound_states.iter_mut() {
+        i.finished();
+    }
+    inbound_states.retain(|_, i| !i.done);
     log_if_slow(nowi, line!().to_string());
     for (_, i) in inbound_states.iter_mut() {
         if i.bytes_complete == i.eof {
@@ -4592,15 +5113,43 @@ impl Receive for PleaseListContent {
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         let mut results: Vec<(String, u64)> = vec![];
-        for path in fs::read_dir("./cjp2p/public").unwrap() {
+        let limit = 70 * !*might_be_ip_spoofing as usize + 1;
+        for path in fs::read_dir("./cjp2p/public/blake3")
+            .unwrap_or_else(|_| fs::read_dir("/dev/null").unwrap())
+        {
             let p = path.unwrap().path();
-            let length = File::open(&p).unwrap().metadata().unwrap().len();
-            if p.file_name().unwrap().len() != 64 || length == 1 << 18 {
+            let length = match File::open(&p).and_then(|f| f.metadata()) {
+                Ok(m) => m.len(),
+                Err(_) => continue,
+            };
+            if p.file_name().unwrap_or_default().len() != 64 || length == 1 << 18 {
                 continue;
             }
-            results.push((p.file_name().unwrap().to_str().unwrap().to_string(), length));
-            if results.len() > 70 * !*might_be_ip_spoofing as usize + 1 {
+            let hash = p.file_name().unwrap().to_str().unwrap();
+            results.push((format!("blake3/{}", hash), length));
+            if results.len() > limit {
                 break;
+            }
+        }
+        if results.len() <= limit {
+            for path in fs::read_dir("./cjp2p/public")
+                .unwrap_or_else(|_| fs::read_dir("/dev/null").unwrap())
+            {
+                let p = path.unwrap().path();
+                if p.is_dir() {
+                    continue;
+                }
+                let length = match File::open(&p).and_then(|f| f.metadata()) {
+                    Ok(m) => m.len(),
+                    Err(_) => continue,
+                };
+                if p.file_name().unwrap_or_default().len() != 64 || length == 1 << 18 {
+                    continue;
+                }
+                results.push((p.file_name().unwrap().to_str().unwrap().to_string(), length));
+                if results.len() > limit {
+                    break;
+                }
             }
         }
         if results.len() == 0 {
