@@ -3847,7 +3847,7 @@ struct InboundState {
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
     hash_failures: i32,
-    hash_future: Option<std::sync::mpsc::Receiver<bool>>,
+    hash_future: Option<std::sync::mpsc::Receiver<(bool, MmapMut)>>,
     segment_hashes: Option<Mmap>,
     done: bool,
 }
@@ -4294,27 +4294,21 @@ impl InboundState {
             self.done = true;
         } else if self.bytes_complete == self.eof && !self.id.starts_with("blake3_tree_v2/") && self.hash_future.is_none() {
             let id = self.id.clone();
-            let (tx, rx) = std::sync::mpsc::channel();
-            self.hash_future = Some(rx);
-            debug!("{} starting sha256 verification", id);
-            thread::spawn(move || {
-                let path = "./cjp2p/incoming/".to_owned() + &id;
-                let matched = (|| -> Option<bool> {
-                    let mut file = fs::File::open(&path).ok()?;
-                    let mut buf = vec![0u8; 1 << 16];
+            let eof = self.eof;
+            if let Some(mm) = self.mmap.take() {
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.hash_future = Some(rx);
+                debug!("{} starting sha256 verification", id);
+                thread::spawn(move || {
                     let mut hasher = Sha256::new();
-                    loop {
-                        let n = file.read(&mut buf).ok()?;
-                        if n == 0 { break; }
-                        hasher.update(&buf[..n]);
-                    }
+                    hasher.update(&mm[..eof]);
                     let hash = format!("{:x}", hasher.finalize());
                     info!("{} sha256sum {}", id, hash);
-                    Some(hash == id.to_lowercase())
-                })().unwrap_or(false);
-                debug!("sha256 thread for {path} sending {}", matched);
-                tx.send(matched).ok();
-            });
+                    let matched = hash == id.to_lowercase();
+                    debug!("{} sha256 verification sending {}", id, matched);
+                    tx.send((matched, mm)).ok();
+                });
+            }
         }
         let message_out = PleaseSendContent::new_messages(self, ps);
         self.next_block += 1;
@@ -4436,13 +4430,14 @@ impl InboundState {
     fn finished(&mut self) {
         if self.done || self.hash_future.is_none() { return; }
         match self.hash_future.as_ref().unwrap().try_recv() {
-            Ok(matched) => {
+            Ok((matched, mm)) => {
                 self.hash_future = None;
                 if matched {
                     info!("{0} finished {1} bytes", self.id, self.eof);
                     println!("{0} finished {1} bytes", self.id, self.eof);
                     let path = "./cjp2p/incoming/".to_owned() + &self.id;
                     let new_path = "./cjp2p/public/".to_owned() + &self.id;
+                    drop(mm);
                     fs::rename(path, &new_path).unwrap();
                     self.save_content_peers();
                     thread::spawn(move || upgrade_to_blake3(&new_path));
@@ -4454,8 +4449,8 @@ impl InboundState {
                         error!("{} hash failed 3 times, giving up!", self.id);
                         self.done = true;
                     } else {
+                        self.mmap = Some(mm);
                         self.bitmap.fill(false);
-                        self.mmap = None;
                         self.next_block = 0;
                         self.bytes_complete = 0;
                     }
