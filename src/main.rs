@@ -3751,7 +3751,7 @@ impl Receive for Content {
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
-        if i.done {
+        if i.done || i.hash_future.is_some() {
             // Duplicate block arrived after download already completed (e.g. in-flight twin request).
             // Avoid recreating the mmap (which was taken for segment_hashes) onto a fresh zero file.
             debug!("ignoring late dup block {} for completed {}", self.offset / BLOCK_SIZE!(), self.id);
