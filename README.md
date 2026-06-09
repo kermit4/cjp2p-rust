@@ -101,5 +101,4 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - sec_todo.txt
 - have claude document video.html in similish style as the share and publish, and first add an optoin to video to use lower quality or pixels the keyframe size down, or maybe just an simple user option to lower keyframe
 - note more why not relay..dont give up, dont lose p2p, in docs
-- haskell demo of presence for protocol repo
 - verify blake3 tree should be a thread probably, for massive files to not pause the app

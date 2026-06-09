@@ -3602,6 +3602,19 @@ impl Content {
         if req.id.starts_with("blake3_tree_v2/") && req.offset == 0 && buf.len() >= 4 && &buf[..4] != b"B3T\x02" {
             warn!("SERVING block0 of {} with bad magic {:02x}{:02x}{:02x}{:02x} len={} file_eof={}", req.id, buf[0], buf[1], buf[2], buf[3], buf.len(), ofr.eof);
         }
+        if req.offset == 0 && !buf.is_empty() {
+            fs::create_dir_all("./cjp2p/log").ok();
+            if let Ok(mut log_file) = OpenOptions::new()
+                .create(true).append(true).write(true)
+                .open("./cjp2p/log/content.json")
+            {
+                let t = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default().as_millis() as i64;
+                log_file.write_all(&serde_json::to_vec(&json!({"id": req.id, "eof": ofr.eof, "t": t})).unwrap()).ok();
+                log_file.write_all(b"\n").ok();
+            }
+        }
         return vec![Message::Content(Self {
             id: req.id.clone(),
             offset: req.offset,
