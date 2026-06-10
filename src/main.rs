@@ -73,7 +73,7 @@ const HELP_TEXT: &str = "
                         - /g [#group_name] msg  (group chat; omit #group_name to use last or default 'main')
                         - /version
                         - /publish path  (copy file to cjp2p/origin/ and print its URL)
-                        - /share path  (serve file by SHA-256 hash from cjp2p/public/)
+                        - /share path  (serve file by SHA-256 and Blake3 hash from cjp2p/public/)
                         - /update  (auto-detects local build vs release binary)
                         - /help (this help)
                         - default action is /g #main
@@ -1446,6 +1446,31 @@ fn upgrade_to_blake3(public_path: &str) {
         info!("upgraded {} to blake3/{}", public_path, blake3_id);
         println!("blake3: {}", blake3_id);
     }
+}
+
+fn add_sha256_link(path: &str) {
+    let sha256 = match (|| -> Option<String> {
+        let mut file = fs::File::open(path).ok()?;
+        let mut hasher = Sha256::new();
+        let mut buf = vec![0u8; 1 << 16];
+        loop {
+            let n = file.read(&mut buf).ok()?;
+            if n == 0 { break; }
+            hasher.update(&buf[..n]);
+        }
+        Some(format!("{:x}", hasher.finalize()))
+    })() {
+        Some(h) => h,
+        None => { error!("add_sha256_link: failed to hash {}", path); return; }
+    };
+    let sha256_dest = format!("./cjp2p/public/{}", sha256);
+    if !Path::new(&sha256_dest).exists() {
+        if fs::hard_link(path, &sha256_dest).is_err() {
+            std::os::unix::fs::symlink(path, &sha256_dest).ok();
+        }
+    }
+    info!("linked {} to {}", path, sha256_dest);
+    println!("sha256: {}", sha256);
 }
 
 fn handle_upload(mut stream: TcpStream, req: HttpRequest) {
@@ -3743,6 +3768,7 @@ impl Receive for Content {
                 if i.next_block * BLOCK_SIZE!() >= i.eof || i.bytes_complete == i.eof {
                     continue;
                 }
+                if i.id.starts_with("blake3/") && i.segment_hashes.is_none() { continue; }
                 debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
                 i.request_blocks(ps, HashSet::from([src]));
                 i.next_block += 1;
@@ -4290,6 +4316,8 @@ impl InboundState {
                 info!("{0} finished {1} bytes", self.id, self.eof);
                 println!("{0} finished {1} bytes", self.id, self.eof);
                 self.save_content_peers();
+                let link_path = new_path.clone();
+                thread::spawn(move || add_sha256_link(&link_path));
             }
             self.done = true;
         } else if self.bytes_complete == self.eof && !self.id.starts_with("blake3_tree_v2/") && self.hash_future.is_none() {
@@ -4563,6 +4591,7 @@ fn maintenance(
         if i.last_activity.elapsed() <= Duration::from_secs(1) || i.bytes_complete == i.eof {
             continue;
         }
+        if i.id.starts_with("blake3/") && i.segment_hashes.is_none() { continue; }
         info!("{} stalled, restarting", i.id);
         let mut try_harder = 1;
         for cg in &ps.content_gateways {

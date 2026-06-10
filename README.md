@@ -96,9 +96,8 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - focus on enabling devs, i've done enough demoing.. general dev UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages ..start from total noob, dev exp
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - backend message retransmit timer as a service to the web apps, instead of web side because they time out, for chirp, group chat, i think thats all, it could even be to the set/group not just the hosts known to the web side at the time
-- log block 0 gets
 - at some point, /latest should upgarde to blake3 too
 - sec_todo.txt
-- have claude document video.html in similish style as the share and publish, and first add an optoin to video to use lower quality or pixels the keyframe size down, or maybe just an simple user option to lower keyframe
 - note more why not relay..dont give up, dont lose p2p, in docs
 - verify blake3 tree should be a thread probably, for massive files to not pause the app
+- shorter path to doing stuff in this and protocol readme, like for non-technical people to make p2p apps they can use right away
