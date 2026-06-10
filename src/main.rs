@@ -4493,7 +4493,9 @@ impl InboundState {
                     self.verifying_mmap = None;
                     fs::rename(path, &new_path).unwrap();
                     self.save_content_peers();
-                    thread::spawn(move || upgrade_to_blake3(&new_path));
+                    if self.eof>0x100000 {
+                        thread::spawn(move || upgrade_to_blake3(&new_path));
+                    }
                     self.done = true;
                 } else {
                     error!("{} hash doesnt match! restarting", self.id);
