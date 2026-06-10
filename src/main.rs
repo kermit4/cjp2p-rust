@@ -1208,7 +1208,9 @@ fn block_chaining_value(data: &[u8], byte_offset: u64) -> [u8; 32] {
 
 fn leaf_cv_in_tree_v2(mmap: &Mmap, block_num: usize) -> Option<[u8; 32]> {
     let n_leaves = n_leaves_from_tree_v2_eof(mmap.len())?;
-    if block_num >= n_leaves { return None; }
+    if block_num >= n_leaves {
+        return None;
+    }
     let leaf_start = mmap.len() - n_leaves * 32 + block_num * 32;
     Some(mmap[leaf_start..leaf_start + 32].try_into().unwrap())
 }
@@ -1260,9 +1262,17 @@ fn finalize_tree_mmap_v2(mmap: &mut MmapMut, n_leaves: usize) -> Option<blake3::
         let dst = offsets[k + 1];
         let n = level_sizes[k];
         for i in 0..n / 2 {
-            let l: [u8; 32] = mmap[src + 2 * i * 32..src + (2 * i + 1) * 32].try_into().unwrap();
-            let r: [u8; 32] = mmap[src + (2 * i + 1) * 32..src + (2 * i + 2) * 32].try_into().unwrap();
-            mmap[dst + i * 32..dst + (i + 1) * 32].copy_from_slice(&merge_subtrees_non_root(&l, &r, Mode::Hash));
+            let l: [u8; 32] = mmap[src + 2 * i * 32..src + (2 * i + 1) * 32]
+                .try_into()
+                .unwrap();
+            let r: [u8; 32] = mmap[src + (2 * i + 1) * 32..src + (2 * i + 2) * 32]
+                .try_into()
+                .unwrap();
+            mmap[dst + i * 32..dst + (i + 1) * 32].copy_from_slice(&merge_subtrees_non_root(
+                &l,
+                &r,
+                Mode::Hash,
+            ));
         }
         if n % 2 == 1 {
             let last: [u8; 32] = mmap[src + (n - 1) * 32..src + n * 32].try_into().unwrap();
@@ -1279,13 +1289,25 @@ fn finalize_tree_mmap_v2(mmap: &mut MmapMut, n_leaves: usize) -> Option<blake3::
 
 // Derive n_leaves from a v2 tree file's eof. Walks upward from approximation.
 fn n_leaves_from_tree_v2_eof(eof: usize) -> Option<usize> {
-    if eof < 128 { return None; }
+    if eof < 128 {
+        return None;
+    }
     let target = eof - 60;
     let mut n = (target.saturating_sub(4)) / 64;
-    if n < 2 { n = 2; }
-    while tree_file_size(n) < target { n += 1; }
-    while n > 0 && tree_file_size(n) > target { n -= 1; }
-    if tree_file_size(n) == target { Some(n) } else { None }
+    if n < 2 {
+        n = 2;
+    }
+    while tree_file_size(n) < target {
+        n += 1;
+    }
+    while n > 0 && tree_file_size(n) > target {
+        n -= 1;
+    }
+    if tree_file_size(n) == target {
+        Some(n)
+    } else {
+        None
+    }
 }
 
 // Recursive top-down consistency check for tree v2 files.
@@ -1299,7 +1321,9 @@ fn tree_check_subtree(
     idx: usize,
     bad: &mut HashSet<usize>,
 ) -> bool {
-    if level == 0 { return true; }
+    if level == 0 {
+        return true;
+    }
     let li = 2 * idx;
     let ri = li + 1;
     if ri >= level_sizes[level - 1] {
@@ -1455,13 +1479,18 @@ fn add_sha256_link(path: &str) {
         let mut buf = vec![0u8; 1 << 16];
         loop {
             let n = file.read(&mut buf).ok()?;
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             hasher.update(&buf[..n]);
         }
         Some(format!("{:x}", hasher.finalize()))
     })() {
         Some(h) => h,
-        None => { error!("add_sha256_link: failed to hash {}", path); return; }
+        None => {
+            error!("add_sha256_link: failed to hash {}", path);
+            return;
+        }
     };
     let sha256_dest = format!("./cjp2p/public/{}", sha256);
     if !Path::new(&sha256_dest).exists() {
@@ -1521,7 +1550,11 @@ fn handle_upload(mut stream: TcpStream, req: HttpRequest) {
         let mut tree_mmap = unsafe { MmapMut::map_mut(&tf) }.unwrap();
         let leaf_base = tsize - n_leaves * 32;
         let mut sha256_hasher = Sha256::new();
-        let mut blake3_hasher = if n_leaves == 1 { Some(Blake3Hasher::new()) } else { None };
+        let mut blake3_hasher = if n_leaves == 1 {
+            Some(Blake3Hasher::new())
+        } else {
+            None
+        };
         let prefix_len = req.body_prefix.len();
         let mut written = prefix_len;
         let mut block_offset: u64 = 0;
@@ -1538,27 +1571,38 @@ fn handle_upload(mut stream: TcpStream, req: HttpRequest) {
             if prefix_len > 0 {
                 file.write_all(&req.body_prefix).ok();
                 sha256_hasher.update(&req.body_prefix);
-                if let Some(ref mut h) = blake3_hasher { h.update(&req.body_prefix); }
+                if let Some(ref mut h) = blake3_hasher {
+                    h.update(&req.body_prefix);
+                }
             }
             loop {
                 while fill < BLOCK_SIZE!() && written < content_length {
                     let want = (BLOCK_SIZE!() - fill).min(content_length - written);
                     match stream.read(&mut block[fill..fill + want]) {
-                        Ok(0) | Err(_) => { written = content_length; break; }
+                        Ok(0) | Err(_) => {
+                            written = content_length;
+                            break;
+                        }
                         Ok(n) => {
                             file.write_all(&block[fill..fill + n]).ok();
                             sha256_hasher.update(&block[fill..fill + n]);
-                            if let Some(ref mut h) = blake3_hasher { h.update(&block[fill..fill + n]); }
+                            if let Some(ref mut h) = blake3_hasher {
+                                h.update(&block[fill..fill + n]);
+                            }
                             fill += n;
                             written += n;
                         }
                     }
                 }
-                if fill == 0 { break; }
+                if fill == 0 {
+                    break;
+                }
                 on_leaf(block_chaining_value(&block[..fill], block_offset));
                 block_offset += fill as u64;
                 fill = 0;
-                if written >= content_length { break; }
+                if written >= content_length {
+                    break;
+                }
             }
         } // on_leaf dropped here, releasing &mut tree_mmap and &mut leaf_count
         drop(file);
@@ -3628,19 +3672,31 @@ impl Content {
         let mut buf = vec![0; length];
         let length = ofr.file.read_at(&mut buf, req.offset as u64).unwrap();
         buf.truncate(length);
-        if req.id.starts_with("blake3_tree_v2/") && req.offset == 0 && buf.len() >= 4 && &buf[..4] != b"B3T\x02" {
+        if req.id.starts_with("blake3_tree_v2/")
+            && req.offset == 0
+            && buf.len() >= 4
+            && &buf[..4] != b"B3T\x02"
+        {
             warn!("SERVING block0 of {} with bad magic {:02x}{:02x}{:02x}{:02x} len={} file_eof={}", req.id, buf[0], buf[1], buf[2], buf[3], buf.len(), ofr.eof);
         }
         if req.offset == 0 && !buf.is_empty() {
             fs::create_dir_all("./cjp2p/log").ok();
             if let Ok(mut log_file) = OpenOptions::new()
-                .create(true).append(true).write(true)
+                .create(true)
+                .append(true)
+                .write(true)
                 .open("./cjp2p/log/content.json")
             {
                 let t = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default().as_millis() as i64;
-                log_file.write_all(&serde_json::to_vec(&json!({"id": req.id, "eof": ofr.eof, "t": t})).unwrap()).ok();
+                    .unwrap_or_default()
+                    .as_millis() as i64;
+                log_file
+                    .write_all(
+                        &serde_json::to_vec(&json!({"id": req.id, "eof": ofr.eof, "t": t}))
+                            .unwrap(),
+                    )
+                    .ok();
                 log_file.write_all(b"\n").ok();
             }
         }
@@ -3772,7 +3828,9 @@ impl Receive for Content {
                 if i.next_block * BLOCK_SIZE!() >= i.eof || i.bytes_complete == i.eof {
                     continue;
                 }
-                if i.id.starts_with("blake3/") && i.segment_hashes.is_none() { continue; }
+                if i.id.starts_with("blake3/") && i.segment_hashes.is_none() {
+                    continue;
+                }
                 debug!("growing window ({}) for {} at {}", i.next_block as i32 -self.offset as i32 /BLOCK_SIZE!(),i.id,i.next_block);
                 i.request_blocks(ps, HashSet::from([src]));
                 i.next_block += 1;
@@ -3793,11 +3851,19 @@ impl Receive for Content {
             let tree_eof = i.eof;
             if i.bytes_complete == i.eof && i.eof > 0 && self.id.starts_with("blake3_tree_v2/") {
                 let hash = self.id["blake3_tree_v2/".len()..].to_string();
-                let bad: Vec<usize> = 
-                    match (n_leaves_from_tree_v2_eof(tree_eof), inbound_states.get(&self.id).unwrap().mmap.as_deref()) {
+                let bad: Vec<usize> = match (
+                    n_leaves_from_tree_v2_eof(tree_eof),
+                    inbound_states.get(&self.id).unwrap().mmap.as_deref(),
+                ) {
                     (Some(n), Some(data)) => check_tree_v2_data(data, &hash, n),
-                    (None, _) => { error!("{} cannot derive n_leaves from eof {}", self.id, tree_eof); vec![0] },
-                    (_, None) => { error!("{} missing mmap",self.id); vec![0] }
+                    (None, _) => {
+                        error!("{} cannot derive n_leaves from eof {}", self.id, tree_eof);
+                        vec![0]
+                    }
+                    (_, None) => {
+                        error!("{} missing mmap",self.id);
+                        vec![0]
+                    }
                 };
                 if bad.is_empty() {
                     let incoming = format!("./cjp2p/incoming/{}", self.id);
@@ -3806,7 +3872,8 @@ impl Receive for Content {
                         info!("{} tree complete", self.id);
                         println!("{} tree complete", self.id);
                         let content_id = format!("blake3/{}", hash);
-                        let ro_mmap = inbound_states.get_mut(&self.id)
+                        let ro_mmap = inbound_states
+                            .get_mut(&self.id)
                             .and_then(|ti| ti.mmap.take())
                             .and_then(|mm| mm.make_read_only().ok());
                         if let Some(mm) = ro_mmap {
@@ -3834,7 +3901,8 @@ impl Receive for Content {
                                     ti.bitmap.set(b, false);
                                     let byte_start = b * BLOCK_SIZE!();
                                     let byte_end = (byte_start + BLOCK_SIZE!()).min(ti.eof);
-                                    ti.bytes_complete = ti.bytes_complete.saturating_sub(byte_end - byte_start);
+                                    ti.bytes_complete =
+                                        ti.bytes_complete.saturating_sub(byte_end - byte_start);
                                     warn!("{} clearing block {} (bytes {}-{}) for retry", self.id, b, byte_start, byte_end);
                                 } else {
                                     warn!("{} bad block {} not in bitmap (bitmap_len={} set={})", self.id, b, ti.bitmap.len(), b < ti.bitmap.len() && ti.bitmap[b]);
@@ -4280,7 +4348,9 @@ impl InboundState {
             if self.segment_hashes.is_none() {
                 let hash = &self.id["blake3/".len()..];
                 if let Ok(f) = File::open(format!("./cjp2p/public/blake3_tree_v2/{}", hash)) {
-                    if let Ok(mm) = unsafe { Mmap::map(&f) } { self.segment_hashes = Some(mm); }
+                    if let Ok(mm) = unsafe { Mmap::map(&f) } {
+                        self.segment_hashes = Some(mm);
+                    }
                 }
             }
             let Some(ref tree_mmap) = self.segment_hashes else {
@@ -4302,7 +4372,10 @@ impl InboundState {
         } else if content.base64.len() == BLOCK_SIZE!()
             || content.base64.len() + content.offset == self.eof
         {
-            if self.id.starts_with("blake3_tree_v2/") && block_number == 0 && content.base64.len() >= 4 {
+            if self.id.starts_with("blake3_tree_v2/")
+                && block_number == 0
+                && content.base64.len() >= 4
+            {
                 let magic = &content.base64[..4];
                 if magic != b"B3T\x02" {
                     warn!("{} writing block0 with bad magic {:02x}{:02x}{:02x}{:02x} (len={} eof={}) -- sender gave zeros?", self.id, magic[0], magic[1], magic[2], magic[3], content.base64.len(), self.eof);
@@ -4335,7 +4408,10 @@ impl InboundState {
                 thread::spawn(move || add_sha256_link(&link_path));
             }
             self.done = true;
-        } else if self.bytes_complete == self.eof && !self.id.starts_with("blake3_tree_v2/") && self.hash_future.is_none() {
+        } else if self.bytes_complete == self.eof
+            && !self.id.starts_with("blake3_tree_v2/")
+            && self.hash_future.is_none()
+        {
             let id = self.id.clone();
             if let Some(mm) = self.mmap.take() {
                 match mm.make_read_only() {
@@ -4481,7 +4557,9 @@ impl InboundState {
         })];
     }
     fn finished(&mut self) {
-        if self.done || self.hash_future.is_none() { return; }
+        if self.done || self.hash_future.is_none() {
+            return;
+        }
         match self.hash_future.as_ref().unwrap().try_recv() {
             Ok(matched) => {
                 self.hash_future = None;
@@ -4493,7 +4571,7 @@ impl InboundState {
                     self.verifying_mmap = None;
                     fs::rename(path, &new_path).unwrap();
                     self.save_content_peers();
-                    if self.eof>0x100000 {
+                    if self.eof > 0x100000 {
                         thread::spawn(move || upgrade_to_blake3(&new_path));
                     }
                     self.done = true;
@@ -4626,7 +4704,9 @@ fn maintenance(
         if i.last_activity.elapsed() <= Duration::from_secs(1) || i.bytes_complete == i.eof {
             continue;
         }
-        if i.id.starts_with("blake3/") && i.segment_hashes.is_none() { continue; }
+        if i.id.starts_with("blake3/") && i.segment_hashes.is_none() {
+            continue;
+        }
         info!("{} stalled, restarting", i.id);
         let mut try_harder = 1;
         for cg in &ps.content_gateways {
