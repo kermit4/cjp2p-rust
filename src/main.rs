@@ -1206,7 +1206,6 @@ fn block_chaining_value(data: &[u8], byte_offset: u64) -> [u8; 32] {
     h.finalize_non_root()
 }
 
-
 fn leaf_cv_in_tree_v2(mmap: &Mmap, block_num: usize) -> Option<[u8; 32]> {
     let n_leaves = n_leaves_from_tree_v2_eof(mmap.len())?;
     if block_num >= n_leaves { return None; }
@@ -1311,9 +1310,11 @@ fn tree_check_subtree(
     let l: [u8; 32] = data[co + li * 32..co + (li + 1) * 32].try_into().unwrap();
     let r: [u8; 32] = data[co + ri * 32..co + (ri + 1) * 32].try_into().unwrap();
     let p: [u8; 32] = data[po + idx * 32..po + (idx + 1) * 32].try_into().unwrap();
-    if merge_subtrees_non_root(&l, &r, Mode::Hash) == p { return true; }
     let l_ok = tree_check_subtree(data, level_sizes, offsets, level - 1, li, bad);
     let r_ok = tree_check_subtree(data, level_sizes, offsets, level - 1, ri, bad);
+    if merge_subtrees_non_root(&l, &r, Mode::Hash) == p {
+        return true;
+    }
     bad.insert((po + idx * 32) / BLOCK_SIZE!());
     if l_ok && r_ok {
         bad.insert((co + li * 32) / BLOCK_SIZE!());
@@ -1372,7 +1373,6 @@ fn check_tree_v2_data(data: &[u8], expected_hash: &str, n_leaves: usize) -> Vec<
     }
     bad.into_iter().collect()
 }
-
 
 // Build the tree file from a source mmap in one pass.
 // If sha256 is Some, updates it with every chunk in the same pass.
@@ -3433,10 +3433,10 @@ impl PleaseSendContent {
     fn new_messages(i: &mut InboundState, ps: &PeerState) -> Vec<Message> {
         // Don't request content blocks until leaf CVs are loaded; every block
         // must be CV-checked on receipt, so there is no point starting earlier.
-        if i.id.starts_with("blake3/") && i.segment_hashes.is_none() {
-            info!("waiting for blake3 tree for {} before startind download",i.id);
-            return vec![];
-        }
+        //    if i.id.starts_with("blake3/") && i.segment_hashes.is_none() {
+        //      info!("waiting for blake3 tree for {} before startind download",i.id);
+        //     return vec![];
+        // }
         for cg in &ps.content_gateways {
             let new_next_block = cg.http_start as usize / BLOCK_SIZE!();
             if !cg.http_done && !cg.waiting_for_browser && cg.id == i.id {
@@ -3461,7 +3461,11 @@ impl PleaseSendContent {
                     }
                 } //this can cause window loss in debug build
 
-                //                i.next_block = 0;
+                if i.id.starts_with("blake3_tree_v2/") {
+                    // good chance we need this done before moving on, but this probably breaks the speed
+                    // of web pages full of images back to back, but those should use sha256 really
+                    i.next_block = 0;
+                }
                 return vec![];
             }
             i.bytes_complete > 0 && i.bitmap[i.next_block]
@@ -3777,66 +3781,67 @@ impl Receive for Content {
         }
         let i = inbound_states.get_mut(&self.id).unwrap();
         i.peers.insert(src);
+        let mut message_out = vec![];
         if i.done || i.hash_future.is_some() {
             // Duplicate block arrived after download already completed (e.g. in-flight twin request).
             // Avoid recreating the mmap (which was taken for segment_hashes) onto a fresh zero file.
             debug!("ignoring late dup block {} for completed {}", self.offset / BLOCK_SIZE!(), self.id);
-            return vec![];
-        }
-        let block_number = self.offset / BLOCK_SIZE!();
-        debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
-        let mut message_out = i.receive_content(&self, ps);
-        let tree_eof = i.eof;
-        if i.bytes_complete == i.eof && i.eof > 0 && self.id.starts_with("blake3_tree_v2/") {
-            let hash = self.id["blake3_tree_v2/".len()..].to_string();
-            let bad: Vec<usize> = 
-                match (n_leaves_from_tree_v2_eof(tree_eof), inbound_states.get(&self.id).unwrap().mmap.as_deref()) {
+        } else {
+            let block_number = self.offset / BLOCK_SIZE!();
+            debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, i.next_block as i64 - block_number as i64);
+            message_out = i.receive_content(&self, ps);
+            let tree_eof = i.eof;
+            if i.bytes_complete == i.eof && i.eof > 0 && self.id.starts_with("blake3_tree_v2/") {
+                let hash = self.id["blake3_tree_v2/".len()..].to_string();
+                let bad: Vec<usize> = 
+                    match (n_leaves_from_tree_v2_eof(tree_eof), inbound_states.get(&self.id).unwrap().mmap.as_deref()) {
                     (Some(n), Some(data)) => check_tree_v2_data(data, &hash, n),
                     (None, _) => { error!("{} cannot derive n_leaves from eof {}", self.id, tree_eof); vec![0] },
                     (_, None) => { error!("{} missing mmap",self.id); vec![0] }
                 };
-            if bad.is_empty() {
-                let incoming = format!("./cjp2p/incoming/{}", self.id);
-                let public = format!("./cjp2p/public/{}", self.id);
-                if fs::rename(&incoming, &public).is_ok() {
-                    info!("{} tree complete", self.id);
-                    println!("{} tree complete", self.id);
-                    let content_id = format!("blake3/{}", hash);
-                    let ro_mmap = inbound_states.get_mut(&self.id)
-                        .and_then(|ti| ti.mmap.take())
-                        .and_then(|mm| mm.make_read_only().ok());
-                    if let Some(mm) = ro_mmap {
-                        if let Some(ci) = inbound_states.get_mut(&content_id) {
-                            ci.segment_hashes = Some(mm);
-                        }
-                    }
-                }
-                if let Some(ti) = inbound_states.get_mut(&self.id) {
-                    ti.done = true;
-                }
-            } else {
-                if let Some(ti) = inbound_states.get_mut(&self.id) {
-                    ti.hash_failures += 1;
-                    if ti.hash_failures > 2 {
-                        error!("{} tree check failed 3 times, giving up", self.id);
-                        fs::remove_file(format!("./cjp2p/incoming/{}", self.id)).ok();
-                        ti.done = true;
-                    } else {
-                        let mut bad_sorted = bad.clone();
-                        bad_sorted.sort();
-                        warn!("{} tree check attempt {} failed, bad blocks: {:?} (eof={} bytes_complete={})", self.id, ti.hash_failures, bad_sorted, ti.eof, ti.bytes_complete);
-                        for b in bad {
-                            if b < ti.bitmap.len() && ti.bitmap[b] {
-                                ti.bitmap.set(b, false);
-                                let byte_start = b * BLOCK_SIZE!();
-                                let byte_end = (byte_start + BLOCK_SIZE!()).min(ti.eof);
-                                ti.bytes_complete = ti.bytes_complete.saturating_sub(byte_end - byte_start);
-                                warn!("{} clearing block {} (bytes {}-{}) for retry", self.id, b, byte_start, byte_end);
-                            } else {
-                                warn!("{} bad block {} not in bitmap (bitmap_len={} set={})", self.id, b, ti.bitmap.len(), b < ti.bitmap.len() && ti.bitmap[b]);
+                if bad.is_empty() {
+                    let incoming = format!("./cjp2p/incoming/{}", self.id);
+                    let public = format!("./cjp2p/public/{}", self.id);
+                    if fs::rename(&incoming, &public).is_ok() {
+                        info!("{} tree complete", self.id);
+                        println!("{} tree complete", self.id);
+                        let content_id = format!("blake3/{}", hash);
+                        let ro_mmap = inbound_states.get_mut(&self.id)
+                            .and_then(|ti| ti.mmap.take())
+                            .and_then(|mm| mm.make_read_only().ok());
+                        if let Some(mm) = ro_mmap {
+                            if let Some(ci) = inbound_states.get_mut(&content_id) {
+                                ci.segment_hashes = Some(mm);
                             }
                         }
-                        ti.next_block = 0;
+                    }
+                    if let Some(ti) = inbound_states.get_mut(&self.id) {
+                        ti.done = true;
+                    }
+                } else {
+                    if let Some(ti) = inbound_states.get_mut(&self.id) {
+                        ti.hash_failures += 1;
+                        if ti.hash_failures > 2 {
+                            error!("{} tree check failed 3 times, giving up", self.id);
+                            fs::remove_file(format!("./cjp2p/incoming/{}", self.id)).ok();
+                            ti.done = true;
+                        } else {
+                            let mut bad_sorted = bad.clone();
+                            bad_sorted.sort();
+                            warn!("{} tree check attempt {} failed, bad blocks: {:?} (eof={} bytes_complete={})", self.id, ti.hash_failures, bad_sorted, ti.eof, ti.bytes_complete);
+                            for b in bad {
+                                if b < ti.bitmap.len() && ti.bitmap[b] {
+                                    ti.bitmap.set(b, false);
+                                    let byte_start = b * BLOCK_SIZE!();
+                                    let byte_end = (byte_start + BLOCK_SIZE!()).min(ti.eof);
+                                    ti.bytes_complete = ti.bytes_complete.saturating_sub(byte_end - byte_start);
+                                    warn!("{} clearing block {} (bytes {}-{}) for retry", self.id, b, byte_start, byte_end);
+                                } else {
+                                    warn!("{} bad block {} not in bitmap (bitmap_len={} set={})", self.id, b, ti.bitmap.len(), b < ti.bitmap.len() && ti.bitmap[b]);
+                                }
+                            }
+                            ti.next_block = 0;
+                        }
                     }
                 }
             }
@@ -4270,6 +4275,7 @@ impl InboundState {
                 }
             }
             let Some(ref tree_mmap) = self.segment_hashes else {
+                debug!("{} not ready but got blake3 content already",self.id);
                 return vec![];
             };
             let Some(expected_cv) = leaf_cv_in_tree_v2(tree_mmap, block_number) else {
