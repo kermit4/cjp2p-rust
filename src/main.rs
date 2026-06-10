@@ -3878,7 +3878,8 @@ struct InboundState {
     peers: HashSet<SocketAddr>,
     last_activity: Instant,
     hash_failures: i32,
-    hash_future: Option<std::sync::mpsc::Receiver<(bool, MmapMut)>>,
+    hash_future: Option<std::sync::mpsc::Receiver<bool>>,
+    verifying_mmap: Option<std::sync::Arc<Mmap>>,
     segment_hashes: Option<Mmap>,
     done: bool,
 }
@@ -4084,8 +4085,15 @@ impl ContentGateway {
             self.waiting_for_browser = false;
             return;
         }
-        let mmap = &i.mmap.as_mut().unwrap();
-        self.serve_mmap(mmap, available_end);
+        let data: &[u8] = if let Some(mm) = i.mmap.as_deref() {
+            mm
+        } else if let Some(arc) = i.verifying_mmap.as_deref() {
+            arc
+        } else {
+            error!("should not happen, no mmap!");
+            return;
+        };
+        self.serve_mmap(data, available_end);
     }
     fn serve_content_from_stream_state(&mut self, ss: &mut StreamState) {
         ss.last_viewed = Instant::now();
@@ -4101,7 +4109,7 @@ impl ContentGateway {
         let mmap = &mut ss.mmap;
         self.serve_mmap(mmap, available_end);
     }
-    fn serve_mmap(&mut self, mmap: &MmapMut, mut available_end: usize) {
+    fn serve_mmap(&mut self, mmap: &[u8], mut available_end: usize) {
         if !self.sent_header {
             let mime_type = mimetype_detector::detect(&mmap[0..]);
             // text/x-typescript is a misdetection of plain JS -- the detector pattern-matches
@@ -4211,6 +4219,7 @@ impl InboundState {
             last_activity: Instant::now() - Duration::from_secs(999),
             hash_failures: 0,
             hash_future: None,
+            verifying_mmap: None,
             segment_hashes: None,
             done: false,
         };
@@ -4328,20 +4337,30 @@ impl InboundState {
             self.done = true;
         } else if self.bytes_complete == self.eof && !self.id.starts_with("blake3_tree_v2/") && self.hash_future.is_none() {
             let id = self.id.clone();
-            let eof = self.eof;
             if let Some(mm) = self.mmap.take() {
-                let (tx, rx) = std::sync::mpsc::channel();
-                self.hash_future = Some(rx);
-                debug!("{} starting sha256 verification", id);
-                thread::spawn(move || {
-                    let mut hasher = Sha256::new();
-                    hasher.update(&mm[..eof]);
-                    let hash = format!("{:x}", hasher.finalize());
-                    info!("{} sha256sum {}", id, hash);
-                    let matched = hash == id.to_lowercase();
-                    debug!("{} sha256 verification sending {}", id, matched);
-                    tx.send((matched, mm)).ok();
-                });
+                match mm.make_read_only() {
+                    Ok(ro) => {
+                        let arc = std::sync::Arc::new(ro);
+                        let thread_arc = std::sync::Arc::clone(&arc);
+                        self.verifying_mmap = Some(arc);
+                        let eof = self.eof;
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        self.hash_future = Some(rx);
+                        debug!("{} starting sha256 verification", id);
+                        thread::spawn(move || {
+                            let mut hasher = Sha256::new();
+                            hasher.update(&thread_arc[..eof]);
+                            let hash = format!("{:x}", hasher.finalize());
+                            info!("{} sha256sum {}", id, hash);
+                            let matched = hash == id.to_lowercase();
+                            drop(thread_arc);
+                            tx.send(matched).ok();
+                        });
+                    }
+                    Err(e) => {
+                        error!("{} make_read_only failed: {}", id, e);
+                    }
+                }
             }
         }
         let message_out = PleaseSendContent::new_messages(self, ps);
@@ -4464,14 +4483,14 @@ impl InboundState {
     fn finished(&mut self) {
         if self.done || self.hash_future.is_none() { return; }
         match self.hash_future.as_ref().unwrap().try_recv() {
-            Ok((matched, mm)) => {
+            Ok(matched) => {
                 self.hash_future = None;
                 if matched {
                     info!("{0} finished {1} bytes", self.id, self.eof);
                     println!("{0} finished {1} bytes", self.id, self.eof);
                     let path = "./cjp2p/incoming/".to_owned() + &self.id;
                     let new_path = "./cjp2p/public/".to_owned() + &self.id;
-                    drop(mm);
+                    self.verifying_mmap = None;
                     fs::rename(path, &new_path).unwrap();
                     self.save_content_peers();
                     thread::spawn(move || upgrade_to_blake3(&new_path));
@@ -4483,7 +4502,15 @@ impl InboundState {
                         error!("{} hash failed 3 times, giving up!", self.id);
                         self.done = true;
                     } else {
-                        self.mmap = Some(mm);
+                        if let Some(arc) = self.verifying_mmap.take() {
+                            match std::sync::Arc::try_unwrap(arc) {
+                                Ok(ro) => match ro.make_mut() {
+                                    Ok(mm) => self.mmap = Some(mm),
+                                    Err(e) => error!("{} make_mut failed: {}", self.id, e),
+                                },
+                                Err(_) => error!("{} arc still has refs on hash failure", self.id),
+                            }
+                        }
                         self.bitmap.fill(false);
                         self.next_block = 0;
                         self.bytes_complete = 0;
