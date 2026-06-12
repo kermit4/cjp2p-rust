@@ -3886,30 +3886,31 @@ impl Receive for Content {
                         ti.done = true;
                     }
                 } else {
-                    if let Some(ti) = inbound_states.get_mut(&self.id) {
-                        ti.hash_failures += 1;
-                        if ti.hash_failures > 2 {
-                            error!("{} tree check failed 3 times, giving up", self.id);
-                            fs::remove_file(format!("./cjp2p/incoming/{}", self.id)).ok();
-                            ti.done = true;
-                        } else {
-                            let mut bad_sorted = bad.clone();
-                            bad_sorted.sort();
-                            warn!("{} tree check attempt {} failed, bad blocks: {:?} (eof={} bytes_complete={})", self.id, ti.hash_failures, bad_sorted, ti.eof, ti.bytes_complete);
-                            for b in bad {
-                                if b < ti.bitmap.len() && ti.bitmap[b] {
-                                    ti.bitmap.set(b, false);
-                                    let byte_start = b * BLOCK_SIZE!();
-                                    let byte_end = (byte_start + BLOCK_SIZE!()).min(ti.eof);
-                                    ti.bytes_complete =
-                                        ti.bytes_complete.saturating_sub(byte_end - byte_start);
-                                    warn!("{} clearing block {} (bytes {}-{}) for retry", self.id, b, byte_start, byte_end);
-                                } else {
-                                    warn!("{} bad block {} not in bitmap (bitmap_len={} set={})", self.id, b, ti.bitmap.len(), b < ti.bitmap.len() && ti.bitmap[b]);
-                                }
+                    let Some(ti) = inbound_states.get_mut(&self.id) else {
+                        error!("where did inbound_states go, this should never happen!");
+                        return vec![];
+                    };
+                    ti.hash_failures += 1;
+                    if ti.hash_failures > 2 {
+                        error!("{} tree check failed 3 times, giving up", self.id);
+                        ti.done = true;
+                    } else {
+                        let mut bad_sorted = bad.clone();
+                        bad_sorted.sort();
+                        warn!("{} tree check attempt {} failed, bad blocks: {:?} (eof={} bytes_complete={})", self.id, ti.hash_failures, bad_sorted, ti.eof, ti.bytes_complete);
+                        for b in bad {
+                            if b < ti.bitmap.len() && ti.bitmap[b] {
+                                ti.bitmap.set(b, false);
+                                let byte_start = b * BLOCK_SIZE!();
+                                let byte_end = (byte_start + BLOCK_SIZE!()).min(ti.eof);
+                                ti.bytes_complete =
+                                    ti.bytes_complete.saturating_sub(byte_end - byte_start);
+                                warn!("{} clearing block {} (bytes {}-{}) for retry", self.id, b, byte_start, byte_end);
+                            } else {
+                                warn!("{} bad block {} not in bitmap (bitmap_len={} set={})", self.id, b, ti.bitmap.len(), b < ti.bitmap.len() && ti.bitmap[b]);
                             }
-                            ti.next_block = 0;
                         }
+                        ti.next_block = 0;
                     }
                 }
             }
@@ -4197,23 +4198,23 @@ impl ContentGateway {
                     }
                 } // seems to improve seeking in Brave
                 format!(
-                                "HTTP/1.0 206 Partial Content\r\n\
-                                 Connection: keep-alive\r\n\
-                                 Content-Length: {}\r\n\
-                                 Content-Disposition: inline\r\n\
-                                 Accept-Range: bytes\r\n\
-                                 Content-Range: bytes {}-{}/{}\r\n\
-                                 Content-Type: {}\r\n\r\n"
+                        "HTTP/1.0 206 Partial Content\r\n\
+                         Connection: keep-alive\r\n\
+                         Content-Length: {}\r\n\
+                         Content-Disposition: inline\r\n\
+                         Accept-Range: bytes\r\n\
+                         Content-Range: bytes {}-{}/{}\r\n\
+                         Content-Type: {}\r\n\r\n"
             ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffffff), mime_str)
             } else {
                 debug!("cg {} serve_mmap unranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_str);
                 format!(
-                                "HTTP/1.0 200 OK\r\n\
-                                 Connection: keep-alive\r\n\
-                                 Content-Length: {}\r\n\
-                                 Content-Disposition: inline\r\n\
-                                 Accept-Range: bytes\r\n\
-                                 Content-Type: {}\r\n\r\n"
+                        "HTTP/1.0 200 OK\r\n\
+                         Connection: keep-alive\r\n\
+                         Content-Length: {}\r\n\
+                         Content-Disposition: inline\r\n\
+                         Accept-Range: bytes\r\n\
+                         Content-Type: {}\r\n\r\n"
             ,self.http_end-self.http_start, mime_str)
             };
             info!("cg {} sending http client {}",self.http_socket.as_raw_fd(),response);

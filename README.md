@@ -101,3 +101,12 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - note more why not relay..dont give up, dont lose p2p, in docs
 - verify blake3 tree should be a thread probably, for massive files to not pause the app
 - shorter path to doing stuff in this and protocol readme, like for non-technical people to make p2p apps they can use right away
+
+- metadata
+- channels, like a stream but multiple senders, with consensus (like a blockchain or DAG)
+- channels, like a stream but multiple senders, without consensus 
+- economics to incentivize resource sharing
+- chat message white or black listing to avoid spam, and sharing the lists
+- synchronized media playback between peers (i dont know why, it just seems fun...a shared experience, at a distance, would go well with group chats, like the 1990s when video was usually in sync)
+- make initial readme really short, and file list, very non-intimidiating, the base is really just UDP plus arrays of eexternally tagged values. put write_ups in their own dir, dont evne link to it from the README
+
