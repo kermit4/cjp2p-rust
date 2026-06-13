@@ -110,3 +110,5 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - synchronized media playback between peers (i dont know why, it just seems fun...a shared experience, at a distance, would go well with group chats, like the 1990s when video was usually in sync)
 - make initial readme really short, and file list, very non-intimidiating, the base is really just UDP plus arrays of eexternally tagged values. put write_ups in their own dir, dont evne link to it from the README
 
+- inboundstate flow could be more serial to sha256 or blake3 in motion, so blake3 tree isnt a thread
+- inboundstate flow could be more serial to sha256 or blake3 in motion, so blake3 tree isnt a thread
