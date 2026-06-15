@@ -112,3 +112,4 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 
 - inboundstate flow could be more serial to sha256 or blake3 in motion, so blake3 tree isnt a thread
 - inboundstate flow could be more serial to sha256 or blake3 in motion, so blake3 tree isnt a thread
+- super simple demo apps claude made are way too big ..maybe cut out the anti-spoof for now.

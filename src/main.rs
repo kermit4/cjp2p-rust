@@ -2846,8 +2846,13 @@ fn handle_web_request(
         .read(true)
         .open("./cjp2p/log/http.v3.json")
     {
-        file.write_all(&serde_json::to_vec(&json![req]).unwrap())
-            .ok();
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        let mut entry = serde_json::to_value(&json![req]).unwrap();
+        entry["t"] = serde_json::json!(t);
+        file.write_all(&serde_json::to_vec(&entry).unwrap()).ok();
         file.write(b"\n").ok();
     }
 
@@ -6000,12 +6005,17 @@ impl Receive for GetLatest {
                 .write(true)
                 .open("./cjp2p/log/latest.json")
             {
+                let t = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64;
                 file.write_all(
                     &serde_json::to_vec(&json!({
                         "name": self.name,
                         "source": source,
                         "sender": sender,
                         "src": src,
+                        "t": t,
                     }))
                     .unwrap(),
                 )
