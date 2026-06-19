@@ -58,8 +58,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: cjp2p-linux-x86_64
-          body: |
-            Built from commit `${{ github.sha }}` by GitHub Actions.
 
   # -- Android aarch64 (runs in Termux, same binary the APK embeds) ----------
   android-aarch64:
@@ -137,7 +135,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: cjp2p-android-aarch64
-          body: |
-            Built from commit `${{ github.sha }}` by GitHub Actions.
-            Drop into Termux and `chmod +x cjp2p-android-aarch64 && ./cjp2p-android-aarch64`.
 

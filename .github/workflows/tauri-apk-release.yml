@@ -102,17 +102,33 @@ jobs:
         with:
           files: ${{ steps.apk.outputs.path }}
           body: |
-            ## cjp2p Tauri APK (signed release)
-
             Built by GitHub Actions from commit `${{ github.sha }}`.
 
             To verify provenance: open the Actions run linked above and confirm
             the commit SHA matches a commit you can inspect in this repository.
             You are trusting GitHub's build infrastructure, not the author's machine.
 
-            ### Install
-            Download the `.apk`, copy it to your Android device, open it in the
-            Files app and tap Install.  You may need to allow "install unknown apps"
-            for your file manager the first time.
+            ### Assets
 
-            Requires Android 7.0+ (arm64).
+            | File | What it is |
+            |------|------------|
+            | `app-universal-release.apk` | Tauri Android app (signed release APK) |
+            | `cjp2p-android-aarch64` | Bare binary for Termux on Android (aarch64) |
+            | `cjp2p-linux-x86_64` | Static musl binary for Linux x86-64 |
+
+            ### Install
+
+            **Android app (Tauri APK)**
+            Download `app-universal-release.apk`, copy it to your Android device, open
+            it in the Files app and tap Install.  You may need to allow "install unknown
+            apps" for your file manager the first time.  Requires Android 7.0+ (arm64).
+
+            **Termux / Android bare binary**
+            ```
+            chmod +x cjp2p-android-aarch64 && ./cjp2p-android-aarch64
+            ```
+
+            **Linux**
+            ```
+            chmod +x cjp2p-linux-x86_64 && ./cjp2p-linux-x86_64
+            ```
