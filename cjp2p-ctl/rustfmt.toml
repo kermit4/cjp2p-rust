@@ -1,0 +1,6 @@
+# Multiline style: always expand struct literals, call args, and chains onto
+# their own lines (never pack onto one long line). Scoped to this crate via a
+# crate-local rustfmt.toml so it does NOT reformat the node's hand-tuned,
+# deliberately terser src/ — keep contributions there whitespace-clean instead.
+max_width = 100
+use_small_heuristics = "Off"

@@ -2590,6 +2590,126 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
     });
 }
 
+// GET /content.json (loopback-gated) -- machine-readable listing of this node's own
+// shared content, the one thing the homepage HTML exposes but no JSON API did.
+// public/: one entry per blob, sha256<->blake3 paired by underlying inode
+// (public/<sha256> is hard/sym-linked to public/blake3/<blake3>, see handle_upload;
+// fs::metadata follows the link so both resolve to the same (dev,ino)).
+// origin/: published updatable files (served at /latest/0x<pub>/<name>) plus a
+// `directories` array for /share-symlinked dirs (served at /latest/0x<pub>/<dir>/<file>).
+fn content_json(ps: &PeerState, mut stream: TcpStream) {
+    use std::os::unix::fs::MetadataExt;
+    let pub_hex = ps.keypair.public.to_string();
+    stream.set_nonblocking(false).ok();
+    thread::spawn(move || {
+        let is_hex64 = |s: &str| s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit());
+        let unix_secs = |t: std::time::SystemTime| {
+            t.duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        };
+        let rfc3339 =
+            |t: std::time::SystemTime| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339();
+
+        // ---- public/: pair sha256 <-> blake3 by underlying inode ----
+        let mut by_inode: HashMap<(u64, u64), serde_json::Value> = HashMap::new();
+        for (dir, is_blake3) in [("./cjp2p/public/blake3", true), ("./cjp2p/public", false)] {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().into_string().unwrap_or_default();
+                    if !is_hex64(&name) {
+                        continue;
+                    }
+                    let Ok(meta) = fs::metadata(entry.path()) else {
+                        continue;
+                    }; // follows symlink
+                    if meta.is_dir() {
+                        continue;
+                    }
+                    let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    let e = by_inode.entry((meta.dev(), meta.ino())).or_insert_with(|| {
+                        json!({
+                            "sha256": serde_json::Value::Null,
+                            "blake3": serde_json::Value::Null,
+                            "size": meta.len(),
+                            "mtime": rfc3339(modified),
+                            "mtime_unix": unix_secs(modified),
+                            "tree": false,
+                        })
+                    });
+                    if is_blake3 {
+                        e["blake3"] = json!(name);
+                        e["tree"] = json!(Path::new(&format!(
+                            "./cjp2p/public/blake3_tree_v2/{}",
+                            name
+                        ))
+                        .exists());
+                    } else {
+                        e["sha256"] = json!(name);
+                    }
+                }
+            }
+        }
+        let mut public: Vec<serde_json::Value> = by_inode.into_values().collect();
+        public.sort_by(|a, b| {
+            b["mtime_unix"]
+                .as_u64()
+                .unwrap_or(0)
+                .cmp(&a["mtime_unix"].as_u64().unwrap_or(0))
+        });
+
+        // ---- origin/: published files + /share-symlinked directories ----
+        let mut origin: Vec<serde_json::Value> = Vec::new();
+        let mut directories: Vec<serde_json::Value> = Vec::new();
+        if let Ok(entries) = fs::read_dir("./cjp2p/origin") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().into_string().unwrap_or_default();
+                if name.starts_with('.') {
+                    continue; // .tmp_*, dotfiles
+                }
+                let Ok(meta) = fs::metadata(entry.path()) else {
+                    continue;
+                }; // follows symlink
+                let enc = urlencoding::encode(&name);
+                if meta.is_dir() {
+                    directories.push(json!({
+                        "name": name,
+                        "url": format!("/latest/0x{}/{}/", pub_hex, enc),
+                    }));
+                } else {
+                    let modified = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    origin.push(json!({
+                        "name": name,
+                        "url": format!("/latest/0x{}/{}", pub_hex, enc),
+                        "size": meta.len(),
+                        "mtime": rfc3339(modified),
+                        "mtime_unix": unix_secs(modified),
+                    }));
+                }
+            }
+        }
+        origin.sort_by(|a, b| {
+            b["mtime_unix"]
+                .as_u64()
+                .unwrap_or(0)
+                .cmp(&a["mtime_unix"].as_u64().unwrap_or(0))
+        });
+
+        let body = json!({
+            "public_key": format!("0x{}", pub_hex),
+            "origin": origin,
+            "directories": directories,
+            "public": public,
+        });
+        let body_str = body.to_string();
+        let response = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
+            body_str.len(), body_str
+        );
+        stream.write_all(response.as_bytes()).ok();
+    });
+}
+
 fn status_page(
     inbound_states: &HashMap<String, InboundState>,
     ps: &PeerState,
@@ -2827,6 +2947,17 @@ fn handle_web_request(
     if req.path == "/status.json" {
         debug!("got http request for {:?}",req);
         status_json(ps, stream);
+        return;
+    }
+    if req.path == "/content.json" {
+        debug!("got http request for {:?}", req);
+        if !is_local(&stream) {
+            stream
+                .write_all(b"HTTP/1.0 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+                .ok();
+            return;
+        }
+        content_json(ps, stream);
         return;
     }
     if req.path == "/favicon.ico" {
