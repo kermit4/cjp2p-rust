@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "cjp2p-ctl"]
+resolver = "2"
+
 [package]
 name = "cjp2p"
 version = "0.3.0"

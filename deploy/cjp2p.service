@@ -1,0 +1,36 @@
+[Unit]
+Description=cjp2p LCDP p2p node
+Documentation=https://github.com/kermit4/cjp2p-rust
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cjp2p
+Group=cjp2p
+ExecStart=/usr/local/bin/cjp2p
+Environment=RUST_LOG=warn
+
+# State lives in /var/lib/cjp2p (the binary reads/writes ./cjp2p/ relative to here)
+StateDirectory=cjp2p
+WorkingDirectory=/var/lib/cjp2p
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening — node only needs its state dir and the two high ports (no privileges)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target
