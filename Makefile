@@ -33,8 +33,24 @@ target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.p
 check: Makefile Cargo.toml src/*.rs src/bin/*.rs src/favicon.png
 	cargo check 
 
-pretty: check 
-	cargo fmt --  --config skip_macro_invocations='["*"]' --config match_arm_blocks=false
+# Formatting config lives ONCE here; editors, the Claude hook, and CI all
+# reference these targets instead of duplicating the rustfmt invocation.
+# Requires the nightly toolchain (skip_macro_invocations is unstable).
+FMT_FLAGS = --config skip_macro_invocations='["*"]' --config match_arm_blocks=false
+
+pretty: check
+	cargo +nightly fmt -- $(FMT_FLAGS)
+
+# Format a single file (used by editors / the Claude PostToolUse hook):
+#   make pretty-file FILE=path/to/x.rs
+.PHONY: pretty-file
+pretty-file:
+	rustup run nightly rustfmt --edition 2021 $(FMT_FLAGS) "$(FILE)"
+
+# Fail if anything is unformatted (CI / pre-commit backstop).
+.PHONY: pretty-check
+pretty-check:
+	cargo +nightly fmt --check -- $(FMT_FLAGS)
 
 APK = android/app/build/outputs/apk/debug/app-debug.apk
 APK_SRCS = $(wildcard src/*.rs) Cargo.toml build_android.sh \
