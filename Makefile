@@ -36,7 +36,7 @@ check: Makefile Cargo.toml src/*.rs src/bin/*.rs src/favicon.png
 # Formatting config lives ONCE here; editors, the Claude hook, and CI all
 # reference these targets instead of duplicating the rustfmt invocation.
 # Requires the nightly toolchain (skip_macro_invocations is unstable).
-FMT_FLAGS = --config skip_macro_invocations='["*"]' --config match_arm_blocks=false
+FMT_FLAGS = --config skip_macro_invocations='["*"]'
 
 pretty: check
 	cargo +nightly fmt -- $(FMT_FLAGS)
