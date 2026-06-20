@@ -71,6 +71,26 @@ pull: Makefile
 	wget  -q http://localhost:24255/latest/0xe13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb/cjp2p.bundle -O bundle
 	git pull bundle master
 
+# -- publish a feature branch over lcdp for review ----------------------------
+# cjp2p is local-first: you always talk to YOUR node at 127.0.0.1:24255, which
+# serves your published bundle to peers. This hands a bundle of your branch to
+# your running node (over local HTTP, so it works no matter where the node's
+# working dir is -- e.g. a systemd system-user node). Reviewers then git-fetch
+# it from /latest/0x<yourpub>/<NAME>.bundle.
+# Override:  make publish BRANCH=feat/x NAME=my-thing
+# (If instead you run the node FROM this dir, kermit's `bundle` target / a direct
+#  write into cjp2p/origin/ also works -- same result, no HTTP.)
+BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD)
+NAME   ?= $(shell git rev-parse --abbrev-ref HEAD | tr '/() ' '-' | tr -s '-')
+.PHONY: publish
+
+publish:
+	git bundle create --quiet /tmp/$(NAME).bundle "$(BRANCH)" --tags
+	cjp2pctl publish /tmp/$(NAME).bundle --name $(NAME).bundle
+	@rm -f /tmp/$(NAME).bundle
+	@echo "published $(BRANCH) -> /latest/0x<yourpub>/$(NAME).bundle  (cjp2pctl status = your 0x key)"
+	@echo "reviewer: wget <node>/latest/0x<yourpub>/$(NAME).bundle -O b && git fetch b '$(BRANCH):$(BRANCH)'"
+
 # -- Tauri targets (Android APK) ----------------------------------------------
 #
 # First-time setup:
