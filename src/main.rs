@@ -2546,7 +2546,7 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
         .filter_map(|(pub_, src)| {
             if let Source::S(sa) = src {
                 let v = ps.peer_map.get(sa)?;
-                if v.delay < Duration::from_millis(250) {
+                if v.delay < Duration::from_millis(350) {
                     return Some(json!({
                         "addr": sa.to_string(),
                         "pub": format!("0x{}", pub_),
