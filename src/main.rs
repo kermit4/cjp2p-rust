@@ -592,12 +592,13 @@ impl PeerState {
             //            trace!( "PROBE sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             match self.socket.send_to(&message_out_bytes, sa) {
                 Ok(s) => trace!("sent {s}"),
-                Err(e) =>
+                Err(e) => {
                     if e.raw_os_error() == Some(11) {
                         warn!("PROBE EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", message_out_bytes.len());
                     } else {
                         trace!("PROBE failed to send to {sa} {0} bytes: {e} ", message_out_bytes.len());
-                    },
+                    }
+                }
             }
         }
         log_if_slow(nowi, line!().to_string());
@@ -996,12 +997,13 @@ impl PeerState {
                         info!("PCP IPv6 mapping success, lifetime {lifetime}s");
                     }
                 }
-                Err(e) =>
+                Err(e) => {
                     if e.raw_os_error() == Some(11) {
                         debug!("PCP recv timeout (router may not support PCP): {e}");
                     } else {
                         info!("PCP recv error (router may not support PCP): {e}");
-                    },
+                    }
+                }
             }
         });
     }
@@ -1118,12 +1120,13 @@ impl PeerState {
                     .send_to(&serde_json::to_vec(&msg_out).unwrap(), sa)
                 {
                     Ok(s) => trace!("sent {s}"),
-                    Err(e) =>
+                    Err(e) => {
                         if e.raw_os_error() == Some(11) {
                             warn!("EWOULDBLOCK failed to send (your wifi/mobile connection is probably backing up) {0} {e}", msg_out.len());
                         } else {
                             trace!("failed to send to {sa} {0} bytes: {e} ", msg_out.len());
-                        },
+                        }
+                    }
                 }
                 if self.always_returned(*sa).len() > 0 {
                     msg_out.pop();
@@ -3042,12 +3045,13 @@ fn handle_web_request(
         let mut parts = rest.splitn(2, '?').next().unwrap().splitn(2, '/');
         let Some(raw_pub) = parts.next() else { return };
         let name_raw = match parts.next() {
-            Some(p) =>
+            Some(p) => {
                 if p.len() > 0 && !p.ends_with('/') {
                     p
                 } else {
                     &(p.to_owned() + "index.html")
-                },
+                }
+            }
             None => {
                 let qs = req
                     .path
@@ -3417,11 +3421,14 @@ fn handle_network(
     } */
     match ps.socket.send_to(&message_out_bytes, src) {
         Ok(s) => trace!("sent {s}"),
-            Err(e) => {
-                if e.raw_os_error() == Some(11) {
-                    debug!("EWOULDBLOCK failed to reply to {src} (your wifi/mobile connection is probably backing up)");
-                    // failed to send (your wifi/mobile connection is probably backing up) {0} {e}", msg_out.len());
-                } else {warn!("failed to reply {} bytes to {src} {e}", message_out_bytes.len())}},
+        Err(e) => {
+            if e.raw_os_error() == Some(11) {
+                debug!("EWOULDBLOCK failed to reply to {src} (your wifi/mobile connection is probably backing up)");
+                // failed to send (your wifi/mobile connection is probably backing up) {0} {e}", msg_out.len());
+            } else {
+                warn!("failed to reply {} bytes to {src} {e}", message_out_bytes.len())
+            }
+        }
     }
 }
 fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
