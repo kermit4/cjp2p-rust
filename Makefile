@@ -39,7 +39,7 @@ check: Makefile Cargo.toml src/*.rs src/bin/*.rs src/favicon.png
 FMT_FLAGS = --config skip_macro_invocations='["*"]'
 
 pretty: check
-	cargo +nightly fmt -- $(FMT_FLAGS)
+	cargo fmt -- $(FMT_FLAGS)
 
 # Format a single file (used by editors / the Claude PostToolUse hook):
 #   make pretty-file FILE=path/to/x.rs
