@@ -50,7 +50,7 @@ pretty-file:
 # Fail if anything is unformatted (CI / pre-commit backstop).
 .PHONY: pretty-check
 pretty-check:
-	cargo +nightly fmt --check -- $(FMT_FLAGS)
+	cargo fmt --check -- $(FMT_FLAGS)
 
 APK = android/app/build/outputs/apk/debug/app-debug.apk
 APK_SRCS = $(wildcard src/*.rs) Cargo.toml build_android.sh \
