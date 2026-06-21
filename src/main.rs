@@ -1136,7 +1136,7 @@ impl PeerState {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct HttpRequest {
     method: String,
     path: String,
@@ -2970,7 +2970,7 @@ fn handle_web_request(
         return;
     }
 
-    info!("got http request for {:?}",req);
+    info!("got http request for {:?}",HttpRequest {body_prefix: vec![],..req.clone()});
     fs::create_dir_all("./cjp2p/log").ok();
     if let Ok(mut file) = OpenOptions::new()
         .create(true)
