@@ -88,8 +88,7 @@ publish:
 	git bundle create --quiet /tmp/$(NAME).bundle "$(BRANCH)" --tags
 	cjp2pctl publish /tmp/$(NAME).bundle --name $(NAME).bundle
 	@rm -f /tmp/$(NAME).bundle
-	@echo "published $(BRANCH) -> /latest/0x<yourpub>/$(NAME).bundle  (cjp2pctl status = your 0x key)"
-	@echo "reviewer: wget <node>/latest/0x<yourpub>/$(NAME).bundle -O b && git fetch b '$(BRANCH):$(BRANCH)'"
+	@echo "reviewer: wget http://127.0.0.1:24255/latest/`cjp2pctl status|awk '/^identity/{print $$NF}'`/$(NAME).bundle && git fetch $(NAME).bundle '$(BRANCH):$(BRANCH)' && git checkout $(NAME).bundle && git rebase master && git diff -w master"
 
 # -- Tauri targets (Android APK) ----------------------------------------------
 #

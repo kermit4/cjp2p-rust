@@ -133,7 +133,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 );
             } else {
                 println!("published {fname}");
-                println!("  url /latest/{pubkey}/{fname}  (re-publish to push updates)");
+                println!("  url http://127.0.0.1:24255/latest/{pubkey}/{fname}  (re-publish to push updates)");
             }
         }
         Cmd::Get {
