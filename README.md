@@ -95,7 +95,6 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - it is time to make various mini stand-alone apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - focus on enabling devs, i've done enough demoing.. general dev UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages ..start from total noob, dev exp
 - less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
-- backend message retransmit timer as a service to the web apps, instead of web side because they time out, for chirp, group chat, i think thats all, it could even be to the set/group not just the hosts known to the web side at the time
 - at some point, /latest should upgarde to blake3 too
 - sec_todo.txt
 - note more why not relay..dont give up, dont lose p2p, in docs
@@ -109,10 +108,9 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - chat message white or black listing to avoid spam, and sharing the lists
 - synchronized media playback between peers (i dont know why, it just seems fun...a shared experience, at a distance, would go well with group chats, like the 1990s when video was usually in sync)
 - make initial readme really short, and file list, very non-intimidiating, the base is really just UDP plus arrays of eexternally tagged values. put write_ups in their own dir, dont evne link to it from the README
-
-- inboundstate flow could be more serial to sha256 or blake3 in motion, so blake3 tree isnt a thread
 - inboundstate flow could be more serial to sha256 or blake3 in motion, so blake3 tree isnt a thread
 - super simple demo apps claude made are way too big ..maybe cut out the anti-spoof for now.
-- fork a web browser to give direct udp access?
+- fork a web browser to give direct udp access?..qutebrowser?
 - assets, any kind of assets, get creative, certainly cryptography will be involved, but hopefully not another blockchain..signature histories dont need blocks and are their own chain
-- inbound bitmap should also be a mmap, then it wont need 1GB of RAM for every 32TB of download, and would be resumable
+- backend message retransmit timer as a service to the web apps, instead of web side because they time out, for chirp, group chat, i think thats all, it could even be to the set/group not just the hosts known to the web side at the time
+- upgrding to blake3 isnt hard linking
