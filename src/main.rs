@@ -56,6 +56,7 @@ use std::path::Path;
 
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
 const SPECIAL_PUB: &str = "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb";
+const ACTIVE_PEER_DELAY_MS: u64 = 350;
 const HELP_TEXT: &str = "
                         - /ping
                         - /get < sha256 or blake3/blake3_hash >
@@ -2056,6 +2057,7 @@ fn run_engine(
 
     let stdin = std::io::stdin();
     let mut stdin_open = true;
+    let rl_peer_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let tty_state: Option<(OwnedFd, std::sync::mpsc::Receiver<Option<String>>)> =
         if stdin.is_terminal() {
             let mut pipe_fds = [-1i32; 2];
@@ -2063,6 +2065,7 @@ fn run_engine(
                 let pipe_read = unsafe { OwnedFd::from_raw_fd(pipe_fds[0]) };
                 let pipe_write_raw = pipe_fds[1];
                 let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+                let rl_peer_count_thread = std::sync::Arc::clone(&rl_peer_count);
                 std::thread::spawn(move || {
                     let mut rl = match rustyline::DefaultEditor::new() {
                         Ok(e) => e,
@@ -2072,7 +2075,9 @@ fn run_engine(
                         }
                     };
                     loop {
-                        match rl.readline("") {
+                        let n = rl_peer_count_thread.load(std::sync::atomic::Ordering::Relaxed);
+                        let prompt = format!("{} peers> ", n);
+                        match rl.readline(&prompt) {
                             Ok(line) => {
                                 let _ = rl.add_history_entry(&line);
                                 let _ = tx.send(Some(line));
@@ -2101,6 +2106,14 @@ fn run_engine(
         let mut read_fds = FdSet::new();
         let mut write_fds = FdSet::new();
         maintenance(&mut stream_states, &mut inbound_states, &mut ps);
+        if tty_state.is_some() {
+            let n = ps.peer_map_by_pub.iter().filter(|(_, src)| {
+                if let Source::S(sa) = src {
+                    ps.peer_map.get(sa).map_or(false, |v| v.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS))
+                } else { false }
+            }).count();
+            rl_peer_count.store(n, std::sync::atomic::Ordering::Relaxed);
+        }
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
         if stdin_open {
@@ -2626,7 +2639,7 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
         .filter_map(|(pub_, src)| {
             if let Source::S(sa) = src {
                 let v = ps.peer_map.get(sa)?;
-                if v.delay < Duration::from_millis(350) {
+                if v.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS) {
                     return Some(json!({
                         "addr": sa.to_string(),
                         "pub": format!("0x{}", pub_),
