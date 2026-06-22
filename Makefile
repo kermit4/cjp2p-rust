@@ -84,12 +84,12 @@ BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD)
 NAME   ?= $(shell git rev-parse --abbrev-ref HEAD | tr '/() ' '-' | tr -s '-')
 .PHONY: publish
 
-target/debug/cjp2pctl:
+cjp2p-ctl/target/debug/cjp2pctl:
 	$(MAKE) -C cjp2p-ctl
 
-publish: target/debug/cjp2pctl
+publish: cjp2p-ctl/target/debug/cjp2pctl
 	git bundle create --quiet /tmp/$(NAME).bundle "$(BRANCH)" --tags
-	target/debug/cjp2pctl publish /tmp/$(NAME).bundle --name $(NAME).bundle
+	cjp2p-ctl/target/debug/cjp2pctl publish /tmp/$(NAME).bundle --name $(NAME).bundle
 	@rm -f /tmp/$(NAME).bundle
 	@echo "reviewer: wget http://127.0.0.1:24255/latest/`cjp2pctl status|awk '/^identity/{print $$NF}'`/$(NAME).bundle && git fetch $(NAME).bundle '$(BRANCH):$(BRANCH)' && git checkout $(NAME).bundle && git rebase master && git diff -w master"
 
@@ -106,7 +106,7 @@ ANDROID_SDK_ROOT ?= $(HOME)/Android/Sdk
 CARGO_TAURI = $(HOME)/.cargo/bin/cargo-tauri
 TAURI_APP_DIR = tauri-app
 
-.PHONY: tauri-cli icons tauri-android-init tauri-apk target/debug/cjp2pctl
+.PHONY: tauri-cli icons tauri-android-init tauri-apk cjp2p-ctl/target/debug/cjp2pctl
 
 $(CARGO_TAURI):
 	cargo install tauri-cli --version "^2" --locked
