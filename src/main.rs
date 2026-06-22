@@ -2094,7 +2094,7 @@ fn run_engine(
                     };
                     loop {
                         let n = rl_peer_count_thread.load(std::sync::atomic::Ordering::Relaxed);
-                        let prompt = format!("{}> ", n);
+                        let prompt = format!("{} peers> ", n);
                         match rl.readline(&prompt) {
                             Ok(line) => {
                                 let _ = rl.add_history_entry(&line);
