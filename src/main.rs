@@ -56,7 +56,7 @@ use std::path::Path;
 
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
 const SPECIAL_PUB: &str = "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb";
-const ACTIVE_PEER_DELAY_MS: u64 = 350;
+const ACTIVE_PEER_DELAY_MS: u64 = 500;
 
 static SAVED_TERMIOS: std::sync::OnceLock<libc::termios> = std::sync::OnceLock::new();
 
