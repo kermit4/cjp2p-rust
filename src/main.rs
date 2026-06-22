@@ -40,7 +40,8 @@ use rand::Rng;
 use scanf::sscanf;
 use std::net::{SocketAddr, UdpSocket};
 use std::net::{TcpListener, TcpStream};
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
+use std::io::IsTerminal;
 use std::os::unix::fs::FileExt;
 use std::time::{Duration, Instant};
 use std::vec;
@@ -2055,6 +2056,47 @@ fn run_engine(
 
     let stdin = std::io::stdin();
     let mut stdin_open = true;
+    let tty_state: Option<(OwnedFd, std::sync::mpsc::Receiver<Option<String>>)> =
+        if stdin.is_terminal() {
+            let mut pipe_fds = [-1i32; 2];
+            if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } == 0 {
+                let pipe_read = unsafe { OwnedFd::from_raw_fd(pipe_fds[0]) };
+                let pipe_write_raw = pipe_fds[1];
+                let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+                std::thread::spawn(move || {
+                    let mut rl = match rustyline::DefaultEditor::new() {
+                        Ok(e) => e,
+                        Err(_) => {
+                            unsafe { libc::close(pipe_write_raw); }
+                            return;
+                        }
+                    };
+                    loop {
+                        match rl.readline("") {
+                            Ok(line) => {
+                                let _ = rl.add_history_entry(&line);
+                                let _ = tx.send(Some(line));
+                                unsafe { libc::write(pipe_write_raw, b"x".as_ptr() as *const libc::c_void, 1); }
+                            }
+                            Err(rustyline::error::ReadlineError::Interrupted) => {
+                                unsafe { libc::raise(libc::SIGINT); }
+                            }
+                            Err(_) => {
+                                let _ = tx.send(None);
+                                unsafe { libc::write(pipe_write_raw, b"x".as_ptr() as *const libc::c_void, 1); }
+                                break;
+                            }
+                        }
+                    }
+                    unsafe { libc::close(pipe_write_raw); }
+                });
+                Some((pipe_read, rx))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
     'main: loop {
         let mut read_fds = FdSet::new();
         let mut write_fds = FdSet::new();
@@ -2062,7 +2104,10 @@ fn run_engine(
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
         if stdin_open {
-            read_fds.insert(stdin.as_fd());
+            match &tty_state {
+                Some((pipe_read, _)) => read_fds.insert(pipe_read.as_fd()),
+                None => read_fds.insert(stdin.as_fd()),
+            }
         }
 
         for cg in &ps.content_gateways {
@@ -2078,7 +2123,9 @@ fn run_engine(
             read_fds.insert(ws.get_ref().as_fd());
         }
         let tv_1 = &mut (nix::sys::time::TimeVal::new(0, 313187));
-        select(None, &mut read_fds, &mut write_fds, None, tv_1).unwrap();
+        if select(None, &mut read_fds, &mut write_fds, None, tv_1).is_err() {
+            continue 'main;
+        }
 
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if write_fds.contains(cg.http_socket.as_fd()) {
@@ -2106,12 +2153,33 @@ fn run_engine(
             }
         }
 
-        if read_fds.contains(stdin.as_fd()) {
-            info!("handling stdin");
-            if !handle_stdin(&mut ps, &mut stream_states, &mut inbound_states) {
-                stdin_open = false;
+        {
+            let stdin_triggered = match &tty_state {
+                Some((pipe_read, _)) => read_fds.contains(pipe_read.as_fd()),
+                None => read_fds.contains(stdin.as_fd()),
+            };
+            if stdin_triggered {
+                info!("handling stdin");
+                let keep_open = if let Some((pipe_read, rx)) = &tty_state {
+                    let mut buf = [0u8; 1];
+                    unsafe { libc::read(pipe_read.as_raw_fd(), buf.as_mut_ptr() as *mut libc::c_void, 1); }
+                    match rx.try_recv() {
+                        Ok(Some(line)) => {
+                            handle_line(&line, &mut ps, &mut stream_states, &mut inbound_states);
+                            true
+                        }
+                        Ok(None) => false,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => true,
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => false,
+                    }
+                } else {
+                    handle_stdin(&mut ps, &mut stream_states, &mut inbound_states)
+                };
+                if !keep_open {
+                    stdin_open = false;
+                }
+                continue 'main;
             }
-            continue 'main;
         }
         if read_fds.contains(web_server.as_fd()) {
             debug!("handling new http");
@@ -2164,10 +2232,24 @@ fn handle_stdin(
     if n == 0 {
         return false;
     }
-    line = line.trim_end_matches('\n').to_string();
-    if line.len() == 0 {
+    let line = line.trim_end_matches('\n');
+    if line.is_empty() {
         return true;
     }
+    handle_line(line, ps, stream_states, inbound_states);
+    true
+}
+
+fn handle_line(
+    line: &str,
+    ps: &mut PeerState,
+    stream_states: &mut HashMap<String, StreamState>,
+    inbound_states: &mut HashMap<String, InboundState>,
+) {
+    if line.is_empty() {
+        return;
+    }
+    let mut line = line.to_string();
     let mut arg: String = "".to_string();
     let mut arg2: String = "".to_string();
     if sscanf!(line.as_str(), "/get {}",arg).is_ok() {
@@ -2432,7 +2514,7 @@ fn handle_stdin(
             Some(n) => n.to_owned(),
             None => {
                 println!("publish: can't determine filename from {arg}");
-                return true;
+                return;
             }
         };
         let dest = format!("./cjp2p/origin/{}", file_name);
@@ -2451,12 +2533,12 @@ fn handle_stdin(
             println!("publish: copied");
         } else {
             println!("publish: all methods failed for {arg}");
-            return true;
+            return;
         }
         if let Err(e) = fs::rename(tmp_path, &dest) {
             let _ = fs::remove_file(tmp_path);
             println!("publish: rename failed: {e}");
-            return true;
+            return;
         }
         println!("http://localhost:{}/latest/0x{}/{}", ps.http_port, ps.keypair.public, file_name);
     } else if sscanf!(line.as_str(), "/share {}", arg).is_ok() {
@@ -2533,7 +2615,6 @@ fn handle_stdin(
         ps.last_group = group_name.clone();
         GroupChatMessage::send(ps, group_name, line);
     }
-    true
 }
 fn status_json(ps: &PeerState, mut stream: TcpStream) {
     let public_key = format!("0x{}", ps.keypair.public);
