@@ -38,10 +38,10 @@ use std::fs::OpenOptions;
 use nix::sys::select::{select, FdSet};
 use rand::Rng;
 use scanf::sscanf;
+use std::io::IsTerminal;
 use std::net::{SocketAddr, UdpSocket};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
-use std::io::IsTerminal;
 use std::os::unix::fs::FileExt;
 use std::time::{Duration, Instant};
 use std::vec;
@@ -2070,7 +2070,9 @@ fn run_engine(
                     let mut rl = match rustyline::DefaultEditor::new() {
                         Ok(e) => e,
                         Err(_) => {
-                            unsafe { libc::close(pipe_write_raw); }
+                            unsafe {
+                                libc::close(pipe_write_raw);
+                            }
                             return;
                         }
                     };
@@ -2081,19 +2083,33 @@ fn run_engine(
                             Ok(line) => {
                                 let _ = rl.add_history_entry(&line);
                                 let _ = tx.send(Some(line));
-                                unsafe { libc::write(pipe_write_raw, b"x".as_ptr() as *const libc::c_void, 1); }
+                                unsafe {
+                                    libc::write(
+                                        pipe_write_raw,
+                                        b"x".as_ptr() as *const libc::c_void,
+                                        1,
+                                    );
+                                }
                             }
-                            Err(rustyline::error::ReadlineError::Interrupted) => {
-                                unsafe { libc::raise(libc::SIGINT); }
-                            }
+                            Err(rustyline::error::ReadlineError::Interrupted) => unsafe {
+                                libc::raise(libc::SIGINT);
+                            },
                             Err(_) => {
                                 let _ = tx.send(None);
-                                unsafe { libc::write(pipe_write_raw, b"x".as_ptr() as *const libc::c_void, 1); }
+                                unsafe {
+                                    libc::write(
+                                        pipe_write_raw,
+                                        b"x".as_ptr() as *const libc::c_void,
+                                        1,
+                                    );
+                                }
                                 break;
                             }
                         }
                     }
-                    unsafe { libc::close(pipe_write_raw); }
+                    unsafe {
+                        libc::close(pipe_write_raw);
+                    }
                 });
                 Some((pipe_read, rx))
             } else {
@@ -2107,11 +2123,19 @@ fn run_engine(
         let mut write_fds = FdSet::new();
         maintenance(&mut stream_states, &mut inbound_states, &mut ps);
         if tty_state.is_some() {
-            let n = ps.peer_map_by_pub.iter().filter(|(_, src)| {
-                if let Source::S(sa) = src {
-                    ps.peer_map.get(sa).map_or(false, |v| v.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS))
-                } else { false }
-            }).count();
+            let n = ps
+                .peer_map_by_pub
+                .iter()
+                .filter(|(_, src)| {
+                    if let Source::S(sa) = src {
+                        ps.peer_map.get(sa).map_or(false, |v| {
+                            v.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS)
+                        })
+                    } else {
+                        false
+                    }
+                })
+                .count();
             rl_peer_count.store(n, std::sync::atomic::Ordering::Relaxed);
         }
         read_fds.insert(ps.socket.as_fd());
@@ -2175,7 +2199,13 @@ fn run_engine(
                 info!("handling stdin");
                 let keep_open = if let Some((pipe_read, rx)) = &tty_state {
                     let mut buf = [0u8; 1];
-                    unsafe { libc::read(pipe_read.as_raw_fd(), buf.as_mut_ptr() as *mut libc::c_void, 1); }
+                    unsafe {
+                        libc::read(
+                            pipe_read.as_raw_fd(),
+                            buf.as_mut_ptr() as *mut libc::c_void,
+                            1,
+                        );
+                    }
                     match rx.try_recv() {
                         Ok(Some(line)) => {
                             handle_line(&line, &mut ps, &mut stream_states, &mut inbound_states);
