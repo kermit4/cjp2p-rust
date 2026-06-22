@@ -2076,7 +2076,7 @@ fn run_engine(
                             return;
                         }
                     };
-loop {
+                    loop {
                         let n = rl_peer_count_thread.load(std::sync::atomic::Ordering::Relaxed);
                         let prompt = format!("{} peers> ", n);
                         match rl.readline(&prompt) {
@@ -2691,7 +2691,7 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
     let fast_peer_count = ps
         .peer_vec
         .iter()
-        .filter(|v| ps.peer_map[*v].delay < Duration::from_millis(250))
+        .filter(|v| ps.peer_map[*v].delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS))
         .count();
 
     stream.set_nonblocking(false).ok();
@@ -2876,7 +2876,7 @@ fn status_page(
         .filter_map(|(pub_, src)| {
             if let Source::S(sa) = src {
                 let delay = ps.peer_map.get(sa)?.delay;
-                if delay < Duration::from_millis(600) {
+                if delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS) {
                     return Some((*sa, *pub_));
                 }
             }
@@ -2907,7 +2907,7 @@ fn status_page(
         .peer_vec
         .iter()
         .map(|v| (ps.peer_map[v].delay, *v))
-        .filter(|(d, _)| *d < Duration::from_millis(250))
+        .filter(|(d, _)| *d < Duration::from_millis(ACTIVE_PEER_DELAY_MS))
         .collect();
 
     let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=10><title>cjp2p status {}</title>\
