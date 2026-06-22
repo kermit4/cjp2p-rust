@@ -2076,7 +2076,7 @@ fn run_engine(
                             return;
                         }
                     };
-                    loop {
+loop {
                         let n = rl_peer_count_thread.load(std::sync::atomic::Ordering::Relaxed);
                         let prompt = format!("{} peers> ", n);
                         match rl.readline(&prompt) {
