@@ -588,13 +588,13 @@ impl PeerState {
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(self.please_always_return(sa));
-            if let Some(v) = &self.p.i_just_saw_this {
-                message_out.push(Message::IJustSawThis(v.clone()));
-            }
-            if let Some(v) = &self.p.you_should_see_this {
-                message_out.push(Message::YouShouldSeeThis(v.clone()));
-            }
-            message_out.push(MyPublicKey::new(self));
+        //    if let Some(v) = &self.p.i_just_saw_this {
+        //        message_out.push(Message::IJustSawThis(v.clone()));
+        //    }
+        //    if let Some(v) = &self.p.you_should_see_this {
+        //        message_out.push(Message::YouShouldSeeThis(v.clone()));
+        //    }
+        //    message_out.push(MyPublicKey::new(self));
             message_out.append(&mut self.always_returned(sa));
             message_out.push(PleaseReturnThisMessage::new(self));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
