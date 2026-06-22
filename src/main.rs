@@ -57,6 +57,16 @@ use std::path::Path;
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
 const SPECIAL_PUB: &str = "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb";
 const ACTIVE_PEER_DELAY_MS: u64 = 350;
+
+static SAVED_TERMIOS: std::sync::OnceLock<libc::termios> = std::sync::OnceLock::new();
+
+fn restore_terminal() {
+    if let Some(t) = SAVED_TERMIOS.get() {
+        unsafe {
+            libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, t);
+        }
+    }
+}
 const HELP_TEXT: &str = "
                         - /ping
                         - /get < sha256 or blake3/blake3_hash >
@@ -2060,6 +2070,12 @@ fn run_engine(
     let rl_peer_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let tty_state: Option<(OwnedFd, std::sync::mpsc::Receiver<Option<String>>)> =
         if stdin.is_terminal() {
+            unsafe {
+                let mut t: libc::termios = std::mem::zeroed();
+                if libc::tcgetattr(libc::STDIN_FILENO, &mut t) == 0 {
+                    SAVED_TERMIOS.set(t).ok();
+                }
+            }
             let mut pipe_fds = [-1i32; 2];
             if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } == 0 {
                 let pipe_read = unsafe { OwnedFd::from_raw_fd(pipe_fds[0]) };
@@ -2078,7 +2094,7 @@ fn run_engine(
                     };
                     loop {
                         let n = rl_peer_count_thread.load(std::sync::atomic::Ordering::Relaxed);
-                        let prompt = format!("{} peers> ", n);
+                        let prompt = format!("{}> ", n);
                         match rl.readline(&prompt) {
                             Ok(line) => {
                                 let _ = rl.add_history_entry(&line);
@@ -2091,9 +2107,12 @@ fn run_engine(
                                     );
                                 }
                             }
-                            Err(rustyline::error::ReadlineError::Interrupted) => unsafe {
-                                libc::raise(libc::SIGINT);
-                            },
+                            Err(rustyline::error::ReadlineError::Interrupted) => {
+                                restore_terminal();
+                                unsafe {
+                                    libc::raise(libc::SIGINT);
+                                }
+                            }
                             Err(_) => {
                                 let _ = tx.send(None);
                                 unsafe {
@@ -2301,6 +2320,7 @@ fn handle_line(
     } else if line == "/quit" {
         ps.save_peers();
         ps.p.save();
+        restore_terminal();
         std::process::exit(0);
     } else if sscanf!(line.as_str(), "/test {} {}",arg,arg2).is_ok() {
         println!("this command is undocummmented because it will hang the node, your internet connection, and probably piss off your ISP.  Hetzner sent me an abuse email demaning an explaination almost immediately after I tried it there. DO NOT USE THIS!!  (Though Hetzner did not lose any traffic, unlike my cheap home router)");
@@ -3493,11 +3513,11 @@ fn handle_network(
         return;
     }
     message_out.append(&mut ps.always_returned(src));
-    if might_be_ip_spoofing {
+    if might_be_ip_spoofing && message_out.len() > 0 {
         trim_reply(&mut message_out, message_in_len);
+        message_out.push(ps.please_always_return(src));
     }
     if message_out.len() == 0 {
-        debug!("ratio: none left!");
         return;
     }
     let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
@@ -3559,8 +3579,8 @@ fn trim_reply(message_out: &mut Vec<Message>, message_in_length: usize) {
     let mut message_out_bytes;
     while {
         message_out_bytes = serde_json::to_vec(&message_out).unwrap();
-        ratio = // 20 is IP header, 8 is UDP header
-            (message_out_bytes.len() as f64 + 20.0 + 8.0) / (message_in_length  as f64 + 20.0 + 8.0);
+        ratio = // 20 is IP header, 8 is UDP header, 57 is the the cookie they seem to need
+            (message_out_bytes.len() as f64 + 20.0 + 8.0 + 57.0) / (message_in_length  as f64 + 20.0 + 8.0 + 57.0);
         trace!("ratio: {ratio}");
         message_out.len() > 0 && ratio > rand::rng().random_range(1.0..5.0)
     } {
@@ -3623,7 +3643,7 @@ impl Receive for PleaseSendPeers {
     fn receive(
         self,
         ps: &mut PeerState,
-        src: &Source,
+        _src: &Source,
         might_be_ip_spoofing: &mut bool,
         _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
@@ -3631,13 +3651,7 @@ impl Receive for PleaseSendPeers {
     ) -> Vec<Message> {
         let p = ps.best_peers(1 + 45 * !*might_be_ip_spoofing as usize, 6);
         trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
-        let mut message_out = vec![Message::Peers(Peers { peers: p })];
-        if *might_be_ip_spoofing {
-            if let Source::S(src) = src {
-                message_out.push(ps.please_always_return(*src));
-            }
-        }
-        return message_out;
+        return vec![Message::Peers(Peers { peers: p })];
     }
 }
 impl Receive for Peers {
@@ -3853,9 +3867,6 @@ impl Receive for PleaseSendContent {
                 3 + 45 * !*might_be_ip_spoofing as usize,
                 &src,
             ));
-        }
-        if *might_be_ip_spoofing && message_out.len() > 0 {
-            message_out.push(ps.please_always_return(src));
         }
         return message_out;
     }
