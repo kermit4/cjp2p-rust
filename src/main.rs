@@ -3651,7 +3651,15 @@ impl Receive for PleaseSendPeers {
     ) -> Vec<Message> {
         let p = ps.best_peers(1 + 45 * !*might_be_ip_spoofing as usize, 6);
         trace!("sending {:?}/{:?} peers", p.len(), ps.peer_map.len());
-        return vec![Message::Peers(Peers { peers: p })];
+        let mut message_out = vec![Message::Peers(Peers { peers: p })];
+        let mpk = MyPublicKey {
+            ed25519h: ps.keypair.public.clone(),
+            ed25519_eth_signed: None,
+        };
+        if !*might_be_ip_spoofing {
+            message_out.push(Message::MyPublicKey(mpk));
+        }
+        return message_out;
     }
 }
 impl Receive for Peers {
