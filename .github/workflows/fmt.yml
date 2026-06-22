@@ -1,0 +1,23 @@
+name: Format
+
+# Enforce the project's rustfmt style (nightly + skip_macro_invocations, the
+# same config as `make pretty`). Runs `make pretty-check` so the command lives
+# in exactly one place (the Makefile).
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: make pretty-check
