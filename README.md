@@ -108,7 +108,7 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - chat message white or black listing to avoid spam, and sharing the lists
 - synchronized media playback between peers (i dont know why, it just seems fun...a shared experience, at a distance, would go well with group chats, like the 1990s when video was usually in sync)
 - make initial readme really short, and file list, very non-intimidiating, the base is really just UDP plus arrays of eexternally tagged values. put write_ups in their own dir, dont evne link to it from the README
-- inboundstate flow could be more serial to sha256 or blake3 in motion, so blake3 tree isnt a thread
+- inboundstate flow could be more serial to sha256 or blake3 tree in motion, so blake3 tree doesnt have to be a thread at the end (which its not yet)0
 - super simple demo apps claude made are way too big ..maybe cut out the anti-spoof for now.
 - fork a web browser to give direct udp access?..qutebrowser?
 - assets, any kind of assets, get creative, certainly cryptography will be involved, but hopefully not another blockchain..signature histories dont need blocks and are their own chain
