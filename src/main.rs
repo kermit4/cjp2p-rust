@@ -584,12 +584,13 @@ impl PeerState {
         debug!("PROBE total after history merge: {} peers {:?}", peers.len(), peers);
         */
         for sa in peers {
+            let mut message_out: Vec<Message> = Vec::new();
             if let Some(peer_info) = self.peer_map.get_mut(&sa) {
                 peer_info.delay = peer_info
                     .delay
                     .saturating_add(peer_info.delay / 3 + Duration::from_millis(1));
+                message_out.push(MyPublicKey::new(self));
             }
-            let mut message_out: Vec<Message> = Vec::new();
             message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
@@ -600,7 +601,6 @@ impl PeerState {
             //    if let Some(v) = &self.p.you_should_see_this {
             //        message_out.push(Message::YouShouldSeeThis(v.clone()));
             //    }
-            //    message_out.push(MyPublicKey::new(self));
             message_out.append(&mut self.always_returned(sa));
             message_out.push(PleaseReturnThisMessage::new(self));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
