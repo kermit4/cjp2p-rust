@@ -252,6 +252,7 @@ struct PeerState {
     peer_map_by_pub: HashMap<Ed25519Pub, Source>,
     peer_vec: Vec<SocketAddr>,
     recent_peers: HashSet<SocketAddr>,
+    suggested_peers: HashSet<SocketAddr>,
     recent_peer_timer: Instant,
     recent_peer_counter_max: usize,
     maintenance_period: u64,
@@ -336,6 +337,7 @@ impl PeerState {
             peer_map_by_pub: HashMap::new(),
             peer_vec: vec![],
             recent_peers: HashSet::new(),
+            suggested_peers: HashSet::new(),
             recent_peer_timer: Instant::now(),
             recent_peer_counter_max: 0,
             maintenance_period: if std::env::consts::OS == "android" {
@@ -562,7 +564,11 @@ impl PeerState {
         peers.extend(self.best_peers(10_usize.saturating_sub(peers.len()), 2));
         log_if_slow(nowi, line!().to_string());
         */
-        let peers = self.best_peers(10, 2);
+        let mut peers: HashSet<SocketAddr> = self.suggested_peers.iter().take(5).copied().collect();
+        peers.extend(self.best_peers(10usize.saturating_sub(peers.len()), 2));
+        for &sa in &peers {
+            self.suggested_peers.remove(&sa);
+        }
         if peers.len() != 10 {
             info!("PROBE not 10 peers {}",peers.len());
         }
@@ -577,28 +583,27 @@ impl PeerState {
 
         debug!("PROBE total after history merge: {} peers {:?}", peers.len(), peers);
         */
-
         for sa in peers {
-            let peer_info = self.peer_map.get_mut(&sa).unwrap();
-            peer_info.delay = peer_info
-                .delay
-                .saturating_add(peer_info.delay / 3 + Duration::from_millis(1));
+            if let Some(peer_info) = self.peer_map.get_mut(&sa) {
+                peer_info.delay = peer_info
+                    .delay
+                    .saturating_add(peer_info.delay / 3 + Duration::from_millis(1));
+            }
             let mut message_out: Vec<Message> = Vec::new();
             message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(self.please_always_return(sa));
-        //    if let Some(v) = &self.p.i_just_saw_this {
-        //        message_out.push(Message::IJustSawThis(v.clone()));
-        //    }
-        //    if let Some(v) = &self.p.you_should_see_this {
-        //        message_out.push(Message::YouShouldSeeThis(v.clone()));
-        //    }
-        //    message_out.push(MyPublicKey::new(self));
+            //    if let Some(v) = &self.p.i_just_saw_this {
+            //        message_out.push(Message::IJustSawThis(v.clone()));
+            //    }
+            //    if let Some(v) = &self.p.you_should_see_this {
+            //        message_out.push(Message::YouShouldSeeThis(v.clone()));
+            //    }
+            //    message_out.push(MyPublicKey::new(self));
             message_out.append(&mut self.always_returned(sa));
             message_out.push(PleaseReturnThisMessage::new(self));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-
             trace!( "PROBE probing {sa}");
             //            trace!( "PROBE sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             match self.socket.send_to(&message_out_bytes, sa) {
@@ -3675,9 +3680,9 @@ impl Receive for Peers {
         trace!("received peers {:?} ", self.peers.len());
         for p in &self.peers {
             let sa: SocketAddr = *p;
-            if !ps.peer_map.contains_key(&sa) {
+            if !ps.peer_map.contains_key(&sa) && ps.suggested_peers.len() < 500 {
                 trace!("new peer suggested {sa}");
-                ps.peer_map.insert(sa, PeerInfo::new());
+                ps.suggested_peers.insert(sa);
             }
         }
         return vec![];
