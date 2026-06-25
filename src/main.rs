@@ -36,6 +36,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 //use std::io::copy;
 use nix::sys::select::{select, FdSet};
+use rand::seq::IteratorRandom;
 use rand::Rng;
 use scanf::sscanf;
 use std::io::IsTerminal;
@@ -248,6 +249,7 @@ impl Keypair {
 }
 
 struct PeerState {
+    last_cookie: Option<String>,
     peer_map: HashMap<SocketAddr, PeerInfo>,
     peer_map_by_pub: HashMap<Ed25519Pub, Source>,
     peer_vec: Vec<SocketAddr>,
@@ -333,6 +335,7 @@ impl PeerState {
         fs::create_dir("./cjp2p/incoming/blake3_tree_v2").ok();
         use std::net::Ipv6Addr;
         let mut ps = Self {
+            last_cookie: None,
             peer_map: PeerState::load_peers(),
             peer_map_by_pub: HashMap::new(),
             peer_vec: vec![],
@@ -441,10 +444,17 @@ impl PeerState {
         return format!("{:x}", hasher.finalize())[..8].to_string();
     }
 
-    fn check_key(&self, messages: &Vec<Message>, src: SocketAddr) -> bool {
+    // check if the key is missing or incorrect (so true means unverified)
+    fn check_key(&mut self, messages: &Vec<Message>, src: SocketAddr) -> bool {
         for message_in in messages {
             if let Message::AlwaysReturned(m) = message_in {
                 let correct_hash = self.hash_ip(src);
+                if correct_hash == m.cookie && !self.peer_map.contains_key(&src) {
+                    let mut pi = PeerInfo::new();
+                    pi.delay = Duration::from_millis(120);
+                    self.peer_map.insert(src, pi);
+                    info!("new peer spotted {src}");
+                }
                 return correct_hash != m.cookie;
             }
         }
@@ -459,16 +469,16 @@ impl PeerState {
 
     fn always_returned(&self, sa: SocketAddr) -> Vec<Message> {
         trace!("always_returned for {sa}");
-        match self.peer_map.get(&sa) {
-            None => return vec![],
-            Some(p) => match p.anti_ip_spoofing_cookie_they_expect.to_owned() {
-                Some(cookie) => {
-                    trace!("always_returned for {sa} found {cookie}");
-                    return vec![Message::AlwaysReturned(AlwaysReturned{cookie:cookie })];
-                }
-                None => return vec![],
-            },
+        let mut cookie = self.last_cookie.clone();
+        if let Some(p) = self.peer_map.get(&sa) {
+            if let Some(c) = p.anti_ip_spoofing_cookie_they_expect.to_owned() {
+                cookie = Some(c);
+            }
         }
+        if let Some(c) = cookie {
+            return vec![Message::AlwaysReturned(AlwaysReturned{cookie:c })];
+        }
+        return vec![];
     }
 
     fn probe_interfaces(&mut self) -> () {
@@ -495,8 +505,10 @@ impl PeerState {
         to_probe.insert("224.0.0.1:24254".parse().unwrap());
         to_probe.insert("[ff02::1]:24254".parse().unwrap());
         for sa in to_probe.iter() {
-            let message_out_bytes: Vec<u8> =
-                serde_json::to_vec(&vec![Message::PleaseSendPeers(PleaseSendPeers {})]).unwrap();
+            let mut message_out = vec![Message::PleaseSendPeers(PleaseSendPeers {})];
+            // for a netmask of 255.255.255.255 we might actually know the cookie
+            message_out.append(&mut self.always_returned(*sa));
+            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             trace!( "sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
             self.socket.send_to(&message_out_bytes, sa).ok();
             log_if_slow(nowi, line!().to_string());
@@ -564,13 +576,28 @@ impl PeerState {
         peers.extend(self.best_peers(10_usize.saturating_sub(peers.len()), 2));
         log_if_slow(nowi, line!().to_string());
         */
-        let mut peers: HashSet<SocketAddr> = self.suggested_peers.iter().take(5).copied().collect();
-        peers.extend(self.best_peers(10usize.saturating_sub(peers.len()), 2));
+        let mut peers: HashSet<SocketAddr> = self
+            .suggested_peers
+            .iter()
+            .choose_multiple(&mut rand::rng(), 10)
+            .into_iter()
+            .copied()
+            .collect();
         for &sa in &peers {
             self.suggested_peers.remove(&sa);
         }
+        // drop half so its not a big DDOS multiplier, since its very short to suggest a peer
+        // "8.8.8.8:8",  13-21 chars and results in  85 sent
+        // PleaseAlwaysReturnThisMessage should be shorter
+        peers = peers
+            .iter()
+            .choose_multiple(&mut rand::rng(), 5)
+            .into_iter()
+            .copied()
+            .collect();
+        peers.extend(self.best_peers(10usize.saturating_sub(peers.len()), 2));
         if peers.len() != 10 {
-            info!("PROBE not 10 peers {}",peers.len());
+            debug!("PROBE not 10 peers {}",peers.len());
         }
         log_if_slow(nowi, line!().to_string());
         /*
@@ -590,8 +617,10 @@ impl PeerState {
                     .delay
                     .saturating_add(peer_info.delay / 3 + Duration::from_millis(1));
                 message_out.push(MyPublicKey::new(self));
+                message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
+                message_out.push(PleaseReturnThisMessage::new(self));
+                message_out.append(&mut self.always_returned(sa));
             }
-            message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
             // let people know im here
             // im not sure if anyone cares about all this info from completely random contacts
             message_out.push(self.please_always_return(sa));
@@ -601,8 +630,6 @@ impl PeerState {
             //    if let Some(v) = &self.p.you_should_see_this {
             //        message_out.push(Message::YouShouldSeeThis(v.clone()));
             //    }
-            message_out.append(&mut self.always_returned(sa));
-            message_out.push(PleaseReturnThisMessage::new(self));
             let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
             trace!( "PROBE probing {sa}");
             //            trace!( "PROBE sending message {:?} to {sa}", String::from_utf8_lossy(&message_out_bytes));
@@ -2187,6 +2214,7 @@ fn run_engine(
         if select(None, &mut read_fds, &mut write_fds, None, tv_1).is_err() {
             continue 'main;
         }
+        ps.last_cookie = None;
 
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if write_fds.contains(cg.http_socket.as_fd()) {
@@ -3470,17 +3498,11 @@ fn handle_network(
 
     let message_in_bytes = &buf[0..message_in_len];
     trace!( "incoming message {} from {src}", String::from_utf8_lossy(message_in_bytes));
-    if !ps.peer_map.contains_key(&src) {
-        let mut pi = PeerInfo::new();
-        pi.delay = Duration::from_millis(120);
-        ps.peer_map.insert(src, pi);
-        info!("new peer spotted {src}");
-    }
     ps.recent_peers.insert(src);
     if ps.ws_vec.len() > 0 {
         let message_out_string = serde_json::to_string(&json![
             [Message::Forwarded(Forwarded{src:src,from_ed25519:None,
-        maybe_ed25519: ps.peer_map[&src].ed25519,
+        maybe_ed25519: ps.peer_map.get(&src).and_then(|p| p.ed25519),
                 messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]])
         .unwrap();
         trace!( "sending raw message {} to {} websocket(s)", message_out_string,ps.ws_vec.len());
@@ -3504,7 +3526,14 @@ fn handle_network(
         }
     };
     let messages = messages.0;
+    let mut new_peer = false;
+    if !ps.peer_map.contains_key(&src) {
+        new_peer = true;
+    }
     let mut might_be_ip_spoofing = ps.check_key(&messages, src);
+    if !ps.peer_map.contains_key(&src) {
+        new_peer = false;
+    }
     let mut message_out = ps.handle_messages(
         messages,
         &Source::S(src),
@@ -3513,18 +3542,19 @@ fn handle_network(
         inbound_states,
         None,
     );
-    if message_out.len() == 0 {
-        trace!("no reply");
-        return;
+    if new_peer {
+        message_out.push(MyPublicKey::new(ps));
+        message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
+        message_out.push(PleaseReturnThisMessage::new(ps));
     }
-    message_out.append(&mut ps.always_returned(src));
-    if might_be_ip_spoofing && message_out.len() > 0 {
+    if might_be_ip_spoofing {
         trim_reply(&mut message_out, message_in_len);
         message_out.push(ps.please_always_return(src));
     }
     if message_out.len() == 0 {
         return;
     }
+    message_out.append(&mut ps.always_returned(src));
     let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
     trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
@@ -3626,14 +3656,23 @@ impl Receive for PleaseAlwaysReturnThisMessage {
         self,
         ps: &mut PeerState,
         src: &Source,
-        _: &mut bool,
+        might_be_ip_spoofing: &mut bool,
         _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
+        if *might_be_ip_spoofing {
+            ps.last_cookie = Some(self.cookie);
+            return vec![];
+        }
         if let Source::S(src) = *src {
             // not even needed for websockets
             trace!("saving cookie {} for {:?}",self.cookie,src);
+            if !ps.peer_map.contains_key(&src) {
+                let mut pi = PeerInfo::new();
+                pi.delay = Duration::from_millis(100);
+                ps.peer_map.insert(src, pi);
+            }
             ps.peer_map
                 .get_mut(&src)
                 .unwrap()
@@ -3678,6 +3717,10 @@ impl Receive for Peers {
         _signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         trace!("received peers {:?} ", self.peers.len());
+        if ps.suggested_peers.len() >= 500 {
+            debug!("suggesteted peers {}",ps.suggested_peers.len());
+            return vec![];
+        }
         for p in &self.peers {
             let sa: SocketAddr = *p;
             if !ps.peer_map.contains_key(&sa) && ps.suggested_peers.len() < 500 {
@@ -3714,7 +3757,9 @@ impl Receive for IJustSawThis {
                 InboundState::send_content_peers_from_disk(&self.id, 1, &src);
             }
             if !*might_be_ip_spoofing && src.port() == 24254 {
-                ps.peer_map.get_mut(&src).unwrap().i_just_saw_this = Some(self);
+                if let Some(pi) = ps.peer_map.get_mut(&src) {
+                    pi.i_just_saw_this = Some(self);
+                }
             }
         }
         return vec![];
@@ -3745,7 +3790,9 @@ impl Receive for YouShouldSeeThis {
                 InboundState::send_content_peers_from_disk(&self.id, 1, &src);
             }
             if !*might_be_ip_spoofing && src.port() == 24254 {
-                ps.peer_map.get_mut(&src).unwrap().you_should_see_this = Some(self);
+                if let Some(pi) = ps.peer_map.get_mut(&src) {
+                    pi.you_should_see_this = Some(self);
+                }
             }
         }
         return vec![];
@@ -5436,11 +5483,12 @@ impl Receive for MyPublicKey {
             info!("new pub found: {}", self.ed25519h);
         }
         if let Source::S(src) = *src {
-            let pi = ps.peer_map.get_mut(&src).unwrap();
-            pi.ed25519 = Some(self.ed25519h);
-            if let Some(a) = recovered_address {
-                pi.ed25519_eth_signer = Some(a);
-                pi.ed25519_eth_signed = self.ed25519_eth_signed;
+            if let Some(pi) = ps.peer_map.get_mut(&src) {
+                pi.ed25519 = Some(self.ed25519h);
+                if let Some(a) = recovered_address {
+                    pi.ed25519_eth_signer = Some(a);
+                    pi.ed25519_eth_signed = self.ed25519_eth_signed;
+                }
             }
         } else {
             info!("websocket sent signed {} to ", ed25519h_hex);
@@ -5489,15 +5537,15 @@ impl Receive for ChatMessage {
             info!("unusual that a chat messagge was received from an unconfirmed source ({}), so it is being dropped. it was: {}",src,self.message);
             return vec![];
         }
-        let their_pub_hex = if let Some(p) = &ps.peer_map[&src].ed25519 {
-            p.to_string()
-        } else {
-            "unknown".to_string()
-        };
+        let peer_info = ps.peer_map.get(&src);
+        let their_pub_hex = peer_info
+            .and_then(|p| p.ed25519)
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
         println!("\x1b[7m{} {src} 0x{} from {:?} away said \x1b[33m{}\x1b[m",
                 Utc::now().to_rfc3339(),
                 their_pub_hex,
-                ps.peer_map[&src].delay,
+                peer_info.map(|p| p.delay).unwrap_or_default(),
                 self.message
             );
         if (ps.all_chats.len() == 0
@@ -5700,11 +5748,12 @@ impl Receive for ContentList {
         let Source::S(src) = *src else {
             return vec![];
         };
+        let peer_info = ps.peer_map.get(&src);
         for (id, size) in &self.results {
             trace!("\x1b[7m{} {src} 0x{} from {:?} has \x07\x1b[32m{:?}\x1b[m",
                     Utc::now().to_rfc3339(),
-                    ps.peer_map[&src].ed25519.map(|p| p.to_string()).unwrap_or_default(),
-                    ps.peer_map[&src].delay,
+                    peer_info.and_then(|p| p.ed25519).map(|p| p.to_string()).unwrap_or_default(),
+                    peer_info.map(|p| p.delay).unwrap_or_default(),
                     self.results
                 );
             if !is_safe_relative_path(id) {
@@ -5789,8 +5838,9 @@ impl Receive for EncryptedMessages {
         if ps.peer_map_by_pub.insert(their_pub, src_.clone()).is_none() {
             info!("new pub found: {}", their_pub);
         }
-        let pi = ps.peer_map.get_mut(&src).unwrap();
-        pi.ed25519 = Some(their_pub);
+        if let Some(pi) = ps.peer_map.get_mut(&src) {
+            pi.ed25519 = Some(their_pub);
+        };
 
         message_in_bytes.truncate(len);
         trace!("handling decrypted message from {src} {}: {}",
@@ -5920,8 +5970,9 @@ impl Receive for FastEncryptedMessages {
                 if ps.peer_map_by_pub.insert(sender, src_.clone()).is_none() {
                     info!("new pub found: {}", sender);
                 }
-                let pi = ps.peer_map.get_mut(&src).unwrap();
-                pi.ed25519 = Some(sender);
+                if let Some(pi) = ps.peer_map.get_mut(&src) {
+                    pi.ed25519 = Some(sender);
+                }
 
                 trace!("handling fast-decrypted message from {src} {}: {}",
                         sender.to_string(),

@@ -113,3 +113,5 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - fork a web browser to give direct udp access?..qutebrowser?
 - assets, any kind of assets, get creative, certainly cryptography will be involved, but hopefully not another blockchain..signature histories dont need blocks and are their own chain
 - backend message retransmit timer as a service to the web apps, instead of web side because they time out, for chirp, group chat, i think thats all, it could even be to the set/group not just the hosts known to the web side at the time?  though i like the app being fully UI side, this could be a mess later
+- PleaseAlwaysReturnThisMessage should be shorter since this is sent unverified
+- cjp2pctl still stalling on clone
