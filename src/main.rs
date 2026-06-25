@@ -57,7 +57,7 @@ use std::path::Path;
 
 const NOISE_PARAMS: &str = "Noise_IK_25519_AESGCM_SHA256";
 const SPECIAL_PUB: &str = "e13a614dff88de239a986bea20ca129c3dc77bb727fac18f2f092eed27cfb3fb";
-const ACTIVE_PEER_DELAY_MS: u64 = 500;
+const ACTIVE_PEER_DELAY_MS: u64 = 1500;
 
 static SAVED_TERMIOS: std::sync::OnceLock<libc::termios> = std::sync::OnceLock::new();
 
@@ -280,6 +280,7 @@ struct PeerState {
     ws_vec: Vec<WebSocket<TcpStream>>,
     http_clients: Vec<TcpStream>,
     content_gateways: Vec<ContentGateway>,
+    active_peer_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     //probe_peer_history: VecDeque<HashSet<SocketAddr>>,
 }
 #[derive(Serialize, Deserialize, Debug)]
@@ -390,6 +391,7 @@ impl PeerState {
             ws_vec: Vec::new(),
             http_clients: Vec::new(),
             content_gateways: Vec::new(),
+            active_peer_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             //probe_peer_history: VecDeque::new(),
         };
         if ps.maintenance_period > 1 {
@@ -2099,7 +2101,6 @@ fn run_engine(
 
     let stdin = std::io::stdin();
     let mut stdin_open = true;
-    let rl_peer_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let tty_state: Option<(OwnedFd, std::sync::mpsc::Receiver<Option<String>>)> =
         if stdin.is_terminal() {
             unsafe {
@@ -2113,7 +2114,8 @@ fn run_engine(
                 let pipe_read = unsafe { OwnedFd::from_raw_fd(pipe_fds[0]) };
                 let pipe_write_raw = pipe_fds[1];
                 let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
-                let rl_peer_count_thread = std::sync::Arc::clone(&rl_peer_count);
+                let rl_peer_count_thread = std::sync::Arc::clone(&ps.active_peer_count);
+                let rl_pub_prefix: String = pub_hex.chars().take(5).collect();
                 std::thread::spawn(move || {
                     let mut rl = match rustyline::DefaultEditor::new() {
                         Ok(e) => e,
@@ -2126,7 +2128,7 @@ fn run_engine(
                     };
                     loop {
                         let n = rl_peer_count_thread.load(std::sync::atomic::Ordering::Relaxed);
-                        let prompt = format!("{} peers> ", n);
+                        let prompt = format!("[{}] {} peers> ", rl_pub_prefix, n);
                         match rl.readline(&prompt) {
                             Ok(line) => {
                                 let _ = rl.add_history_entry(&line);
@@ -2173,22 +2175,6 @@ fn run_engine(
         let mut read_fds = FdSet::new();
         let mut write_fds = FdSet::new();
         maintenance(&mut stream_states, &mut inbound_states, &mut ps);
-        if tty_state.is_some() {
-            let n = ps
-                .peer_map_by_pub
-                .iter()
-                .filter(|(_, src)| {
-                    if let Source::S(sa) = src {
-                        ps.peer_map.get(sa).map_or(false, |v| {
-                            v.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS)
-                        })
-                    } else {
-                        false
-                    }
-                })
-                .count();
-            rl_peer_count.store(n, std::sync::atomic::Ordering::Relaxed);
-        }
         read_fds.insert(ps.socket.as_fd());
         read_fds.insert(web_server.as_fd());
         if stdin_open {
@@ -2531,6 +2517,7 @@ fn handle_line(
         let bundle_url =
             format!("http://127.0.0.1:{}/latest/{SPECIAL_PUB}/cjp2p.bundle",ps.http_port);
         thread::spawn(move || {
+            info!("exe: {}",exe.to_string_lossy());
             if !exe.to_string_lossy().contains("/target/") {
                 use std::os::unix::fs::{MetadataExt, PermissionsExt};
                 let meta = match std::fs::metadata(&exe) {
@@ -4980,6 +4967,21 @@ fn maintenance(
     debug!("maintenance");
     ps.next_maintenance = Instant::now()
         + Duration::from_millis(rand::rng().random_range(888..999) * ps.maintenance_period as u64);
+    let n = ps
+        .peer_map_by_pub
+        .values()
+        .filter(|src| {
+            if let Source::S(sa) = src {
+                ps.peer_map.get(sa).map_or(false, |v| {
+                    v.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS)
+                })
+            } else {
+                false
+            }
+        })
+        .count();
+    ps.active_peer_count
+        .store(n, std::sync::atomic::Ordering::Relaxed);
     if let Some(next) = ps.group_chat_backoff_next {
         if next.elapsed() > Duration::ZERO && !ps.group_chat_outbox.is_empty() {
             let msgs: Vec<serde_json::Value> = ps
