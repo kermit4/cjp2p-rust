@@ -1,23 +1,30 @@
 //! git-remote-lcdp -- git remote helper for lcdp:// URLs.
 //!
 //! Implements the git remote-helper protocol (gitremote-helpers(7)) for the
-//! `fetch` capability. git invokes this binary as:
+//! `fetch` and `push` capabilities. git invokes this binary as:
 //!
 //!   git-remote-lcdp <remote-name> lcdp://0x<pub>/<name>
 //!
-//! and speaks a line-oriented protocol on stdin/stdout. We download a git
-//! bundle from the local node using the same NodeClient path that
-//! `cjp2pctl clone` / `cjp2pctl pull` use, then serve git's fetch/list
-//! commands by delegating to `git bundle list-heads` and
-//! `git bundle unbundle`.
+//! and speaks a line-oriented protocol on stdin/stdout.
 //!
-//! Protocol summary (we implement the `fetch` capability only):
-//!   capabilities  -> "fetch\n\n"
-//!   option ...    -> "ok\n"
-//!   list          -> one "<sha> <ref>" per head + optional "@<branch> HEAD" + "\n"
-//!   fetch <s> <r> -> batch terminated by blank line; unbundle into object
-//!                    store; reply "\n"
-//!   <blank>/EOF   -> exit 0
+//! FETCH path: download a git bundle from the local node (same NodeClient path
+//! that `cjpctl clone` / `cjpctl pull` use), then serve git's fetch/list
+//! commands by delegating to `git bundle list-heads` and `git bundle unbundle`.
+//!
+//! PUSH path: validate the URL pubkey matches the node's own pubkey (you can
+//! only publish under your own key), create a git bundle of the requested refs,
+//! and publish it via `NodeClient::publish` (same path as `cjpctl share-repo`).
+//!
+//! Protocol summary:
+//!   capabilities     -> "fetch\npush\n\n"
+//!   option ...       -> "ok\n"
+//!   list             -> one "<sha> <ref>" per head + optional "@<branch> HEAD" + "\n"
+//!   list for-push    -> same, but 404 on the bundle is OK (returns just "\n")
+//!   fetch <s> <r>    -> batch terminated by blank line; unbundle into object
+//!                       store; reply "\n"
+//!   push <src>:<dst> -> batch terminated by blank line; bundle local refs;
+//!                       publish as repos/<name>.bundle; reply "ok <dst>" per ref
+//!   <blank>/EOF      -> exit 0
 
 use anyhow::{bail, Context, Result};
 use cjp2p_ctl::client::NodeClient;
@@ -105,6 +112,39 @@ fn refname_of(head_line: &str) -> Option<&str> {
 }
 
 // ---------------------------------------------------------------------------
+// Push helpers
+// ---------------------------------------------------------------------------
+
+/// Normalize a pubkey string for comparison: strip "0x" prefix, lowercase.
+fn normalize_pubkey(k: &str) -> String {
+    k.trim_start_matches("0x").to_ascii_lowercase()
+}
+
+/// Parse a push refspec line ("push <src>:<dst>" or "push +<src>:<dst>").
+/// Returns (src_ref, dst_ref).  A leading '+' (force) is stripped from src.
+fn parse_push_refspec(line: &str) -> Option<(String, String)> {
+    // line format: "push [+]<src>:<dst>"
+    let rest = line.strip_prefix("push ")?;
+    let rest = rest.strip_prefix('+').unwrap_or(rest); // strip force marker
+    let (src, dst) = rest.split_once(':')?;
+    if src.is_empty() || dst.is_empty() {
+        return None;
+    }
+    Some((src.to_string(), dst.to_string()))
+}
+
+/// Create a git bundle from the given src refs.
+/// Returns the path to the temp bundle file (caller must remove it).
+fn bundle_create(refs: &[String], bundle_path: &str) -> Result<()> {
+    let mut args: Vec<&str> = vec!["bundle", "create", bundle_path];
+    for r in refs {
+        args.push(r.as_str());
+    }
+    git(&args).context("creating git bundle for push")?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Protocol loop
 // ---------------------------------------------------------------------------
 
@@ -151,13 +191,13 @@ fn run() -> Result<()> {
         }
 
         if line == "capabilities" {
-            out.write_all(b"fetch\n\n")?;
+            out.write_all(b"fetch\npush\n\n")?;
             out.flush()?;
         } else if line.starts_with("option ") {
             // Accept/ignore all options.
             out.write_all(b"ok\n")?;
             out.flush()?;
-        } else if line == "list" || line == "list for-push" {
+        } else if line == "list" {
             // Fetch the bundle (or reuse if already fetched).
             let bp = match bundle_path.take() {
                 Some(p) => p,
@@ -198,6 +238,31 @@ fn run() -> Result<()> {
             out.write_all(b"\n")?;
             out.flush()?;
             bundle_path = Some(bp);
+        } else if line == "list for-push" {
+            // Advertise currently-published refs for fast-forward checks.
+            // If the bundle does not exist yet (first push), return an empty
+            // ref list -- do NOT error.
+            let server_path = bundle_server_path(&pub_hex, &name);
+            match client.fetch_bytes(&server_path, Duration::from_secs(30)) {
+                Ok(bytes) => {
+                    let p = tmp_bundle(&name);
+                    if std::fs::write(&p, &bytes).is_ok() {
+                        let p_str = p.to_str().unwrap_or_default();
+                        if let Ok(heads) = bundle_list_heads(p_str) {
+                            for h in &heads {
+                                out.write_all(h.as_bytes())?;
+                                out.write_all(b"\n")?;
+                            }
+                            bundle_path = Some(p);
+                        }
+                    }
+                }
+                Err(_) => {
+                    // 404 or unreachable: first push, no existing bundle -- fine.
+                }
+            }
+            out.write_all(b"\n")?;
+            out.flush()?;
         } else if line.starts_with("fetch ") {
             // Consume the rest of the fetch batch (lines until a blank line).
             // The first fetch line is already in `line`; drain until blank/EOF.
@@ -216,6 +281,97 @@ fn run() -> Result<()> {
             let bp_str = bp.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 temp path"))?;
             bundle_unbundle(bp_str).context("unbundling into object store")?;
 
+            out.write_all(b"\n")?;
+            out.flush()?;
+        } else if line.starts_with("push ") {
+            // Collect the full push batch (lines until blank/EOF).
+            let mut push_lines: Vec<String> = vec![line.clone()];
+            loop {
+                match read_line(&mut inp)? {
+                    Some(l) if l.is_empty() => break,
+                    Some(l) if l.starts_with("push ") => push_lines.push(l),
+                    Some(_) => {}  // unexpected non-push line, ignore
+                    None => break, // EOF
+                }
+            }
+
+            // Parse all refspecs.
+            let refspecs: Vec<(String, String)> =
+                push_lines.iter().filter_map(|l| parse_push_refspec(l)).collect();
+
+            if refspecs.is_empty() {
+                // Nothing to push -- send blank line terminator.
+                out.write_all(b"\n")?;
+                out.flush()?;
+                continue;
+            }
+
+            // Own-key check: only allow pushing under the node's own pubkey.
+            let node_pub = match client.status() {
+                Ok(s) => s.public_key,
+                Err(e) => {
+                    for (_, dst) in &refspecs {
+                        writeln!(out, "error {dst} could not fetch node status: {e}")?;
+                    }
+                    out.write_all(b"\n")?;
+                    out.flush()?;
+                    continue;
+                }
+            };
+
+            let url_pub_norm = normalize_pubkey(&pub_hex);
+            let node_pub_norm = normalize_pubkey(&node_pub);
+
+            if url_pub_norm != node_pub_norm {
+                let node_pub_display = node_pub.trim_start_matches("0x");
+                for (_, dst) in &refspecs {
+                    writeln!(
+                        out,
+                        "error {dst} can only push under your own pubkey 0x{node_pub_display}"
+                    )?;
+                }
+                out.write_all(b"\n")?;
+                out.flush()?;
+                continue;
+            }
+
+            // Bundle the source refs and publish.
+            let tmp = tmp_bundle(&format!("{name}-push"));
+            let tmp_str = match tmp.to_str() {
+                Some(s) => s.to_string(),
+                None => {
+                    for (_, dst) in &refspecs {
+                        writeln!(out, "error {dst} non-UTF8 temp path")?;
+                    }
+                    out.write_all(b"\n")?;
+                    out.flush()?;
+                    continue;
+                }
+            };
+
+            let src_refs: Vec<String> = refspecs.iter().map(|(src, _)| src.clone()).collect();
+            let bundle_result = bundle_create(&src_refs, &tmp_str);
+
+            let publish_result = bundle_result.and_then(|_| {
+                let server_name = format!("repos/{name}.bundle");
+                client.publish(&server_name, &tmp).context("publishing bundle to node")
+            });
+
+            // Clean up temp bundle regardless of outcome.
+            std::fs::remove_file(&tmp).ok();
+
+            match publish_result {
+                Ok(_) => {
+                    for (_, dst) in &refspecs {
+                        writeln!(out, "ok {dst}")?;
+                    }
+                }
+                Err(e) => {
+                    for (_, dst) in &refspecs {
+                        writeln!(out, "error {dst} {e:#}")?;
+                    }
+                }
+            }
             out.write_all(b"\n")?;
             out.flush()?;
         } else {
