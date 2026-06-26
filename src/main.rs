@@ -4478,7 +4478,7 @@ impl ContentGateway {
             ..((self.http_end + (BLOCK_SIZE!() - 1)) / BLOCK_SIZE!()))
             .find(|&blk| !i.bitmap.get(blk))
         {
-            available_end = (not_available / BLOCK_SIZE!()) * BLOCK_SIZE!();
+            available_end = not_available * BLOCK_SIZE!();
         }
         if available_end <= self.http_start {
             self.waiting_for_browser = false;
