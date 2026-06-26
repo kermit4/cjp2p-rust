@@ -27,6 +27,7 @@ release: target/release/cjp2p bundle
 target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png 
 	RUSTFLAGS="-C target-cpu=native"  cargo build --release
 	rm -f target/*/libcjp
+	strip $@
 
 
 
