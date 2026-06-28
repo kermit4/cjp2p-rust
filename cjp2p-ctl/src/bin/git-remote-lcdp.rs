@@ -64,7 +64,9 @@
 use anyhow::{bail, Context, Result};
 use cjp2p_ctl::client::{Fetched, NodeClient};
 use sha2::{Digest, Sha256};
+use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
+use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -111,7 +113,7 @@ fn bundle_server_path(pub_hex: &str, path: &str) -> String {
 /// socket on a missing/unreachable item -- that is a FUTURE node-side track,
 /// out of scope for this helper.
 fn fetch_timeout() -> Option<Duration> {
-    env_timeout_secs().map(|secs| secs.map(Duration::from_secs)).unwrap_or(None)
+    env_timeout_secs().flatten().map(Duration::from_secs)
 }
 
 /// Default probe timeout, in seconds, for the `list for-push` existence check.
@@ -476,6 +478,26 @@ fn validate_refname(refname: &str) -> bool {
     true
 }
 
+/// The untrusted-bundle -> advertise boundary, fail-closed in one place: verify
+/// the bundle, then return only its "<sha> <refname>" heads whose refname passes
+/// the `validate_refname` allowlist (dropping the rest with a stderr warning,
+/// never echoing them).  Used by BOTH advertise paths (`list`, `list for-push`)
+/// so the verify+allowlist gate stays byte-identical between them.
+fn verified_safe_heads(bundle: &str) -> Result<Vec<String>> {
+    bundle_verify(bundle)?;
+    let heads = bundle_list_heads(bundle).context("listing bundle heads")?;
+    Ok(heads
+        .into_iter()
+        .filter(|h| match refname_of(h) {
+            Some(r) if validate_refname(r) => true,
+            _ => {
+                eprintln!("git-remote-lcdp: dropping bundle ref failing the refname allowlist");
+                false
+            }
+        })
+        .collect())
+}
+
 // ---------------------------------------------------------------------------
 // Push helpers
 // ---------------------------------------------------------------------------
@@ -563,6 +585,14 @@ impl Drop for TempRepo {
 /// Unbundle an existing remote bundle into the temp repo, importing every
 /// existing remote ref (and its objects) under its original name.
 fn temp_unbundle_existing(temp: &str, bundle: &str) -> Result<()> {
+    // HARDENING: this is the push-path unbundle, and the existing bundle is
+    // untrusted input (re-fetched fresh when `list for-push`'s verify failed, so
+    // it can be the very corrupt/hostile bundle that failed there).  Fail closed
+    // like the advertise paths: verify the bundle BEFORE touching it, and run
+    // every refname through `validate_refname` before `update-ref` so an
+    // option-like / traversing name can neither wedge the union build nor escape
+    // git's namespace.
+    bundle_verify(bundle)?;
     // `bundle unbundle` only writes the objects; it does not create refs.  We
     // unbundle, then create each ref the bundle advertised so it survives into
     // the union `bundle create --all`.  git_clean throughout: `-C <temp>` must
@@ -570,6 +600,12 @@ fn temp_unbundle_existing(temp: &str, bundle: &str) -> Result<()> {
     git_clean(&["-C", temp, "bundle", "unbundle", bundle]).context("unbundling existing remote")?;
     for line in bundle_list_heads(bundle)? {
         if let Some((sha, refname)) = line.split_once(' ') {
+            if !validate_refname(refname) {
+                eprintln!(
+                    "git-remote-lcdp: dropping existing-remote ref failing the refname allowlist"
+                );
+                continue;
+            }
             git_clean(&["-C", temp, "update-ref", refname, sha])
                 .with_context(|| format!("recreating existing remote ref {refname}"))?;
         }
@@ -681,9 +717,61 @@ fn next_nonce() -> u64 {
     N.fetch_add(1, Ordering::Relaxed)
 }
 
+/// An advisory exclusive file lock (`flock(2)`) held for the duration of an
+/// additive push to one path, released when dropped (on close).
+///
+/// The additive union (fetch base -> apply -> bundle --all -> publish) is a
+/// read-modify-write, and the node has NO atomic/conditional publish (publish is
+/// a blind overwrite).  Two overlapping pushes to the same path would each read
+/// the same base, add only their own ref, and the later publish would silently
+/// drop the earlier ref.  This lock SERIALIZES same-host pushes to one path so
+/// they apply in turn.  NOTE: it is host-local only -- cross-host concurrent
+/// pushes to one path remain the user's responsibility (no node-side CAS).
+struct PushLock {
+    _file: File,
+}
+
+impl PushLock {
+    /// Acquire (blocking) the per-path push lock.  Lock file lives in the cache
+    /// dir when available (stable across runs), else the temp dir.
+    fn acquire(path: &str) -> Result<PushLock> {
+        let name = format!("lcdp-push-{}.lock", sanitize(path));
+        let lock_path = cache_dir()
+            .and_then(|d| std::fs::create_dir_all(&d).ok().map(|_| d))
+            .unwrap_or_else(std::env::temp_dir)
+            .join(name);
+        let file = File::create(&lock_path)
+            .with_context(|| format!("opening push lock {}", lock_path.display()))?;
+        // LOCK_EX, blocking: wait until any concurrent same-path push releases.
+        let rc = unsafe { flock(file.as_raw_fd(), LOCK_EX) };
+        if rc != 0 {
+            return Err(anyhow::Error::new(io::Error::last_os_error())
+                .context(format!("locking {}", lock_path.display())));
+        }
+        Ok(PushLock {
+            _file: file,
+        })
+    }
+}
+
+// flock(2): advisory whole-file lock, auto-released on close (Drop of `_file`).
+const LOCK_EX: i32 = 2;
+extern "C" {
+    fn flock(fd: i32, operation: i32) -> i32;
+}
+
 // ---------------------------------------------------------------------------
 // Protocol loop
 // ---------------------------------------------------------------------------
+
+/// Terminate a remote-helper command's response: the git remote-helper line
+/// protocol ends each command's reply with a blank line.  Write it and flush so
+/// git sees the batch boundary.
+fn end_batch(out: &mut impl Write) -> Result<()> {
+    out.write_all(b"\n")?;
+    out.flush()?;
+    Ok(())
+}
 
 /// Read one line from `r`, stripping trailing CR/LF.
 /// Returns None on EOF.
@@ -750,26 +838,11 @@ fn run() -> Result<()> {
             };
             let bp_str = bp.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 temp path"))?;
             // HARDENING: verify the downloaded bundle BEFORE advertising any of
-            // its refs (fail closed on a malformed/corrupt/hostile bundle).
-            bundle_verify(bp_str)?;
-            let heads = bundle_list_heads(bp_str).context("listing bundle heads")?;
-
-            // HARDENING: drop (warn, never echo) any refname not matching the
-            // strict refs/(heads|tags)/... allowlist, so a hostile bundle cannot
-            // inject a bogus / path-traversing ref into git's namespace.
-            let safe_heads: Vec<&String> = heads
-                .iter()
-                .filter(|h| match refname_of(h) {
-                    Some(r) if validate_refname(r) => true,
-                    Some(_) => {
-                        eprintln!(
-                            "git-remote-lcdp: dropping bundle ref failing the refname allowlist"
-                        );
-                        false
-                    }
-                    None => false,
-                })
-                .collect();
+            // its refs (fail closed on a malformed/corrupt/hostile bundle), and
+            // drop (warn, never echo) any refname failing the strict
+            // refs/(heads|tags)/... allowlist so a hostile bundle cannot inject a
+            // bogus / path-traversing ref into git's namespace.
+            let safe_heads = verified_safe_heads(bp_str)?;
 
             for h in &safe_heads {
                 out.write_all(h.as_bytes())?;
@@ -793,8 +866,7 @@ fn run() -> Result<()> {
                 writeln!(out, "@{branch} HEAD")?;
             }
 
-            out.write_all(b"\n")?;
-            out.flush()?;
+            end_batch(&mut out)?;
             bundle_path = Some(bp);
         } else if line == "list for-push" {
             // Advertise currently-published refs for fast-forward checks.
@@ -807,25 +879,20 @@ fn run() -> Result<()> {
                 Ok(p) => {
                     let p_str = p.to_str().unwrap_or_default();
                     // Same hardening on the for-push advertisement: verify, then
-                    // only advertise allowlisted refnames.
-                    if bundle_verify(p_str).is_ok() {
-                        if let Ok(heads) = bundle_list_heads(p_str) {
-                            for h in &heads {
-                                if refname_of(h).map(validate_refname).unwrap_or(false) {
-                                    out.write_all(h.as_bytes())?;
-                                    out.write_all(b"\n")?;
-                                }
-                            }
-                            bundle_path = Some(p);
+                    // only advertise allowlisted refnames (shared helper).
+                    if let Ok(heads) = verified_safe_heads(p_str) {
+                        for h in &heads {
+                            out.write_all(h.as_bytes())?;
+                            out.write_all(b"\n")?;
                         }
+                        bundle_path = Some(p);
                     }
                 }
                 Err(_) => {
                     // 404 or unreachable: first push, no existing bundle -- fine.
                 }
             }
-            out.write_all(b"\n")?;
-            out.flush()?;
+            end_batch(&mut out)?;
         } else if line.starts_with("fetch ") {
             // Consume the rest of the fetch batch (lines until a blank line).
             // The first fetch line is already in `line`; drain until blank/EOF.
@@ -868,8 +935,7 @@ fn run() -> Result<()> {
                 }
             }
 
-            out.write_all(b"\n")?;
-            out.flush()?;
+            end_batch(&mut out)?;
         } else if line.starts_with("push ") {
             // Collect the full push batch (lines until blank/EOF).
             let mut push_lines: Vec<String> = vec![line.clone()];
@@ -888,8 +954,7 @@ fn run() -> Result<()> {
 
             if specs.is_empty() {
                 // Nothing to push -- send blank line terminator.
-                out.write_all(b"\n")?;
-                out.flush()?;
+                end_batch(&mut out)?;
                 continue;
             }
 
@@ -900,8 +965,7 @@ fn run() -> Result<()> {
                     for s in &specs {
                         writeln!(out, "error {} could not fetch node status: {e}", s.dst)?;
                     }
-                    out.write_all(b"\n")?;
-                    out.flush()?;
+                    end_batch(&mut out)?;
                     continue;
                 }
             };
@@ -918,24 +982,35 @@ fn run() -> Result<()> {
                         s.dst
                     )?;
                 }
-                out.write_all(b"\n")?;
-                out.flush()?;
+                end_batch(&mut out)?;
                 continue;
             }
 
             // ADDITIVE push: rebuild the UNION of (existing remote refs) +
             // (pushed updates) - (deletes), so unchanged branches survive.
             //
-            // 1. Get the EXISTING remote bundle.  Reuse the one `list for-push`
-            //    already fetched into `bundle_path`; else probe now (bounded so a
-            //    miss == first push, not a hang).  A miss leaves `existing` None.
-            let existing_bundle: Option<PathBuf> = match bundle_path.take() {
-                Some(p) => Some(p),
-                None => {
-                    let server_path = bundle_server_path(&pub_hex, &path);
-                    // A miss (404 / unreachable) == first push, no existing bundle.
-                    fetch_bundle_cached(&client, &server_path, &path, probe_to).ok()
+            // Serialize same-host pushes to this path: hold an advisory lock
+            // across fetch-existing -> union -> publish so two concurrent pushes
+            // can't each read the same base and drop each other's ref (the node
+            // has no atomic/conditional publish).  The lock is held until the end
+            // of this push batch (dropped at the end of the `push` arm).  A lock
+            // failure is non-fatal -- proceed unserialized rather than wedge.
+            let _push_lock = PushLock::acquire(&path)
+                .map_err(|e| eprintln!("git-remote-lcdp: push lock unavailable: {e:#}"))
+                .ok();
+
+            // 1. Get the EXISTING remote bundle.  Fetch FRESH under the lock (a
+            //    concurrent push may have just changed the published base), so
+            //    drop any pre-lock fetch from `list for-push`.  Bounded by
+            //    `probe_to`: a miss (404 / unreachable) == first push.
+            if let Some(p) = bundle_path.take() {
+                if !is_cached_path(&p) {
+                    std::fs::remove_file(&p).ok();
                 }
+            }
+            let existing_bundle: Option<PathBuf> = {
+                let server_path = bundle_server_path(&pub_hex, &path);
+                fetch_bundle_cached(&client, &server_path, &path, probe_to).ok()
             };
 
             // Resolve the local repo (source of pushed objects) once.
@@ -971,8 +1046,7 @@ fn run() -> Result<()> {
                     }
                 }
             }
-            out.write_all(b"\n")?;
-            out.flush()?;
+            end_batch(&mut out)?;
         } else {
             // Unknown command -- log to stderr (not stdout), keep going.
             eprintln!("git-remote-lcdp: unknown command: {line}");
@@ -1369,6 +1443,45 @@ mod tests {
     }
 
     #[test]
+    fn additive_push_fails_closed_on_corrupt_existing_bundle() {
+        // S5: the push-path unbundle of the EXISTING remote bundle must be
+        // fail-closed.  A corrupt/garbage existing bundle must make the union
+        // build ERROR (via bundle_verify), not silently produce a partial union
+        // or wedge -- so a hostile/torn published base can't poison a push.
+        let local = Scratch::new("local-corrupt");
+        git_in(&local.dir, &["init", "-q"]);
+        git_in(&local.dir, &["config", "user.email", "t@e.st"]);
+        git_in(&local.dir, &["config", "user.name", "t"]);
+        commit_on(&local.dir, "master", "m1");
+        let local_dir = git_in(&local.dir, &["rev-parse", "--absolute-git-dir"]).trim().to_string();
+
+        // A file that is NOT a valid git bundle.
+        let bogus = Scratch::new("bogus");
+        let bogus_bundle = bogus.dir.join("corrupt.bundle");
+        std::fs::write(&bogus_bundle, b"# v2 git bundle\nnot a real bundle at all\n").unwrap();
+
+        // bundle_verify itself must reject it (the gate temp_unbundle_existing now
+        // calls before touching the bundle).
+        assert!(
+            bundle_verify(bogus_bundle.to_str().unwrap()).is_err(),
+            "a corrupt bundle must fail bundle_verify"
+        );
+
+        // And the whole additive build must fail closed when handed it as the
+        // existing remote, rather than building a partial/empty union.
+        let result = build_additive_bundle(
+            "repos/corrupt-test.bundle",
+            &local_dir,
+            Some(&bogus_bundle),
+            &[spec(Some("refs/heads/master"), "refs/heads/master")],
+        );
+        assert!(
+            result.is_err(),
+            "additive push against a corrupt existing bundle must fail closed"
+        );
+    }
+
+    #[test]
     fn additive_push_ignores_ambient_git_dir() {
         // REGRESSION: git invokes the remote helper with GIT_DIR set to the
         // USER's repo.  An explicit GIT_DIR OVERRIDES `git -C <temp>`, so without
@@ -1409,5 +1522,52 @@ mod tests {
             !refs.keys().any(|r| r.contains("decoy-leak")),
             "decoy GIT_DIR refs MUST NOT leak into the union: {refs:?}"
         );
+    }
+
+    #[test]
+    fn push_lock_serializes_same_path() {
+        // S6: the per-path advisory lock must SERIALIZE same-host pushes -- a
+        // second acquire of the same path blocks until the first is dropped.  A
+        // unique path means this test owns its own lock file (in the real cache
+        // or temp dir), so it never mutates process-global env (which would race
+        // git's HOME-driven config in the parallel additive-push tests).
+        let path = format!("repos/lock-test-{}-{}.bundle", std::process::id(), next_nonce());
+
+        use std::sync::mpsc;
+        let (holding_tx, holding_rx) = mpsc::channel::<()>();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let path_for_thread = path.clone();
+        let holder = std::thread::spawn(move || {
+            let lock = PushLock::acquire(&path_for_thread).expect("first acquire");
+            holding_tx.send(()).unwrap(); // signal: lock held
+            release_rx.recv().unwrap(); // hold until told to drop
+            drop(lock);
+        });
+
+        holding_rx.recv().unwrap(); // wait until the holder has the lock
+
+        // A second acquire must BLOCK while the holder keeps the lock. Prove it by
+        // showing it does not complete on its own thread until we release.
+        let path_for_second = path.clone();
+        let (acquired_tx, acquired_rx) = mpsc::channel::<()>();
+        let second = std::thread::spawn(move || {
+            let _lock = PushLock::acquire(&path_for_second).expect("second acquire");
+            acquired_tx.send(()).unwrap();
+        });
+
+        // While the holder still owns it, the second acquire must NOT have fired.
+        assert!(
+            acquired_rx.recv_timeout(std::time::Duration::from_millis(300)).is_err(),
+            "second acquire must block while the first holds the lock"
+        );
+
+        // Release the holder; now the second acquire must succeed promptly.
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        assert!(
+            acquired_rx.recv_timeout(std::time::Duration::from_secs(5)).is_ok(),
+            "second acquire must proceed once the first lock is released"
+        );
+        second.join().unwrap();
     }
 }
