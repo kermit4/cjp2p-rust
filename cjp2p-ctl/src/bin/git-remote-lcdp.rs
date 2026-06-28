@@ -37,11 +37,13 @@
 //!   lcdp://0x<pub>/<path>  ==  GET http://<node>/latest/0x<pub>/<path>
 //!
 //! `<path>` after the pubkey is used VERBATIM under `/latest/0x<pub>/...`: no
-//! `repos/` insertion, no `.bundle` synthesis, no bare-vs-repos translation, no
-//! fallback.  You type the full published path, including any `repos/` prefix
-//! and the `.bundle` suffix, exactly as it appears in the real URL.  Examples:
+//! `repos/` insertion, no bare-vs-repos translation, no fallback.  You type the
+//! published path including any `repos/` prefix; the `.bundle` suffix is
+//! appended for you when omitted, so the remote URL stays extensionless like any
+//! other git remote.  Examples (the first two resolve identically):
+//!   lcdp://0x<pub>/repos/cjp2p-rust        -> GET /latest/0x<pub>/repos/cjp2p-rust.bundle
 //!   lcdp://0x<pub>/repos/cjp2p-rust.bundle -> GET /latest/0x<pub>/repos/cjp2p-rust.bundle
-//!   lcdp://0x<pub>/cjp2p.bundle            -> GET /latest/0x<pub>/cjp2p.bundle
+//!   lcdp://0x<pub>/cjp2p                   -> GET /latest/0x<pub>/cjp2p.bundle
 //! PUSH publishes at the SAME mirrored path, so push/fetch are symmetric.
 //!
 //! HARDENING (untrusted-remote defense): a downloaded bundle is `git bundle
@@ -80,7 +82,9 @@ use std::time::Duration;
 ///
 /// `pub_hex` keeps any "0x" prefix.  `path` is the VERBATIM content path that
 /// follows the pubkey -- it maps directly onto `/latest/0x<pub>/<path>`, with no
-/// translation (no `repos/` insertion, no `.bundle` synthesis, no fallback).
+/// translation (no `repos/` insertion, no bare-vs-repos fallback).  The path is
+/// used verbatim except that a `.bundle` suffix is appended when absent, so the
+/// remote URL stays extensionless like any other git remote.
 fn parse_url(url: &str) -> Result<(String, String)> {
     let s = url
         .trim()
@@ -88,9 +92,16 @@ fn parse_url(url: &str) -> Result<(String, String)> {
         .ok_or_else(|| anyhow::anyhow!("url must start with lcdp:// (got {url})"))?;
     let mut parts = s.splitn(2, '/');
     let pub_hex = parts.next().unwrap_or_default().to_string();
-    let path = parts.next().unwrap_or_default().trim_end_matches('/').to_string();
+    let mut path = parts.next().unwrap_or_default().trim_end_matches('/').to_string();
     if pub_hex.is_empty() || path.is_empty() {
         bail!("url must be lcdp://0x<pubkey>/<path> (got {url})");
+    }
+    // Git remotes are extensionless; the published content is a bundle.  Append
+    // `.bundle` when the user omitted it, so `lcdp://0x<pub>/repos/cjp2p-rust`
+    // and `.../repos/cjp2p-rust.bundle` resolve to the same content.  This is a
+    // deterministic suffix, not the repos/<->bare guessing that was removed.
+    if !path.ends_with(".bundle") {
+        path.push_str(".bundle");
     }
     Ok((pub_hex, path))
 }
@@ -1094,6 +1105,13 @@ mod tests {
 
         // A bare (no `repos/`) published path is equally verbatim.
         let (_, path) = parse_url("lcdp://0xb448/cjp2p.bundle").expect("parse bare path");
+        assert_eq!(path, "cjp2p.bundle");
+
+        // Extensionless URLs get `.bundle` appended, resolving identically to the
+        // explicit form -- so a git remote URL can stay extensionless.
+        let (_, path) = parse_url("lcdp://0xb448/repos/cjp2p-rust").expect("append .bundle");
+        assert_eq!(path, "repos/cjp2p-rust.bundle");
+        let (_, path) = parse_url("lcdp://0xb448/cjp2p").expect("append .bundle bare");
         assert_eq!(path, "cjp2p.bundle");
     }
 
