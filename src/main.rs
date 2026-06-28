@@ -3884,31 +3884,34 @@ impl Receive for PleaseSendContent {
         }
         if message_out.len() == 0 {
             message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
+            if let Source::S(src) = *src {
+                if self.offset == 0 {
+                    info!("sending {} to {src:?} from {src}", self.id);
+                    fs::create_dir_all("./cjp2p/log").ok();
+                    if let Ok(mut log_file) = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .write(true)
+                        .open("./cjp2p/log/content.json")
+                    {
+                        let t = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+                        log_file
+                            .write_all(
+                                &serde_json::to_vec(&json!({"src":src,"id": self.id, "t": t}))
+                                    .unwrap(),
+                            )
+                            .ok();
+                        log_file.write_all(b"\n").ok();
+                    }
+                }
+            }
         }
         let Source::S(src) = *src else {
             return message_out;
         };
-        if message_out.len() > 0 && self.offset == 0 {
-            info!("sending {} to {src:?} from {src}", self.id);
-            fs::create_dir_all("./cjp2p/log").ok();
-            if let Ok(mut log_file) = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .write(true)
-                .open("./cjp2p/log/content.json")
-            {
-                let t = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as i64;
-                log_file
-                    .write_all(
-                        &serde_json::to_vec(&json!({"src":src,"id": self.id, "t": t})).unwrap(),
-                    )
-                    .ok();
-                log_file.write_all(b"\n").ok();
-            }
-        }
         if message_out.len() == 0
             || (!*might_be_ip_spoofing && rand::rng().random::<u32>() % 43 == 0)
         {
