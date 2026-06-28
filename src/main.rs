@@ -3831,8 +3831,10 @@ impl PleaseSendContent {
                 // %EOF
                 debug!( "\x1b[36m{} almost done {}/{}/{}  blocks done/remaining/next \x1b[m", i.id, i.bytes_complete / BLOCK_SIZE!(), (i.eof - i.bytes_complete) / BLOCK_SIZE!(), i.next_block);
                 if log_enabled!(Level::Trace) {
-                    for j in (0..i.bitmap.size()).filter(|&k| !i.bitmap.get(k)) {
-                        trace!("{j}");
+                    if let Some(ref bm) = i.bitmap {
+                        for j in (0..bm.size()).filter(|&k| !bm.get(k)) {
+                            trace!("{j}");
+                        }
                     }
                 } //this can cause window loss in debug build
 
@@ -3843,7 +3845,7 @@ impl PleaseSendContent {
                 }
                 return vec![];
             }
-            i.bytes_complete > 0 && i.bitmap.get(i.next_block)
+            i.bytes_complete > 0 && i.bitmap.as_ref().map_or(false, |bm| bm.get(i.next_block))
         } {
             i.next_block += 1;
         }
@@ -4229,15 +4231,17 @@ impl Receive for Content {
                         bad_sorted.sort();
                         warn!("{} tree check attempt {} failed, bad blocks: {:?} (eof={} bytes_complete={})", self.id, ti.hash_failures, bad_sorted, ti.eof, ti.bytes_complete);
                         for b in bad {
-                            if b < ti.bitmap.size() && ti.bitmap.get(b) {
-                                ti.bitmap.set(b, false);
-                                let byte_start = b * BLOCK_SIZE!();
-                                let byte_end = (byte_start + BLOCK_SIZE!()).min(ti.eof);
-                                ti.bytes_complete =
-                                    ti.bytes_complete.saturating_sub(byte_end - byte_start);
-                                warn!("{} clearing block {} (bytes {}-{}) for retry", self.id, b, byte_start, byte_end);
-                            } else {
-                                warn!("{} bad block {} not in bitmap (bitmap_size={} set={})", self.id, b, ti.bitmap.size(), b < ti.bitmap.size() && ti.bitmap.get(b));
+                            if let Some(ref mut bm) = ti.bitmap {
+                                if b < bm.size() && bm.get(b) {
+                                    bm.set(b, false);
+                                    let byte_start = b * BLOCK_SIZE!();
+                                    let byte_end = (byte_start + BLOCK_SIZE!()).min(ti.eof);
+                                    ti.bytes_complete =
+                                        ti.bytes_complete.saturating_sub(byte_end - byte_start);
+                                    warn!("{} clearing block {} (bytes {}-{}) for retry", self.id, b, byte_start, byte_end);
+                                } else {
+                                    warn!("{} bad block {} not in bitmap (bitmap_size={} set={})", self.id, b, bm.size(), b < bm.size() && bm.get(b));
+                                }
                             }
                         }
                         ti.next_block = 0;
@@ -4269,7 +4273,7 @@ impl Receive for Content {
 struct InboundState {
     mmap: Option<MmapMut>,
     next_block: usize,
-    bitmap: MmapBitVec,
+    bitmap: Option<MmapBitVec>,
     id: String,
     eof: usize,
     bytes_complete: usize,
@@ -4476,7 +4480,7 @@ impl ContentGateway {
         let mut available_end = self.http_end;
         if let Some(not_available) = ((self.http_start / BLOCK_SIZE!())
             ..((self.http_end + (BLOCK_SIZE!() - 1)) / BLOCK_SIZE!()))
-            .find(|&blk| !i.bitmap.get(blk))
+            .find(|&blk| i.bitmap.as_ref().map_or(true, |bm| !bm.get(blk)))
         {
             available_end = not_available * BLOCK_SIZE!();
         }
@@ -4611,10 +4615,7 @@ impl InboundState {
             }
         }
         let bitmap_path = Self::bitmap_path(id);
-        let initial_n_blocks = (1usize << 18) / BLOCK_SIZE!();
-        let bitmap = MmapBitVec::open(&bitmap_path, None, false).unwrap_or_else(|_| {
-            MmapBitVec::create(&bitmap_path, initial_n_blocks, None, &[]).unwrap()
-        });
+        let bitmap = MmapBitVec::open(&bitmap_path, None, false).ok();
         let mut new_i = Self {
             mmap: None,
             next_block: 0,
@@ -4658,30 +4659,27 @@ impl InboundState {
             None => content.offset + content.base64.len() + 1,
         };
 
-        if this_eof != self.eof || self.mmap.is_none() {
-            let old_bitmap_any = self.bitmap.rank(0..self.bitmap.size()) > 0;
+        if this_eof != self.eof || self.mmap.is_none() || self.bitmap.is_none() {
             self.eof = this_eof;
             let blocks = (self.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
             self.bitmap =
-                MmapBitVec::create(Self::bitmap_path(&self.id), blocks, None, &[]).unwrap();
+                Some(MmapBitVec::create(Self::bitmap_path(&self.id), blocks, None, &[]).unwrap());
             let file = OpenOptions::new()
                 .create(true)
                 .read(true)
                 .write(true)
                 .open("./cjp2p/incoming/".to_owned() + &self.id)
                 .unwrap();
-            if file.metadata().map_or(0, |m| m.len()) < this_eof as u64 {
-                file.set_len(this_eof as u64).unwrap();
+            if file.metadata().map_or(0, |m| m.len()) < self.eof as u64 {
+                file.set_len(self.eof as u64).unwrap();
             }
             self.mmap = Some(unsafe { MmapMut::map_mut(&file).unwrap() });
-            if self.bytes_complete == 0 && old_bitmap_any {
-                if blocks > 0 {
-                    self.bitmap.set(blocks - 1, false);
-                }
-                let set_bits = self.bitmap.rank(0..blocks);
-                self.bytes_complete = set_bits * BLOCK_SIZE!();
-                info!("{} resuming: {} bytes already complete", self.id, self.bytes_complete);
+            let bm = self.bitmap.as_mut().unwrap();
+            if blocks > 0 {
+                bm.set(blocks - 1, false);
             }
+            let set_bits = bm.rank(0..blocks);
+            self.bytes_complete = set_bits * BLOCK_SIZE!();
         }
 
         if content.offset >= self.eof {
@@ -4712,7 +4710,11 @@ impl InboundState {
                 return vec![];
             }
         }
-        if self.bitmap.get(block_number) {
+        if self
+            .bitmap
+            .as_ref()
+            .map_or(false, |bm| bm.get(block_number))
+        {
             debug!("dup {block_number}");
         } else if content.base64.len() == BLOCK_SIZE!()
             || content.base64.len() + content.offset == self.eof
@@ -4729,7 +4731,9 @@ impl InboundState {
             self.mmap.as_mut().unwrap()[content.offset..content.base64.len() + content.offset]
                 .copy_from_slice(content.base64.as_ref());
             self.bytes_complete += content.base64.len();
-            self.bitmap.set(block_number, true);
+            if let Some(ref mut bm) = self.bitmap {
+                bm.set(block_number, true);
+            }
             for (index, cg) in (&mut (ps.content_gateways)).into_iter().enumerate() {
                 if cg.id == self.id {
                     cg.serve_content_from_inbound_state(self);
@@ -4873,7 +4877,9 @@ impl InboundState {
         if self.eof == 0 {
             return None;
         }
-        if block_number >= self.bitmap.size() || !self.bitmap.get(block_number) {
+        if self.bitmap.as_ref().map_or(true, |bm| {
+            block_number >= bm.size() || !bm.get(block_number)
+        }) {
             return None;
         }
         let offset = block_number * BLOCK_SIZE!();
@@ -4941,7 +4947,7 @@ impl InboundState {
                         let n_blocks = (self.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
                         let bp = Self::bitmap_path(&self.id);
                         fs::remove_file(&bp).ok();
-                        self.bitmap = MmapBitVec::create(&bp, n_blocks, None, &[]).unwrap();
+                        self.bitmap = Some(MmapBitVec::create(&bp, n_blocks, None, &[]).unwrap());
                         self.next_block = 0;
                         self.bytes_complete = 0;
                     }
