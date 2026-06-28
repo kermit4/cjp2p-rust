@@ -3888,7 +3888,7 @@ impl Receive for PleaseSendContent {
         let Source::S(src) = *src else {
             return message_out;
         };
-        if message_out.len() > 0 && if self.offset == 0 {
+        if message_out.len() > 0 && self.offset == 0 {
             info!("sending {} to {src:?} from {src}", self.id);
             fs::create_dir_all("./cjp2p/log").ok();
             if let Ok(mut log_file) = OpenOptions::new()
