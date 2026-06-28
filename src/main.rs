@@ -5837,10 +5837,10 @@ impl Receive for EncryptedMessages {
             return vec![];
         };
 
-        if ps.peer_map_by_pub.insert(their_pub, src_.clone()).is_none() {
-            info!("new pub found: {}", their_pub);
-        }
         if let Some(pi) = ps.peer_map.get_mut(&src) {
+            if ps.peer_map_by_pub.insert(their_pub, src_.clone()).is_none() {
+                info!("new pub found: {}", their_pub);
+            }
             pi.ed25519 = Some(their_pub);
         };
 
@@ -5969,10 +5969,10 @@ impl Receive for FastEncryptedMessages {
         let cipher = Aes256Gcm::new(&aes_key.into());
         match cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
             Ok(plaintext) => {
-                if ps.peer_map_by_pub.insert(sender, src_.clone()).is_none() {
-                    info!("new pub found: {}", sender);
-                }
                 if let Some(pi) = ps.peer_map.get_mut(&src) {
+                    if ps.peer_map_by_pub.insert(sender, src_.clone()).is_none() {
+                        info!("new pub found: {}", sender);
+                    }
                     pi.ed25519 = Some(sender);
                 }
 
