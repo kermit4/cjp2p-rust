@@ -446,12 +446,19 @@ fn validate_refname(refname: &str) -> bool {
     if refname.is_empty() || refname.len() > 255 {
         return false;
     }
-    // Must live under the heads/tags namespace.
-    let rest =
-        match refname.strip_prefix("refs/heads/").or_else(|| refname.strip_prefix("refs/tags/")) {
-            Some(r) => r,
-            None => return false,
-        };
+    // Must live under an allowed namespace: heads/tags for branches and tags,
+    // plus git-bug's CRDT data refs (bugs/identities) so the review board can
+    // travel over this transport. Still excludes dangerous namespaces such as
+    // refs/replace/* and refs/notes/*.
+    let rest = match refname
+        .strip_prefix("refs/heads/")
+        .or_else(|| refname.strip_prefix("refs/tags/"))
+        .or_else(|| refname.strip_prefix("refs/bugs/"))
+        .or_else(|| refname.strip_prefix("refs/identities/"))
+    {
+        Some(r) => r,
+        None => return false,
+    };
     if rest.is_empty() {
         return false;
     }
@@ -1292,12 +1299,21 @@ mod tests {
         assert!(validate_refname("refs/heads/feature/x-1.2_3"));
         assert!(validate_refname("refs/tags/v1.0.0"));
         assert!(validate_refname("refs/heads/a"));
+        // git-bug CRDT data refs (review-board support over this transport).
+        assert!(validate_refname(
+            "refs/bugs/0ba8d588caddc777fe9d03c2de18d33d8a78bbd093a678d48335e34e0fec5ef0"
+        ));
+        assert!(validate_refname(
+            "refs/identities/fcb4a229aaa668befe1328de5d501b556e59f32d1915e56d0426f94da15dae90"
+        ));
     }
 
     #[test]
     fn validate_refname_rejects_hostile_or_malformed() {
         // Outside the heads/tags namespace.
         assert!(!validate_refname("refs/remotes/origin/master"));
+        assert!(!validate_refname("refs/replace/deadbeef")); // dangerous namespaces stay blocked
+        assert!(!validate_refname("refs/notes/commits"));
         assert!(!validate_refname("HEAD"));
         assert!(!validate_refname("refs/heads"));
         assert!(!validate_refname("refs/heads/"));
