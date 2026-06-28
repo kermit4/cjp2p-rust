@@ -197,14 +197,13 @@ impl NodeClient {
     /// `read_timeout` of `Some(d)` caps a stalled fetch at `d`; `None` means no
     /// read timeout (block until the body arrives or the user interrupts).
     pub fn fetch_bytes(&self, path: &str, read_timeout: Option<Duration>) -> Result<Vec<u8>> {
-        let r = self.get(path, read_timeout)?;
-        if r.status != 200 {
-            bail!(
-                "fetch {path} returned HTTP {} (content not available yet / publisher unreachable)",
-                r.status
-            );
+        match self.fetch_bytes_cond(path, None, read_timeout)? {
+            Fetched::Fresh {
+                body,
+                ..
+            } => Ok(body),
+            Fetched::NotModified => unreachable!("no If-None-Match sent"),
         }
-        Ok(r.body)
     }
 
     /// Conditional variant of `fetch_bytes`. When `etag` is `Some`, sends
@@ -281,6 +280,12 @@ fn read_response(mut stream: TcpStream) -> Result<HttpResponse> {
         }
     };
 
+    // The untrusted publisher fully controls the body on a clone/fetch (and the
+    // user path runs with no read timeout by design), so cap the accumulated body
+    // so a hostile `Content-Length` or a never-FIN stream can't OOM us. `max` is
+    // generous (512 MiB default, env-overridable) so real bundles still fetch.
+    let max = max_bundle_bytes();
+
     // 2. Frame the body. The module header says the node speaks HTTP/1.0 +
     //    `Connection: close` (EOF-delimited), but in practice it replies
     //    `Connection: keep-alive` + `Content-Length` and holds the socket open.
@@ -288,6 +293,9 @@ fn read_response(mut stream: TcpStream) -> Result<HttpResponse> {
     //    otherwise every fetch stalls until the read timeout fires (120s for
     //    clone/pull). The read timeout stays as a genuine-stall backstop.
     if let Some(len) = content_length(&raw[..header_end]) {
+        if len > max {
+            bail!("response body Content-Length {len} exceeds cap {max} (CJP2P_LCDP_MAX_BUNDLE_BYTES)");
+        }
         let want = header_end
             .checked_add(len)
             .ok_or_else(|| anyhow!("absurd Content-Length {len} in node response"))?;
@@ -305,14 +313,34 @@ fn read_response(mut stream: TcpStream) -> Result<HttpResponse> {
     }
 
     // 3. No `Content-Length`: fall back to EOF-delimited read (`Connection: close`).
-    match stream.read_to_end(&mut raw) {
-        Ok(_) => {}
-        Err(e) if is_timeout(&e) => {
-            // Partial data before the stall — parse what we have.
+    //    `read_to_end` is unbounded, so accumulate in chunks under the same cap;
+    //    a body that never FINs (or grows past `max`) errors instead of OOMing.
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break, // EOF -- the full close-delimited body has arrived
+            Ok(n) => {
+                if raw.len().saturating_add(n) > header_end.saturating_add(max) {
+                    bail!("response body exceeds cap {max} bytes (CJP2P_LCDP_MAX_BUNDLE_BYTES)");
+                }
+                raw.extend_from_slice(&chunk[..n]);
+            }
+            Err(e) if is_timeout(&e) => break, // partial data before the stall -- parse what we have
+            Err(e) => return Err(anyhow!("reading response: {e}")),
         }
-        Err(e) => return Err(anyhow!("reading response: {e}")),
     }
     parse_response(&raw)
+}
+
+/// Upper bound on a fetched response body (bundles, content). Generous default of
+/// 512 MiB so real bundles fetch; overridable via `CJP2P_LCDP_MAX_BUNDLE_BYTES`
+/// (a plain byte count). An unparseable or zero override falls back to the default.
+fn max_bundle_bytes() -> usize {
+    const DEFAULT_MAX_BUNDLE_BYTES: usize = 512 * 1024 * 1024;
+    std::env::var("CJP2P_LCDP_MAX_BUNDLE_BYTES")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_MAX_BUNDLE_BYTES)
 }
 
 /// Index of the first byte after the `\r\n\r\n` header terminator (where the body
@@ -383,8 +411,18 @@ mod tests {
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
     use std::sync::mpsc;
+    use std::sync::{Mutex, MutexGuard};
     use std::thread;
     use std::time::{Duration, Instant};
+
+    // `read_response` reads the `CJP2P_LCDP_MAX_BUNDLE_BYTES` env var, and a
+    // couple of tests mutate it. cargo runs tests in parallel, so every test that
+    // either mutates that env var OR calls `read_response` (which reads it) must
+    // hold this guard, to serialize them and keep the cap deterministic.
+    static ENV_GUARD: Mutex<()> = Mutex::new(());
+    fn env_guard() -> MutexGuard<'static, ()> {
+        ENV_GUARD.lock().unwrap_or_else(|p| p.into_inner())
+    }
 
     #[test]
     fn content_length_present_case_insensitive_and_absent() {
@@ -417,6 +455,7 @@ mod tests {
     /// fetch (120s for clone/pull).
     #[test]
     fn read_response_honors_content_length_without_waiting_for_eof() {
+        let _g = env_guard();
         let body: &[u8] = b"keep-alive framed body \x00\x01\x02 binary-safe end";
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("local addr");
@@ -463,6 +502,7 @@ mod tests {
     /// arithmetic must be checked.
     #[test]
     fn read_response_rejects_overflowing_content_length() {
+        let _g = env_guard();
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("local addr");
         let (release_tx, release_rx) = mpsc::channel::<()>();
@@ -496,6 +536,7 @@ mod tests {
     /// proves we return on Content-Length, not on EOF.
     #[test]
     fn read_response_reassembles_body_across_multiple_reads() {
+        let _g = env_guard();
         let body: Vec<u8> = (0..20_000).map(|i| (i % 251) as u8).collect();
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("local addr");
@@ -537,6 +578,7 @@ mod tests {
     /// the path the rewrite preserves for the close-delimited case.
     #[test]
     fn read_response_falls_back_to_eof_when_no_content_length() {
+        let _g = env_guard();
         let body: &[u8] = b"connection-close body, framed by EOF only";
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("local addr");
@@ -599,5 +641,65 @@ mod tests {
         assert_eq!(without.status, 304);
         assert!(without.body.is_empty());
         assert_eq!(without.etag, None);
+    }
+
+    /// A `Content-Length` above the bundle cap must be rejected up front, before
+    /// the body is streamed into memory (so a hostile size can't OOM the fetch).
+    /// Drives the env override so the cap is small and the test is fast; the env
+    /// var is process-global, so this test owns it for its duration.
+    #[test]
+    fn read_response_rejects_content_length_over_cap() {
+        let _g = env_guard();
+        std::env::set_var("CJP2P_LCDP_MAX_BUNDLE_BYTES", "1024");
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("local addr");
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let server = thread::spawn(move || {
+            let (mut sock, _) = listener.accept().expect("accept");
+            // Advertise 1 MiB, well over the 1 KiB cap. Never send the body.
+            sock.write_all(b"HTTP/1.0 200 OK\r\nContent-Length: 1048576\r\n\r\n")
+                .expect("write header");
+            sock.flush().ok();
+            let _ = release_rx.recv();
+            drop(sock);
+        });
+
+        let stream = TcpStream::connect(addr).expect("connect");
+        stream.set_read_timeout(Some(Duration::from_secs(3))).expect("set read timeout");
+
+        let start = Instant::now();
+        let result = read_response(stream);
+        let elapsed = start.elapsed();
+        let _ = release_tx.send(());
+        server.join().ok();
+
+        std::env::remove_var("CJP2P_LCDP_MAX_BUNDLE_BYTES");
+
+        assert!(result.is_err(), "Content-Length over the cap must be rejected");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "rejection must be up front (got {elapsed:?}), not after streaming the body"
+        );
+    }
+
+    /// The env override is honored when valid (>0) and falls back to the default
+    /// otherwise (unset / unparseable / zero).
+    #[test]
+    fn max_bundle_bytes_honors_env_override() {
+        let _g = env_guard();
+        const DEFAULT: usize = 512 * 1024 * 1024;
+
+        std::env::set_var("CJP2P_LCDP_MAX_BUNDLE_BYTES", "4096");
+        assert_eq!(max_bundle_bytes(), 4096);
+
+        std::env::set_var("CJP2P_LCDP_MAX_BUNDLE_BYTES", "0");
+        assert_eq!(max_bundle_bytes(), DEFAULT, "zero falls back to default");
+
+        std::env::set_var("CJP2P_LCDP_MAX_BUNDLE_BYTES", "not-a-number");
+        assert_eq!(max_bundle_bytes(), DEFAULT, "unparseable falls back to default");
+
+        std::env::remove_var("CJP2P_LCDP_MAX_BUNDLE_BYTES");
+        assert_eq!(max_bundle_bytes(), DEFAULT, "unset falls back to default");
     }
 }
