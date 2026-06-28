@@ -27,6 +27,9 @@ urlencoding = "2"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 tungstenite = "0.29"
+# Content-address the bundle cache the same way the node does (ETag == sha256
+# of the /latest content). Same crate + version the node depends on.
+sha2 = ">=0.10, <0.11"
 # TUI-only — behind the feature so the headless CLI build stays slim:
 ratatui = { version = "0.29", optional = true }
 crossterm = { version = "0.28", optional = true }

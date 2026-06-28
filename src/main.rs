@@ -3297,6 +3297,19 @@ fn handle_web_request(
                         }
                     }
                 }
+                if let Some(ref sha) = sha256_opt {
+                    if let Some(inm) = req.headers.get("if-none-match") {
+                        let want = inm.trim().trim_start_matches("W/").trim_matches('"');
+                        if want == sha {
+                            let resp = format!(
+                                "HTTP/1.0 304 Not Modified\r\nETag: \"{}\"\r\nContent-Length: 0\r\n\r\n",
+                                sha
+                            );
+                            stream.write_all(resp.as_bytes()).ok();
+                            return;
+                        }
+                    }
+                }
                 let index = ps.content_gateways.len();
                 ps.content_gateways.push(ContentGateway {
                     id: sha256_opt.unwrap_or_default(),
@@ -4523,6 +4536,12 @@ impl ContentGateway {
             } else {
                 mime_type.mime()
             };
+            // ETag only ever means "sha256 of this /latest content"; by-hash + stream paths emit none.
+            let etag_line = if matches!(self.initiator, Initiator::Latest) && !self.id.is_empty() {
+                format!("ETag: \"{}\"\r\n", self.id)
+            } else {
+                String::new()
+            };
             let response = if self.ranged {
                 debug!("cg {} serve_mmap ranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_str);
                 debug!("cg {} http end minus start {}",self.http_socket.as_raw_fd(),self.http_end-self.http_start);
@@ -4539,8 +4558,9 @@ impl ContentGateway {
                          Content-Disposition: inline\r\n\
                          Accept-Range: bytes\r\n\
                          Content-Range: bytes {}-{}/{}\r\n\
+                         {}\
                          Content-Type: {}\r\n\r\n"
-            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffffff), mime_str)
+            ,self.http_end-self.http_start,self.http_start,self.http_end-1, self.eof.unwrap_or(0x7fffffffff), etag_line, mime_str)
             } else {
                 debug!("cg {} serve_mmap unranged {}-{} of {} {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,self.eof.unwrap_or(0x7fffffffff),mime_str);
                 format!(
@@ -4549,8 +4569,9 @@ impl ContentGateway {
                          Content-Length: {}\r\n\
                          Content-Disposition: inline\r\n\
                          Accept-Range: bytes\r\n\
+                         {}\
                          Content-Type: {}\r\n\r\n"
-            ,self.http_end-self.http_start, mime_str)
+            ,self.http_end-self.http_start, etag_line, mime_str)
             };
             info!("cg {} sending http client {}",self.http_socket.as_raw_fd(),response);
             match self.http_socket.write_all(response.as_bytes()) {

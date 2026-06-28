@@ -29,6 +29,7 @@ pub struct UploadResult {
 struct HttpResponse {
     status: u16,
     body: Vec<u8>,
+    etag: Option<String>,
 }
 
 impl NodeClient {
@@ -71,6 +72,24 @@ impl NodeClient {
         let mut stream = self.connect(read_timeout)?;
         let head =
             format!("GET {path} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n\r\n", self.addr);
+        stream.write_all(head.as_bytes())?;
+        stream.flush().ok();
+        read_response(stream)
+    }
+
+    /// Like `get`, but sends `If-None-Match: "<etag>"` so an unchanged `/latest`
+    /// representation can come back `304 Not Modified` (empty body).
+    fn get_conditional(
+        &self,
+        path: &str,
+        etag: &str,
+        read_timeout: Option<Duration>,
+    ) -> Result<HttpResponse> {
+        let mut stream = self.connect(read_timeout)?;
+        let head = format!(
+            "GET {path} HTTP/1.0\r\nHost: {}\r\nIf-None-Match: \"{etag}\"\r\nConnection: close\r\n\r\n",
+            self.addr
+        );
         stream.write_all(head.as_bytes())?;
         stream.flush().ok();
         read_response(stream)
@@ -175,9 +194,10 @@ impl NodeClient {
     }
 
     /// Fetch bytes for a content path (`/<sha256>`, `/blake3/<h>`, `/latest/...`).
-    /// A timeout means "not available yet / publisher unreachable", never a hang.
-    pub fn fetch_bytes(&self, path: &str, read_timeout: Duration) -> Result<Vec<u8>> {
-        let r = self.get(path, Some(read_timeout))?;
+    /// `read_timeout` of `Some(d)` caps a stalled fetch at `d`; `None` means no
+    /// read timeout (block until the body arrives or the user interrupts).
+    pub fn fetch_bytes(&self, path: &str, read_timeout: Option<Duration>) -> Result<Vec<u8>> {
+        let r = self.get(path, read_timeout)?;
         if r.status != 200 {
             bail!(
                 "fetch {path} returned HTTP {} (content not available yet / publisher unreachable)",
@@ -186,6 +206,49 @@ impl NodeClient {
         }
         Ok(r.body)
     }
+
+    /// Conditional variant of `fetch_bytes`. When `etag` is `Some`, sends
+    /// `If-None-Match`; a `304` comes back as `Fetched::NotModified` (reuse the
+    /// cached copy) instead of an error. When `etag` is `None`, behaves like a
+    /// plain `fetch_bytes` and always returns `Fetched::Fresh`.
+    ///
+    /// `read_timeout` mirrors `fetch_bytes`: `Some(d)` caps a stall at `d`,
+    /// `None` means no read timeout (pend until the body arrives or interrupt).
+    pub fn fetch_bytes_cond(
+        &self,
+        path: &str,
+        etag: Option<&str>,
+        read_timeout: Option<Duration>,
+    ) -> Result<Fetched> {
+        let r = match etag {
+            Some(tag) => self.get_conditional(path, tag, read_timeout)?,
+            None => self.get(path, read_timeout)?,
+        };
+        if r.status == 304 {
+            return Ok(Fetched::NotModified);
+        }
+        if r.status != 200 {
+            bail!(
+                "fetch {path} returned HTTP {} (content not available yet / publisher unreachable)",
+                r.status
+            );
+        }
+        Ok(Fetched::Fresh {
+            body: r.body,
+            etag: r.etag,
+        })
+    }
+}
+
+/// Result of a conditional fetch (`fetch_bytes_cond`).
+pub enum Fetched {
+    /// The node served full content (200); `etag` is its `ETag` if present.
+    Fresh {
+        body: Vec<u8>,
+        etag: Option<String>,
+    },
+    /// The node confirmed the cached copy is current (304); no bytes transferred.
+    NotModified,
 }
 
 fn read_response(mut stream: TcpStream) -> Result<HttpResponse> {
@@ -288,10 +351,30 @@ fn parse_response(raw: &[u8]) -> Result<HttpResponse> {
         .nth(1)
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| anyhow!("bad status line: {line}"))?;
+    let etag = parse_etag(&raw[..body_start]);
     Ok(HttpResponse {
         status,
         body: raw[body_start..].to_vec(),
+        etag,
     })
+}
+
+/// Extract the `ETag` header value (case-insensitive name) from a response header
+/// block, stripping an optional weak `W/` prefix and surrounding double quotes.
+/// `None` if absent.
+fn parse_etag(header: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(header);
+    for line in text.split("\r\n") {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("etag") {
+                let v = value.trim().trim_start_matches("W/").trim_matches('"');
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -473,5 +556,48 @@ mod tests {
 
         assert_eq!(resp.status, 200, "status line parsed");
         assert_eq!(resp.body, body.to_vec(), "full body delivered via EOF framing");
+    }
+
+    /// `parse_etag` extracts the ETag value across strong, weak (`W/`), and
+    /// quoted forms, and returns `None` when no ETag header is present.
+    #[test]
+    fn parse_etag_strong_weak_quoted_absent() {
+        // strong, quoted (the form the node emits)
+        assert_eq!(
+            parse_etag(b"HTTP/1.0 200 OK\r\nETag: \"abc123\"\r\n\r\n"),
+            Some("abc123".to_string())
+        );
+        // weak prefix + quotes, case-insensitive header name
+        assert_eq!(
+            parse_etag(b"HTTP/1.0 200 OK\r\netag: W/\"abc123\"\r\n\r\n"),
+            Some("abc123".to_string())
+        );
+        // unquoted value, padded whitespace
+        assert_eq!(
+            parse_etag(b"HTTP/1.0 200 OK\r\nETag:   abc123  \r\n\r\n"),
+            Some("abc123".to_string())
+        );
+        // absent
+        assert_eq!(parse_etag(b"HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n"), None);
+        // empty/quotes-only value -> None
+        assert_eq!(parse_etag(b"HTTP/1.0 200 OK\r\nETag: \"\"\r\n\r\n"), None);
+    }
+
+    /// `parse_response` surfaces the ETag on the parsed response (and None when
+    /// absent), alongside status and body.
+    #[test]
+    fn parse_response_captures_etag() {
+        let with =
+            parse_response(b"HTTP/1.0 200 OK\r\nETag: \"deadbeef\"\r\nContent-Length: 2\r\n\r\nhi")
+                .expect("parse");
+        assert_eq!(with.status, 200);
+        assert_eq!(with.body, b"hi".to_vec());
+        assert_eq!(with.etag, Some("deadbeef".to_string()));
+
+        let without = parse_response(b"HTTP/1.0 304 Not Modified\r\nContent-Length: 0\r\n\r\n")
+            .expect("parse");
+        assert_eq!(without.status, 304);
+        assert!(without.body.is_empty());
+        assert_eq!(without.etag, None);
     }
 }

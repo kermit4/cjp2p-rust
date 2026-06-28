@@ -43,7 +43,7 @@ pub fn get(c: &NodeClient, algo: Algo, hash: &str, out: Option<&Path>) -> Result
             format!("/blake3/{hash}")
         }
     };
-    let bytes = c.fetch_bytes(&server_path, Duration::from_secs(60))?;
+    let bytes = c.fetch_bytes(&server_path, Some(Duration::from_secs(60)))?;
     let out_path = out.map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from(hash));
     std::fs::write(&out_path, &bytes)?;
     Ok(out_path)
