@@ -1510,6 +1510,7 @@ fn upgrade_to_blake3(public_path: &str) {
     if let Some(blake3_id) = create_tree_for_file(public_path) {
         let blake3_path = format!("./cjp2p/public/blake3/{}", blake3_id);
         if !Path::new(&blake3_path).exists() {
+            fs::remove_file(&blake3_path).ok();
             if fs::hard_link(public_path, &blake3_path).is_err() {
                 let name = Path::new(public_path).file_name().unwrap_or_default().to_string_lossy();
                 std::os::unix::fs::symlink(format!("../{}", name), &blake3_path).ok();
@@ -1542,6 +1543,7 @@ fn add_sha256_link(path: &str) {
     };
     let sha256_dest = format!("./cjp2p/public/{}", sha256);
     if !Path::new(&sha256_dest).exists() {
+        fs::remove_file(&sha256_dest).ok();
         if fs::hard_link(path, &sha256_dest).is_err() {
             std::os::unix::fs::symlink(path.strip_prefix("./cjp2p/public/").unwrap_or(path), &sha256_dest).ok();
         }
@@ -2665,6 +2667,7 @@ fn handle_line(
             let sha256 = format!("{:x}", sha256_hasher.finalize());
             let blake3_dest = format!("./cjp2p/public/blake3/{}", blake3);
             if !Path::new(&blake3_dest).exists() {
+                fs::remove_file(&blake3_dest).ok();
                 let abs =
                     fs::canonicalize(&path).unwrap_or_else(|_| std::path::PathBuf::from(&path));
                 if fs::hard_link(&path, &blake3_dest).is_err() {
@@ -2673,6 +2676,7 @@ fn handle_line(
             }
             let sha256_dest = format!("./cjp2p/public/{}", sha256);
             if !Path::new(&sha256_dest).exists() {
+                fs::remove_file(&sha256_dest).ok();
                 if fs::hard_link(&blake3_dest, &sha256_dest).is_err() {
                     std::os::unix::fs::symlink(format!("blake3/{}", blake3), &sha256_dest).ok();
                 }
