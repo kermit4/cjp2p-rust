@@ -3526,14 +3526,9 @@ fn handle_network(
         }
     };
     let messages = messages.0;
-    let mut new_peer = false;
-    if !ps.peer_map.contains_key(&src) {
-        new_peer = true;
-    }
+    let mut new_peer = !ps.peer_map.contains_key(&src);
     let mut might_be_ip_spoofing = ps.check_key(&messages, src);
-    if !ps.peer_map.contains_key(&src) {
-        new_peer = false;
-    }
+    new_peer &= ps.peer_map.contains_key(&src);
     let mut message_out = ps.handle_messages(
         messages,
         &Source::S(src),
@@ -3555,6 +3550,9 @@ fn handle_network(
         return;
     }
     message_out.append(&mut ps.always_returned(src));
+    if message_out.len() == 0 {
+        return;
+    }
     let message_out_bytes = serde_json::to_vec(&message_out).unwrap();
     trace!( "sending message {1:?} to {0}{src}", if might_be_ip_spoofing {
                "\x1b[7munverified\x1b[m "} else {""},  String::from_utf8_lossy(&message_out_bytes));
