@@ -1511,7 +1511,8 @@ fn upgrade_to_blake3(public_path: &str) {
         let blake3_path = format!("./cjp2p/public/blake3/{}", blake3_id);
         if !Path::new(&blake3_path).exists() {
             if fs::hard_link(public_path, &blake3_path).is_err() {
-                std::os::unix::fs::symlink(public_path, &blake3_path).ok();
+                let name = Path::new(public_path).file_name().unwrap_or_default().to_string_lossy();
+                std::os::unix::fs::symlink(format!("../{}", name), &blake3_path).ok();
             }
         }
         info!("upgraded {} to blake3/{}", public_path, blake3_id);
@@ -1542,7 +1543,7 @@ fn add_sha256_link(path: &str) {
     let sha256_dest = format!("./cjp2p/public/{}", sha256);
     if !Path::new(&sha256_dest).exists() {
         if fs::hard_link(path, &sha256_dest).is_err() {
-            std::os::unix::fs::symlink(path, &sha256_dest).ok();
+            std::os::unix::fs::symlink(path.strip_prefix("./cjp2p/public/").unwrap_or(path), &sha256_dest).ok();
         }
     }
     info!("linked {} to {}", path, sha256_dest);
@@ -1675,7 +1676,7 @@ fn handle_upload(mut stream: TcpStream, req: HttpRequest) {
         }
         let sha256_dest = format!("./cjp2p/public/{}", sha256);
         if fs::hard_link(&blake3_dest, &sha256_dest).is_err() {
-            std::os::unix::fs::symlink(&blake3_dest, &sha256_dest).ok();
+            std::os::unix::fs::symlink(format!("blake3/{}", blake3), &sha256_dest).ok();
         }
         let tree_path = format!("./cjp2p/public/blake3_tree_v2/{}", blake3);
         if Path::new(&tree_path).exists() {
@@ -2673,7 +2674,7 @@ fn handle_line(
             let sha256_dest = format!("./cjp2p/public/{}", sha256);
             if !Path::new(&sha256_dest).exists() {
                 if fs::hard_link(&blake3_dest, &sha256_dest).is_err() {
-                    std::os::unix::fs::symlink(&blake3_dest, &sha256_dest).ok();
+                    std::os::unix::fs::symlink(format!("blake3/{}", blake3), &sha256_dest).ok();
                 }
             }
             println!("{path} is shared at http://localhost:{http_port}/blake3/{blake3}");
