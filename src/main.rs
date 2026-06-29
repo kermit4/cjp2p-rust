@@ -471,14 +471,13 @@ impl PeerState {
 
     fn always_returned(&self, sa: SocketAddr) -> Vec<Message> {
         trace!("always_returned for {sa}");
-        let mut cookie = self.last_cookie.clone();
+        if let Some(c) = self.last_cookie.clone() {
+            return vec![Message::AlwaysReturned(AlwaysReturned{cookie:c })];
+        }
         if let Some(p) = self.peer_map.get(&sa) {
             if let Some(c) = p.anti_ip_spoofing_cookie_they_expect.to_owned() {
-                cookie = Some(c);
+                return vec![Message::AlwaysReturned(AlwaysReturned{cookie:c })];
             }
-        }
-        if let Some(c) = cookie {
-            return vec![Message::AlwaysReturned(AlwaysReturned{cookie:c })];
         }
         return vec![];
     }

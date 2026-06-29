@@ -12,7 +12,7 @@ APK/Termux builds tested to not use much battery / wakeup timer is 2s (unless yo
 
 Useful things this CLI provides without any other UI
 - /publish path  (copy file to cjp2p/origin/ and print its URL, updates will propagate)
-- /share path  (serve file by BLAKE3 hash from cjp2p/public/ (updates do NOT propagate, do not modify them!)) .. the BLAKE3 will be 1/64 the size of the file, but its mmapped so you can download a 64TB file without 1TB of RAM.   The block-completed bitpmap however is not an mmap, so it would use 2GB of RAM for a 64TB file.  
+- /share path  (serve file by BLAKE3 and sha256 hash from cjp2p/public/ 
 - /get [hash]
 
 This will make available any files in the directory ./cj2p/public  It will ignore any requests for anything that has a / or \ in it, except for /latest/ which are ordinary names that get checked for changes and published by hash in /public/, and the requester is sent the latest hash. (So you have distributed updateable content by your public key.  Make yourself a home page, call it index.html .)
@@ -43,7 +43,7 @@ RUST_LOG=warn ./target/release/cjp2p
 
 Then type /help or go to http://localhost:24255/ where all the on-network links are
 
-This uses about 400MB/day out and 100MB/day in
+This uses about 400MB/day 
 
 This also works great on Android.  It does use "StartForeground" but the base maintenance timer is ~2 seconds on Android ( ~1 elsewhere ).  I don't notice any more battery drain with it running than without on mobile or wifi.
 
