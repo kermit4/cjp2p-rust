@@ -2138,7 +2138,7 @@ fn run_engine(
                     };
                     loop {
                         let n = rl_peer_count_thread.load(std::sync::atomic::Ordering::Relaxed);
-                        let prompt = format!("[{} {}] {} peers> ", rl_pub_prefix, rl_git_hash, n);
+                        let prompt = format!("[pub:{} ver:{} peers:{}] ", rl_pub_prefix, rl_git_hash, n);
                         match rl.readline(&prompt) {
                             Ok(line) => {
                                 let _ = rl.add_history_entry(&line);
