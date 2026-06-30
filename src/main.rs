@@ -4718,29 +4718,6 @@ impl InboundState {
             return vec![];
         }
         let block_number = content.offset / BLOCK_SIZE!();
-        if self.id.starts_with("blake3/") {
-            if self.segment_hashes.is_none() {
-                let hash = &self.id["blake3/".len()..];
-                if let Ok(f) = File::open(format!("./cjp2p/public/blake3_tree_v2/{}", hash)) {
-                    if let Ok(mm) = unsafe { Mmap::map(&f) } {
-                        self.segment_hashes = Some(mm);
-                    }
-                }
-            }
-            let Some(ref tree_mmap) = self.segment_hashes else {
-                debug!("{} not ready but got blake3 content already",self.id);
-                return vec![];
-            };
-            let Some(expected_cv) = leaf_cv_in_tree_v2(tree_mmap, block_number) else {
-                return vec![];
-            };
-            let cv = block_chaining_value(&content.base64, (block_number * BLOCK_SIZE!()) as u64);
-            if cv != expected_cv {
-                warn!("{} block {} blake3 CV mismatch, re-requesting", self.id, block_number);
-                self.last_activity = Instant::now();
-                return vec![];
-            }
-        }
         if self
             .bitmap
             .as_ref()
@@ -4750,6 +4727,29 @@ impl InboundState {
         } else if content.base64.len() == BLOCK_SIZE!()
             || content.base64.len() + content.offset == self.eof
         {
+            if self.id.starts_with("blake3/") {
+                if self.segment_hashes.is_none() {
+                    let hash = &self.id["blake3/".len()..];
+                    if let Ok(f) = File::open(format!("./cjp2p/public/blake3_tree_v2/{}", hash)) {
+                        if let Ok(mm) = unsafe { Mmap::map(&f) } {
+                            self.segment_hashes = Some(mm);
+                        }
+                    }
+                }
+                let Some(ref tree_mmap) = self.segment_hashes else {
+                    debug!("{} not ready but got blake3 content already",self.id);
+                    return vec![];
+                };
+                let Some(expected_cv) = leaf_cv_in_tree_v2(tree_mmap, block_number) else {
+                    return vec![];
+                };
+                let cv = block_chaining_value(&content.base64, (block_number * BLOCK_SIZE!()) as u64);
+                if cv != expected_cv {
+                    warn!("{} block {} blake3 CV mismatch, re-requesting", self.id, block_number);
+                    self.last_activity = Instant::now();
+                    return vec![];
+                }
+            }
             if self.id.starts_with("blake3_tree_v2/")
                 && block_number == 0
                 && content.base64.len() >= 4
