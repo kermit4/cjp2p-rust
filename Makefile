@@ -34,14 +34,6 @@ target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.p
 check: Makefile Cargo.toml src/*.rs src/bin/*.rs src/favicon.png
 	cargo check 
 
-# Formatting config lives ONCE here; editors, the Claude hook, and CI all
-# reference these targets instead of duplicating the rustfmt invocation.
-# Requires the nightly toolchain (skip_macro_invocations is unstable).
-FMT_FLAGS = --config skip_macro_invocations='["*"]'
-
-pretty: check
-	cargo fmt -- $(FMT_FLAGS)
-
 # Format a single file (used by editors / the Claude PostToolUse hook):
 #   make pretty-file FILE=path/to/x.rs
 .PHONY: pretty-file
