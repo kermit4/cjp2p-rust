@@ -2,6 +2,7 @@ SHELL = /bin/bash -ue
 
 
 export BUILD_VERSION=$@ $(shell TZ= git log --pretty=format:"Rust %ad %h %s" -1)
+export GIT_HASH=$(shell git log --pretty=format:"%h" -1)
 
 default: check debug release bundle
 

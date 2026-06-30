@@ -2125,6 +2125,7 @@ fn run_engine(
                 let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
                 let rl_peer_count_thread = std::sync::Arc::clone(&ps.active_peer_count);
                 let rl_pub_prefix: String = pub_hex.chars().take(5).collect();
+                let rl_git_hash: &str = option_env!("GIT_HASH").unwrap_or("nogit");
                 std::thread::spawn(move || {
                     let mut rl = match rustyline::DefaultEditor::new() {
                         Ok(e) => e,
@@ -2137,7 +2138,7 @@ fn run_engine(
                     };
                     loop {
                         let n = rl_peer_count_thread.load(std::sync::atomic::Ordering::Relaxed);
-                        let prompt = format!("[{}] {} peers> ", rl_pub_prefix, n);
+                        let prompt = format!("[{} {}] {} peers> ", rl_pub_prefix, rl_git_hash, n);
                         match rl.readline(&prompt) {
                             Ok(line) => {
                                 let _ = rl.add_history_entry(&line);
