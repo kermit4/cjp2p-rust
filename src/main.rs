@@ -1512,7 +1512,10 @@ fn upgrade_to_blake3(public_path: &str) {
         if !Path::new(&blake3_path).exists() {
             fs::remove_file(&blake3_path).ok();
             if fs::hard_link(public_path, &blake3_path).is_err() {
-                let name = Path::new(public_path).file_name().unwrap_or_default().to_string_lossy();
+                let name = Path::new(public_path)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy();
                 std::os::unix::fs::symlink(format!("../{}", name), &blake3_path).ok();
             }
         }
@@ -1545,7 +1548,11 @@ fn add_sha256_link(path: &str) {
     if !Path::new(&sha256_dest).exists() {
         fs::remove_file(&sha256_dest).ok();
         if fs::hard_link(path, &sha256_dest).is_err() {
-            std::os::unix::fs::symlink(path.strip_prefix("./cjp2p/public/").unwrap_or(path), &sha256_dest).ok();
+            std::os::unix::fs::symlink(
+                path.strip_prefix("./cjp2p/public/").unwrap_or(path),
+                &sha256_dest,
+            )
+            .ok();
         }
     }
     info!("linked {} to {}", path, sha256_dest);
