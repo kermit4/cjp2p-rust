@@ -6168,6 +6168,27 @@ impl Receive for SignedMessage {
                         fs::write(&cache_path, json).ok();
                     }
                     info!("cached latest {}/{} seq={} sha256={}", pub_hex, latest.name, latest.seq, latest.sha256);
+                    // If an existing latest was updated to a new sha256 that we don't have,
+                    // and no active content gateway (still in its 300ms window) will pick it
+                    // up via Latest::receive, fetch it now, so we don't have mismatched caches.
+                    if cached_seq > 0
+                        && !Path::new(&format!("./cjp2p/public/{}", latest.sha256)).exists()
+                        && !inbound_states.contains_key(&latest.sha256)
+                        && !ps.content_gateways.iter().any(|cg| {
+                            cg.pending_latest.as_ref().map_or(false, |l| {
+                                l.pub_key == latest.ed25519
+                                    && l.name == latest.name
+                                    && l.delay_for_newest_until
+                                        .map_or(false, |t| !has_passed(t))
+                            })
+                        })
+                    {
+                        info!(
+                            "latest updated {}/{}: fetching new sha256 {}",
+                            pub_hex, latest.name, latest.sha256
+                        );
+                        InboundState::new(&latest.sha256, ps, inbound_states);
+                    }
                 }
             }
             if let Message::Content(c) = msg {
