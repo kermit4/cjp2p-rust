@@ -4691,6 +4691,11 @@ impl InboundState {
             None => content.offset + content.base64.len() + 1,
         };
 
+        if this_eof == 0 {
+            warn!("{} received content with zero-length EOF, ignoring", self.id);
+            return vec![];
+        }
+
         if this_eof != self.eof || self.mmap.is_none() || self.bitmap.is_none() {
             self.eof = this_eof;
             let blocks = (self.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
