@@ -4697,6 +4697,10 @@ impl InboundState {
         }
 
         if this_eof != self.eof || self.mmap.is_none() || self.bitmap.is_none() {
+            if self.mmap.is_some() && this_eof != self.eof {
+                warn!("{} conflicting EOF {} vs established {}, ignoring", self.id, this_eof, self.eof);
+                return vec![];
+            }
             self.eof = this_eof;
             let blocks = (self.eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
             self.bitmap =
