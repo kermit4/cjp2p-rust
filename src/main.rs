@@ -250,6 +250,7 @@ impl Keypair {
 
 struct PeerState {
     last_cookie: Option<String>,
+    last_always_returned: Option<String>,
     peer_map: HashMap<SocketAddr, PeerInfo>,
     peer_map_by_pub: HashMap<Ed25519Pub, Source>,
     peer_vec: Vec<SocketAddr>,
@@ -337,6 +338,7 @@ impl PeerState {
         use std::net::Ipv6Addr;
         let mut ps = Self {
             last_cookie: None,
+            last_always_returned: None,
             peer_map: PeerState::load_peers(),
             peer_map_by_pub: HashMap::new(),
             peer_vec: vec![],
@@ -450,6 +452,7 @@ impl PeerState {
     fn check_key(&mut self, messages: &Vec<Message>, src: SocketAddr) -> bool {
         for message_in in messages {
             if let Message::AlwaysReturned(m) = message_in {
+                self.last_always_returned=Some(m.cookie.clone());
                 let correct_hash = self.hash_ip(src);
                 if correct_hash == m.cookie && !self.peer_map.contains_key(&src) {
                     let mut pi = PeerInfo::new();
@@ -2220,6 +2223,7 @@ fn run_engine(
             continue 'main;
         }
         ps.last_cookie = None;
+        ps.last_always_returned = None;
 
         for (index, cg) in ps.content_gateways.iter().enumerate() {
             if write_fds.contains(cg.http_socket.as_fd()) {
@@ -5542,7 +5546,18 @@ impl Receive for MyPublicKey {
         }
         if let Source::S(ssrc) = *src {
             // MyPublicKey should be signed and signature verified, not just anti-spoof key checked
-            if ps.peer_map_by_pub.get(&self.ed25519h).is_none()  || !*might_be_ip_spoofing { 
+            if ps.peer_map_by_pub.get(&self.ed25519h).is_none()  || !*might_be_ip_spoofing || {
+                    // if they change IPs, update it faster
+                    // this indentation is correct!
+                    if let Some(Source::S(src)) =  ps.peer_map_by_pub.get(&self.ed25519h) {
+                        if let Some(lar) = &ps.last_always_returned {
+                            if *lar == ps.hash_ip(*src) {
+                                info!("new code triggered!");
+                                true
+                            } else {false}
+                        } else {false}
+                    } else {false}
+                } {
                 if ps
                     .peer_map_by_pub
                     .insert(self.ed25519h, src.to_owned())
