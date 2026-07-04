@@ -2443,7 +2443,11 @@ fn handle_line(
     } else if line == "/peers" {
         println!("========== active peer/ports");
         for v in ps.peer_vec.iter().rev() {
-            let d = ps.peer_map[v].delay;
+            let Some(peer) = ps.peer_map.get(v) else {
+                error!("/peers: {v} in peer_vec but not in peer_map, skipping, this shouldnt happen");
+                continue;
+            };
+            let d = peer.delay;
             if d < Duration::from_secs(1) {
                 println!("{:21?} {}",
                             d,
@@ -2752,7 +2756,13 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
     let fast_peer_count = ps
         .peer_vec
         .iter()
-        .filter(|v| ps.peer_map[*v].delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS))
+        .filter(|v| match ps.peer_map.get(*v) {
+            Some(p) => p.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS),
+            None => {
+                error!("status_json: {v} in peer_vec but not in peer_map, skipping, this shouldnt happen");
+                false
+            }
+        })
         .count();
 
     stream.set_nonblocking(false).ok();
@@ -2967,8 +2977,20 @@ fn status_page(
     let fast_peers: Vec<(Duration, SocketAddr)> = ps
         .peer_vec
         .iter()
-        .map(|v| (ps.peer_map[v].delay, *v))
-        .filter(|(d, _)| *d < Duration::from_millis(ACTIVE_PEER_DELAY_MS))
+        .filter_map(|v| {
+            let p = match ps.peer_map.get(v) {
+                Some(p) => p,
+                None => {
+                    error!("status_html: {v} in peer_vec but not in peer_map, skipping, this shouldnt happen");
+                    return None;
+                }
+            };
+            if p.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS) {
+                Some((p.delay, *v))
+            } else {
+                None
+            }
+        })
         .collect();
 
     let mut page = format!("HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n<html><head><meta http-equiv=refresh content=10><title>cjp2p status {}</title>\
