@@ -725,6 +725,15 @@ impl PeerState {
             trace!( "best peer(q:{quality}) {0} {1} {2}", i, p, self.peer_map[p].delay.as_secs_f64());
         }
         log_if_slow(nowi, line!().to_string());
+        result.retain(|sa| {
+            if self.peer_map.contains_key(sa) {
+                true
+            } else {
+                error!("best_peers: {sa} in result but not in peer_map, removing, this shouldnt happen");
+                false
+            }
+        });
+        log_if_slow(nowi, line!().to_string());
         return result.clone();
     }
     fn handle_messages(
@@ -5342,21 +5351,6 @@ impl Receive for GetPubByEth {
                 }
             }
         }
-        ps.socket.set_nonblocking(false).unwrap();
-        if let Source::S(_) = src {
-            return vec![];
-        }
-        warn!("failed to find ed25519 of requested eth addr {}, searching..",self.eth_addr);
-        let peers = ps.best_peers(250, 6);
-        info!("searching {} peers for eth addr",peers.len());
-        for sa in peers {
-            let mut message_out = vec![Message::GetPubByEth(self.clone())];
-            message_out.push(ps.please_always_return(sa.clone()));
-            message_out.append(&mut ps.always_returned(sa));
-            let message_out_bytes: Vec<u8> = serde_json::to_vec(&message_out).unwrap();
-            ps.socket.send_to(&message_out_bytes, sa).ok();
-        }
-        ps.socket.set_nonblocking(true).unwrap();
         return vec![];
     }
 }
@@ -5496,7 +5490,7 @@ impl Receive for MyPublicKey {
         self,
         ps: &mut PeerState,
         src: &Source,
-        _: &mut bool,
+        might_be_ip_spoofing: &mut bool,
         _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
@@ -5524,19 +5518,31 @@ impl Receive for MyPublicKey {
                 return vec![];
             }
         }
-        if ps
-            .peer_map_by_pub
-            .insert(self.ed25519h, src.to_owned())
-            .is_none()
-        {
-            info!("new pub found: {}", self.ed25519h);
-        }
-        if let Source::S(src) = *src {
-            if let Some(pi) = ps.peer_map.get_mut(&src) {
-                pi.ed25519 = Some(self.ed25519h);
-                if let Some(a) = recovered_address {
-                    pi.ed25519_eth_signer = Some(a);
-                    pi.ed25519_eth_signed = self.ed25519_eth_signed;
+        if let Source::S(ssrc) = *src {
+            // MyPublicKey should be signed and signature verified, not just anti-spoof key checked
+            if ps.peer_map_by_pub.get(&self.ed25519h).is_none()  || !*might_be_ip_spoofing { 
+                if ps
+                    .peer_map_by_pub
+                    .insert(self.ed25519h, src.to_owned())
+                    .is_none()
+                {
+                    info!("new pub found: {}", self.ed25519h);
+                }
+                if let Some(pi) = ps.peer_map.get_mut(&ssrc) {
+                    pi.ed25519 = Some(self.ed25519h);
+                    if let Some(a) = recovered_address {
+                        pi.ed25519_eth_signer = Some(a);
+                        pi.ed25519_eth_signed = self.ed25519_eth_signed;
+                    }
+                } else {
+                    let mut pi = PeerInfo::new();
+                    pi.ed25519 = Some(self.ed25519h);
+                    if let Some(a) = recovered_address {
+                        pi.ed25519_eth_signer = Some(a);
+                        pi.ed25519_eth_signed = self.ed25519_eth_signed;
+                    }
+                    pi.delay = Duration::from_millis(120);
+                    ps.peer_map.insert(ssrc, pi);
                 }
             }
         } else {
@@ -5885,11 +5891,17 @@ impl Receive for EncryptedMessages {
         };
 
         if let Some(pi) = ps.peer_map.get_mut(&src) {
-            if ps.peer_map_by_pub.insert(their_pub, src_.clone()).is_none() {
-                info!("new pub found: {}", their_pub);
-            }
             pi.ed25519 = Some(their_pub);
-        };
+        } else {
+            let mut pi = PeerInfo::new();
+            pi.ed25519 = Some(their_pub);
+            pi.delay = Duration::from_millis(120);
+            ps.peer_map.insert(src, pi);
+        }
+        if ps.peer_map_by_pub.insert(their_pub, src_.clone()).is_none() {
+            info!("new pub found: {}", their_pub);
+        }
+
 
         message_in_bytes.truncate(len);
         trace!("handling decrypted message from {src} {}: {}",
@@ -5906,27 +5918,27 @@ impl Receive for EncryptedMessages {
         let messages = messages.0;
 
         *might_be_ip_spoofing &= ps.check_key(&messages, src);
-        let message_out_string =
-            serde_json::to_string(
-                &json![
-                        [Message::Forwarded(Forwarded{
-                            src:src,
-                            from_ed25519:Some(their_pub),
-                            maybe_ed25519:None,
-                            messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]],
-            )
-            .unwrap();
         if ps.ws_vec.len() > 0 {
-            trace!( "sending decrypted message {} to {} websockets", message_out_string,ps.ws_vec.len());
-        }
-        for ws in &mut ps.ws_vec {
-            if ws
-                .write(tungstenite::Message::Text(
-                    message_out_string.clone().into(),
-                ))
-                .is_ok()
-            {
-                ws.flush().ok();
+            let message_out_string =
+                serde_json::to_string(
+                    &json![
+                            [Message::Forwarded(Forwarded{
+                                src:src,
+                                from_ed25519:Some(their_pub),
+                                maybe_ed25519:None,
+                                messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]],
+                )
+                .unwrap();
+                trace!( "sending decrypted message {} to {} websockets", message_out_string,ps.ws_vec.len());
+            for ws in &mut ps.ws_vec {
+                if ws
+                    .write(tungstenite::Message::Text(
+                        message_out_string.clone().into(),
+                    ))
+                    .is_ok()
+                {
+                    ws.flush().ok();
+                }
             }
         }
         return ps.handle_messages(
@@ -6017,10 +6029,15 @@ impl Receive for FastEncryptedMessages {
         match cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
             Ok(plaintext) => {
                 if let Some(pi) = ps.peer_map.get_mut(&src) {
-                    if ps.peer_map_by_pub.insert(sender, src_.clone()).is_none() {
-                        info!("new pub found: {}", sender);
-                    }
                     pi.ed25519 = Some(sender);
+                } else {
+                    let mut pi = PeerInfo::new();
+                    pi.ed25519 = Some(sender);
+                    pi.delay = Duration::from_millis(120);
+                    ps.peer_map.insert(src, pi);
+                }
+                if ps.peer_map_by_pub.insert(sender, src_.clone()).is_none() {
+                    info!("new pub found: {}", sender);
                 }
 
                 trace!("handling fast-decrypted message from {src} {}: {}",
@@ -6038,26 +6055,26 @@ impl Receive for FastEncryptedMessages {
                 let messages = messages.0;
                 *might_be_ip_spoofing &= ps.check_key(&messages, src);
 
-                let message_out_string = serde_json::to_string(&json![
-                        [Message::Forwarded(Forwarded {
-                            src: src,
-                            from_ed25519: Some(sender),
-                            maybe_ed25519: None,
-                            messages: String::from_utf8_lossy(&plaintext).to_string(),
-                        })]
-                    ])
-                .unwrap();
                 if ps.ws_vec.len() > 0 {
-                    trace!("sending fast-decrypted message {} to {} websockets", message_out_string, ps.ws_vec.len());
-                }
-                for ws in &mut ps.ws_vec {
-                    if ws
-                        .write(tungstenite::Message::Text(
-                            message_out_string.clone().into(),
-                        ))
-                        .is_ok()
-                    {
-                        ws.flush().ok();
+                    let message_out_string = serde_json::to_string(&json![
+                            [Message::Forwarded(Forwarded {
+                                src: src,
+                                from_ed25519: Some(sender),
+                                maybe_ed25519: None,
+                                messages: String::from_utf8_lossy(&plaintext).to_string(),
+                            })]
+                        ])
+                    .unwrap();
+                        trace!("sending fast-decrypted message {} to {} websockets", message_out_string, ps.ws_vec.len());
+                    for ws in &mut ps.ws_vec {
+                        if ws
+                            .write(tungstenite::Message::Text(
+                                message_out_string.clone().into(),
+                            ))
+                            .is_ok()
+                        {
+                            ws.flush().ok();
+                        }
                     }
                 }
                 return ps.handle_messages(
