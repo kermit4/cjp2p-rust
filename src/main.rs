@@ -2489,6 +2489,9 @@ fn handle_line(
         for (_, i) in stream_states.iter_mut() {
             println!("streaming {} {}",i.id,i.eof);
         }
+        for cg in &ps.content_gateways {
+            println!("content_gateway {}",cg.id);
+        }
     } else if line == "/trending" {
         let mut trending: HashMap<String, (i32, u64)> = HashMap::new();
         for (_, v) in &ps.peer_map {
@@ -5551,10 +5554,7 @@ impl Receive for MyPublicKey {
                     // this indentation is correct!
                     if let Some(Source::S(src)) =  ps.peer_map_by_pub.get(&self.ed25519h) {
                         if let Some(lar) = &ps.last_always_returned {
-                            if *lar == ps.hash_ip(*src) {
-                                info!("new code triggered!");
-                                true
-                            } else {false}
+                            *lar == ps.hash_ip(*src) 
                         } else {false}
                     } else {false}
                 } {
