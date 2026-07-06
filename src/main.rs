@@ -3549,11 +3549,27 @@ fn handle_network(
     let message_in_bytes = &buf[0..message_in_len];
     trace!( "incoming message {} from {src}", String::from_utf8_lossy(message_in_bytes));
     ps.recent_peers.insert(src);
+    let messages: Messages = match serde_json::from_slice(message_in_bytes) {
+        Ok(r) => r,
+        Err(e) => {
+            debug!( "could not deserialize incoming messages from {} {e}  :  {}",src,
+                    String::from_utf8_lossy(message_in_bytes));
+            return;
+        }
+    };
+    let messages = messages.0;
+    let mut new_peer = !ps.peer_map.contains_key(&src);
+    let mut might_be_ip_spoofing = ps.check_key(&messages, src);
+    new_peer &= ps.peer_map.contains_key(&src);
     if ps.ws_vec.len() > 0 {
         let message_out_string = serde_json::to_string(&json![
-            [Message::Forwarded(Forwarded{src:src,from_ed25519:None,
-        maybe_ed25519: ps.peer_map.get(&src).and_then(|p| p.ed25519),
-                messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]])
+            [Message::Forwarded(Forwarded{
+                src,
+                from_ed25519:None,
+                maybe_ed25519: ps.peer_map.get(&src).and_then(|p| p.ed25519),
+                messages: String::from_utf8_lossy(&message_in_bytes).to_string(),
+                might_be_ip_spoofing,
+            })]])
         .unwrap();
         trace!( "sending raw message {} to {} websocket(s)", message_out_string,ps.ws_vec.len());
         for ws in &mut ps.ws_vec {
@@ -3567,18 +3583,6 @@ fn handle_network(
             }
         }
     }
-    let messages: Messages = match serde_json::from_slice(message_in_bytes) {
-        Ok(r) => r,
-        Err(e) => {
-            debug!( "could not deserialize incoming messages from {} {e}  :  {}",src,
-                    String::from_utf8_lossy(message_in_bytes));
-            return;
-        }
-    };
-    let messages = messages.0;
-    let mut new_peer = !ps.peer_map.contains_key(&src);
-    let mut might_be_ip_spoofing = ps.check_key(&messages, src);
-    new_peer &= ps.peer_map.contains_key(&src);
     let mut message_out = ps.handle_messages(
         messages,
         &Source::S(src),
@@ -5320,7 +5324,7 @@ impl Receive for WhereAreThey {
         self,
         ps: &mut PeerState,
         src: &Source,
-        _: &mut bool,
+        might_be_ip_spoofing: &mut bool,
         _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
@@ -5341,7 +5345,13 @@ impl Receive for WhereAreThey {
         let messages = serde_json::to_string(&message_out).unwrap();
         trace!("sending {:?} ed25519 {} from  {}",src,self.ed25519h,sa);
         let src = *sa;
-        return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
+        return vec![Message::Forwarded(Forwarded{
+            src,
+            from_ed25519,
+            maybe_ed25519,
+            messages,
+            might_be_ip_spoofing: *might_be_ip_spoofing,
+        })];
     }
 }
 #[serde_as]
@@ -5354,7 +5364,7 @@ impl Receive for GetPubByEth {
         self,
         ps: &mut PeerState,
         src: &Source,
-        _: &mut bool,
+        might_be_ip_spoofing: &mut bool,
         _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
         _signer: Option<Ed25519Pub>,
@@ -5375,7 +5385,13 @@ impl Receive for GetPubByEth {
                         trace!("sending {:?} ed25519 {}",src,ed25519);
                         info!("sending {:?} ed25519 {} for eth addr {}",src,ed25519,signer);
                         let src = *k;
-                        return vec![Message::Forwarded(Forwarded{src,from_ed25519,maybe_ed25519,messages})];
+                        return vec![Message::Forwarded(Forwarded{
+                            src,
+                            from_ed25519,
+                            maybe_ed25519,
+                            messages,
+                            might_be_ip_spoofing: *might_be_ip_spoofing,
+                        })];
                     }
                 }
             }
@@ -5408,6 +5424,7 @@ impl Receive for SignedPub {
         return vec![];
     }
 }
+fn default_true() -> bool { true }
 #[derive(Serialize, Deserialize, Debug, JsonSchema)]
 struct Forwarded {
     src: SocketAddr,
@@ -5415,6 +5432,8 @@ struct Forwarded {
     #[serde(skip_serializing_if = "Option::is_none")]
     maybe_ed25519: Option<Ed25519Pub>,
     messages: String,
+    #[serde(default = "default_true")]
+    might_be_ip_spoofing: bool,
 }
 impl Receive for Forwarded {
     fn receive(
@@ -5963,7 +5982,9 @@ impl Receive for EncryptedMessages {
                                 src:src,
                                 from_ed25519:Some(their_pub),
                                 maybe_ed25519:None,
-                                messages: String::from_utf8_lossy(&message_in_bytes).to_string(),})]],
+                                messages: String::from_utf8_lossy(&message_in_bytes).to_string(),
+                                might_be_ip_spoofing: *might_be_ip_spoofing,
+                            })]],
                 )
                 .unwrap();
                 trace!( "sending decrypted message {} to {} websockets", message_out_string,ps.ws_vec.len());
@@ -6099,6 +6120,7 @@ impl Receive for FastEncryptedMessages {
                                 from_ed25519: Some(sender),
                                 maybe_ed25519: None,
                                 messages: String::from_utf8_lossy(&plaintext).to_string(),
+                                might_be_ip_spoofing: *might_be_ip_spoofing,
                             })]
                         ])
                     .unwrap();
@@ -6283,6 +6305,7 @@ impl Receive for SignedMessage {
                     from_ed25519: Some(self.ed25519),
                     maybe_ed25519: None,
                     messages: String::from_utf8_lossy(payload_bytes).to_string(),
+                    might_be_ip_spoofing: *might_be_ip_spoofing,
                 })]])
             .unwrap();
             trace!("sending signed message from ed25519={} to {} websockets",
