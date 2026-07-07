@@ -254,7 +254,6 @@ struct PeerState {
     peer_map: HashMap<SocketAddr, PeerInfo>,
     peer_map_by_pub: HashMap<Ed25519Pub, Source>,
     peer_vec: Vec<SocketAddr>,
-    recent_peers: HashSet<SocketAddr>,
     suggested_peers: HashSet<SocketAddr>,
     recent_peer_timer: Instant,
     recent_peer_counter_max: usize,
@@ -342,7 +341,6 @@ impl PeerState {
             peer_map: PeerState::load_peers(),
             peer_map_by_pub: HashMap::new(),
             peer_vec: vec![],
-            recent_peers: HashSet::new(),
             suggested_peers: HashSet::new(),
             recent_peer_timer: Instant::now(),
             recent_peer_counter_max: 0,
@@ -3548,7 +3546,6 @@ fn handle_network(
 
     let message_in_bytes = &buf[0..message_in_len];
     trace!( "incoming message {} from {src}", String::from_utf8_lossy(message_in_bytes));
-    ps.recent_peers.insert(src);
     let messages: Messages = match serde_json::from_slice(message_in_bytes) {
         Ok(r) => r,
         Err(e) => {
@@ -5089,16 +5086,16 @@ fn maintenance(
     }
     let nowi = Instant::now();
     log_if_slow(nowi, line!().to_string());
+    let n =  ps.active_peer_count.load(std::sync::atomic::Ordering::Relaxed);
     if ps.recent_peer_timer.elapsed() > Duration::from_secs(5 * 60) {
-        if ps.recent_peers.len() < ps.recent_peer_counter_max * 4 / 5 {
-            error!("only {} peers in 5 minutes, vs max (since last notice) of {}",ps.recent_peers.len(),ps.recent_peer_counter_max);
-            ps.recent_peer_counter_max = ps.recent_peers.len(); // only alert once
+        if n < ps.recent_peer_counter_max * 4 / 5 {
+            error!("only {} peers in 5 minutes, vs max (since last notice) of {}",n,ps.recent_peer_counter_max);
+            ps.recent_peer_counter_max = n; 
         }
-        if ps.recent_peers.len() > ps.recent_peer_counter_max * 4 / 5 {
-            ps.recent_peer_counter_max = ps.recent_peers.len()
+        if n > ps.recent_peer_counter_max * 4 / 5 {
+            ps.recent_peer_counter_max = n;
         }
         ps.recent_peer_timer = Instant::now();
-        ps.recent_peers = HashSet::new();
     }
     log_if_slow(nowi, line!().to_string());
     if let Ok(dur) = ps.last_upnp.elapsed() {
@@ -5567,7 +5564,8 @@ impl Receive for MyPublicKey {
             }
         }
         if let Source::S(ssrc) = *src {
-            // MyPublicKey should be signed and signature verified, not just anti-spoof key checked
+            // MyPublicKey should be signed and signature verified, in addition to either of the
+            // two anti-spoof checks
             if ps.peer_map_by_pub.get(&self.ed25519h).is_none()  || !*might_be_ip_spoofing || {
                     // if they change IPs, update it faster
                     // this indentation is correct!
