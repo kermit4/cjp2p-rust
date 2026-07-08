@@ -251,6 +251,7 @@ impl Keypair {
 struct PeerState {
     last_cookie: Option<String>,
     last_always_returned: Option<String>,
+    last_always_returned_signed: bool,
     peer_map: HashMap<SocketAddr, PeerInfo>,
     peer_map_by_pub: HashMap<Ed25519Pub, Source>,
     peer_vec: Vec<SocketAddr>,
@@ -338,6 +339,7 @@ impl PeerState {
         let mut ps = Self {
             last_cookie: None,
             last_always_returned: None,
+            last_always_returned_signed: false,
             peer_map: PeerState::load_peers(),
             peer_map_by_pub: HashMap::new(),
             peer_vec: vec![],
@@ -618,6 +620,7 @@ impl PeerState {
                 peer_info.delay = peer_info
                     .delay
                     .saturating_add(peer_info.delay / 3 + Duration::from_millis(1));
+                message_out.push(SignedMessage::new(self, serde_json::to_vec(&self.always_returned(sa)).unwrap()));
                 message_out.push(MyPublicKey::new(self));
                 message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
                 message_out.push(PleaseReturnThisMessage::new(self));
@@ -747,6 +750,7 @@ impl PeerState {
         signer: Option<Ed25519Pub>,
     ) -> Vec<Message> {
         let mut message_out = vec![];
+        self.last_always_returned_signed = !*might_be_ip_spoofing && signer.is_some();
         for message_in_enum in messages {
             message_out.append(&mut message_in_enum.receive(
                 self,
@@ -3589,6 +3593,7 @@ fn handle_network(
         None,
     );
     if new_peer {
+        message_out.push(SignedMessage::new(ps, serde_json::to_vec(&ps.always_returned(src)).unwrap()));
         message_out.push(MyPublicKey::new(ps));
         message_out.push(Message::PleaseSendPeers(PleaseSendPeers {}));
         message_out.push(PleaseReturnThisMessage::new(ps));
@@ -3736,7 +3741,7 @@ impl Receive for PleaseSendPeers {
     fn receive(
         self,
         ps: &mut PeerState,
-        _src: &Source,
+        src: &Source,
         might_be_ip_spoofing: &mut bool,
         _stream_states: &mut HashMap<String, StreamState>,
         _: &mut HashMap<String, InboundState>,
@@ -3750,6 +3755,9 @@ impl Receive for PleaseSendPeers {
             ed25519_eth_signed: None,
         };
         if !*might_be_ip_spoofing {
+            if let Source::S(src) = *src {
+                message_out.push(SignedMessage::new(ps, serde_json::to_vec(&ps.always_returned(src)).unwrap()));
+            }
             message_out.push(Message::MyPublicKey(mpk));
         }
         return message_out;
@@ -5564,17 +5572,16 @@ impl Receive for MyPublicKey {
             }
         }
         if let Source::S(ssrc) = *src {
-            // MyPublicKey should be signed and signature verified, in addition to either of the
-            // two anti-spoof checks
-            if ps.peer_map_by_pub.get(&self.ed25519h).is_none()  || !*might_be_ip_spoofing || {
+            ps.last_always_returned_signed = (true); // not yet, get the signer out first
+            if ps.peer_map_by_pub.get(&self.ed25519h).is_none()  || (ps.last_always_returned_signed && ( !*might_be_ip_spoofing || {
                     // if they change IPs, update it faster
                     // this indentation is correct!
-                    if let Some(Source::S(src)) =  ps.peer_map_by_pub.get(&self.ed25519h) {
+                    if let Some(Source::S(old_src)) =  ps.peer_map_by_pub.get(&self.ed25519h) {
                         if let Some(lar) = &ps.last_always_returned {
-                            *lar == ps.hash_ip(*src) 
+                            *lar == ps.hash_ip(*old_src) 
                         } else {false}
                     } else {false}
-                } {
+                } )) {
                 if ps
                     .peer_map_by_pub
                     .insert(self.ed25519h, src.to_owned())
@@ -6003,7 +6010,7 @@ impl Receive for EncryptedMessages {
             might_be_ip_spoofing,
             stream_states,
             inbound_states,
-            _signer,
+            Some(their_pub),
         );
     }
 }
@@ -6064,15 +6071,10 @@ impl Receive for FastEncryptedMessages {
         use aes_gcm::{aead::Aead, Aes256Gcm, NewAead, Nonce};
         use curve25519_dalek::{edwards::CompressedEdwardsY, montgomery::MontgomeryPoint};
 
-        let FastEncryptedMessages {
-            nonce,
-            sender,
-            ciphertext,
-        } = self;
         let Source::S(src) = *src_ else {
             return vec![];
         };
-        let sender_x25519 = CompressedEdwardsY(*sender.as_bytes())
+        let sender_x25519 = CompressedEdwardsY(*self.sender.as_bytes())
             .decompress()
             .expect("Ed25519Pub invariant: valid Edwards point")
             .to_montgomery()
@@ -6082,72 +6084,68 @@ impl Receive for FastEncryptedMessages {
             .to_bytes();
         let aes_key = Sha256::digest(shared);
         let cipher = Aes256Gcm::new(&aes_key.into());
-        match cipher.decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref()) {
-            Ok(plaintext) => {
-                if let Some(pi) = ps.peer_map.get_mut(&src) {
-                    pi.ed25519 = Some(sender);
-                } else {
-                    let mut pi = PeerInfo::new();
-                    pi.ed25519 = Some(sender);
-                    pi.delay = Duration::from_millis(120);
-                    ps.peer_map.insert(src, pi);
-                }
-                if ps.peer_map_by_pub.insert(sender, src_.clone()).is_none() {
-                    info!("new pub found: {}", sender);
-                }
+        let Ok(plaintext) =  cipher.decrypt(Nonce::from_slice(&self.nonce), self.ciphertext.as_ref()) else {
+            info!("failed to fast-decrypt a message from {src}");
+            return vec![];
+        };
+        if let Some(pi) = ps.peer_map.get_mut(&src) {
+            pi.ed25519 = Some(self.sender);
+        } else {
+            let mut pi = PeerInfo::new();
+            pi.ed25519 = Some(self.sender);
+            pi.delay = Duration::from_millis(120);
+            ps.peer_map.insert(src, pi);
+        }
+        if ps.peer_map_by_pub.insert(self.sender, src_.clone()).is_none() {
+            info!("new pub found: {}", self.sender);
+        }
 
-                trace!("handling fast-decrypted message from {src} {}: {}",
-                        sender.to_string(),
-                        String::from_utf8_lossy(&plaintext));
+        trace!("handling fast-decrypted message from {src} {}: {}",
+                self.sender.to_string(),
+                String::from_utf8_lossy(&plaintext));
 
-                let messages: Messages = match serde_json::from_slice(&plaintext) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        debug!("could not deserialize fast-encrypted messages from {} {e}: {}",
-                                src, String::from_utf8_lossy(&plaintext));
-                        return vec![];
-                    }
-                };
-                let messages = messages.0;
-                *might_be_ip_spoofing &= ps.check_key(&messages, src);
-
-                if ps.ws_vec.len() > 0 {
-                    let message_out_string = serde_json::to_string(&json![
-                            [Message::Forwarded(Forwarded {
-                                src: src,
-                                from_ed25519: Some(sender),
-                                maybe_ed25519: None,
-                                messages: String::from_utf8_lossy(&plaintext).to_string(),
-                                might_be_ip_spoofing: *might_be_ip_spoofing,
-                            })]
-                        ])
-                    .unwrap();
-                        trace!("sending fast-decrypted message {} to {} websockets", message_out_string, ps.ws_vec.len());
-                    for ws in &mut ps.ws_vec {
-                        if ws
-                            .write(tungstenite::Message::Text(
-                                message_out_string.clone().into(),
-                            ))
-                            .is_ok()
-                        {
-                            ws.flush().ok();
-                        }
-                    }
-                }
-                return ps.handle_messages(
-                    messages,
-                    &Source::S(src),
-                    might_be_ip_spoofing,
-                    stream_states,
-                    inbound_states,
-                    _signer,
-                );
+        let messages: Messages = match serde_json::from_slice(&plaintext) {
+            Ok(r) => r,
+            Err(e) => {
+                debug!("could not deserialize fast-encrypted messages from {} {e}: {}",
+                        src, String::from_utf8_lossy(&plaintext));
+                return vec![];
             }
-            Err(_) => {
-                info!("failed to fast-decrypt a message from {src}");
+        };
+        let messages = messages.0;
+        *might_be_ip_spoofing &= ps.check_key(&messages, src);
+
+        if ps.ws_vec.len() > 0 {
+            let message_out_string = serde_json::to_string(&json![
+                    [Message::Forwarded(Forwarded {
+                        src: src,
+                        from_ed25519: Some(self.sender),
+                        maybe_ed25519: None,
+                        messages: String::from_utf8_lossy(&plaintext).to_string(),
+                        might_be_ip_spoofing: *might_be_ip_spoofing,
+                    })]
+                ])
+            .unwrap();
+                trace!("sending fast-decrypted message {} to {} websockets", message_out_string, ps.ws_vec.len());
+            for ws in &mut ps.ws_vec {
+                if ws
+                    .write(tungstenite::Message::Text(
+                        message_out_string.clone().into(),
+                    ))
+                    .is_ok()
+                {
+                    ws.flush().ok();
+                }
             }
         }
-        return vec![];
+        return ps.handle_messages(
+            messages,
+            &Source::S(src),
+            might_be_ip_spoofing,
+            stream_states,
+            inbound_states,
+            Some(self.sender),
+        );
     }
 }
 
@@ -6296,6 +6294,7 @@ impl Receive for SignedMessage {
                 ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sig_bytes);
             }
         }
+        if let Source::S(src) = src { *might_be_ip_spoofing &= ps.check_key(&messages, *src); }
         if ps.ws_vec.len() > 0 {
             let message_out_string = serde_json::to_string(&json![
                 [Message::Forwarded(Forwarded{
