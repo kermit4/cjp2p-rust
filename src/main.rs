@@ -4083,8 +4083,12 @@ impl Content {
         let ofr = if let Some(ofr) = ps.open_file_cache.get(&req.id) {
             ofr
         } else if let Ok(file) = File::open("./cjp2p/public/".to_owned() + &req.id) {
+            let meta = file.metadata().unwrap();
+            if meta.is_dir() {
+                return vec![];
+            }
             let ofr = OpenFile {
-                eof: file.metadata().unwrap().len() as usize,
+                eof: meta.len() as usize,
                 file: file,
             };
             ps.open_file_cache.insert(req.id.to_owned(), ofr);
