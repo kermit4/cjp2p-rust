@@ -5576,7 +5576,6 @@ impl Receive for MyPublicKey {
             }
         }
         if let Source::S(ssrc) = *src {
-            ps.last_always_returned_signed = (true); // not yet, get the signer out first
             if ps.peer_map_by_pub.get(&self.ed25519h).is_none()  || (ps.last_always_returned_signed && ( !*might_be_ip_spoofing || {
                     // if they change IPs, update it faster
                     // this indentation is correct!
