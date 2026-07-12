@@ -4620,7 +4620,7 @@ impl ContentGateway {
                          Connection: keep-alive\r\n\
                          Content-Length: {}\r\n\
                          Content-Disposition: inline\r\n\
-                         Accept-Range: bytes\r\n\
+                         Accept-Ranges: bytes\r\n\
                          Content-Range: bytes {}-{}/{}\r\n\
                          {}\
                          Content-Type: {}\r\n\r\n"
@@ -4632,7 +4632,7 @@ impl ContentGateway {
                          Connection: keep-alive\r\n\
                          Content-Length: {}\r\n\
                          Content-Disposition: inline\r\n\
-                         Accept-Range: bytes\r\n\
+                         Accept-Ranges: bytes\r\n\
                          {}\
                          Content-Type: {}\r\n\r\n"
             ,self.http_end-self.http_start, etag_line, mime_str)
