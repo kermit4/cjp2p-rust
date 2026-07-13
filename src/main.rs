@@ -2474,13 +2474,14 @@ fn handle_line(
                             v);
             }
         }
+        println!("{} total peers", ps.peer_map_by_pub.len());
         println!("========== active peers by pub key");
         let mut apbp = ps.active_peers_from_pub_map();
-        apbp.sort_by_key(|(_, _, d)| *d);
+        apbp.sort_by_key(|(_, _, d)| std::cmp::Reverse(*d));
         for (sa, pub_, delay) in &apbp {
             println!("{:21?} {:21} 0x{}", delay, sa.to_string(), pub_);
         }
-        println!("{} active by pub, {} total peers", apbp.len(), ps.peer_map_by_pub.len());
+        println!("{} active by pub", apbp.len());
         let mut unique_ips = HashSet::new();
         for (k, _) in &ps.peer_map {
             unique_ips.insert(k.ip());
