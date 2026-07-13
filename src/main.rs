@@ -2475,23 +2475,23 @@ fn handle_line(
             }
         }
         println!("{} total peers", ps.peer_map_by_pub.len());
-        println!("========== active peers by pub key");
-        let mut apbp = ps.active_peers_from_pub_map();
-        apbp.sort_by_key(|(_, _, d)| std::cmp::Reverse(*d));
-        for (sa, pub_, delay) in &apbp {
-            println!("{:21?} {:21} 0x{}", delay, sa.to_string(), pub_);
-        }
-        println!("{} active by pub", apbp.len());
         let mut unique_ips = HashSet::new();
         for (k, _) in &ps.peer_map {
             unique_ips.insert(k.ip());
         }
+        let mut apbp = ps.active_peers_from_pub_map();
+        apbp.sort_by_key(|(_, _, d)| std::cmp::Reverse(*d));
         thread::spawn(move || {
             println!("========== all IPs");
             for k in &unique_ips {
                 println!("{:21} {}",k,if let Ok(hn)= dns_lookup::lookup_addr(&k) { hn } else { k.to_string()});
             }
             println!("{} total unique IP peers.  ",unique_ips.len());
+            println!("========== active peers by pub key");
+            for (sa, pub_, delay) in &apbp {
+                println!("{:21?} {:21} 0x{}", delay, sa.to_string(), pub_);
+            }
+            println!("{} active by pub", apbp.len());
         });
     } else if line == "/websockets" {
         println!("{} websocket(s) connected", ps.ws_vec.len());
