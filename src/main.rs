@@ -441,6 +441,20 @@ impl PeerState {
         ps.upnp_ipv6();
         return ps;
     }
+    fn active_peers_from_pub_map(&self) -> Vec<(SocketAddr, Ed25519Pub, Duration)> {
+        self.peer_map_by_pub
+            .iter()
+            .filter_map(|(pub_, src)| {
+                if let Source::S(sa) = src {
+                    let delay = self.peer_map.get(sa)?.delay;
+                    if delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS) {
+                        return Some((*sa, *pub_, delay));
+                    }
+                }
+                None
+            })
+            .collect()
+    }
     fn hash_ip(&self, src: SocketAddr) -> String {
         let mut hasher = Sha256::new();
         hasher.update(&self.keypair.private);
@@ -2460,7 +2474,13 @@ fn handle_line(
                             v);
             }
         }
-        println!("{} total peers",ps.peer_map_by_pub.len());
+        println!("========== active peers by pub key");
+        let mut apbp = ps.active_peers_from_pub_map();
+        apbp.sort_by_key(|(_, _, d)| *d);
+        for (sa, pub_, delay) in &apbp {
+            println!("{:21?} {:21} 0x{}", delay, sa.to_string(), pub_);
+        }
+        println!("{} active by pub, {} total peers", apbp.len(), ps.peer_map_by_pub.len());
         let mut unique_ips = HashSet::new();
         for (k, _) in &ps.peer_map {
             unique_ips.insert(k.ip());
@@ -2737,22 +2757,13 @@ fn status_json(ps: &PeerState, mut stream: TcpStream) {
     let public_key = format!("0x{}", ps.keypair.public);
     let total_peers = ps.peer_map.len();
 
-    let active_peers: Vec<serde_json::Value> = ps
-        .peer_map_by_pub
-        .iter()
-        .filter_map(|(pub_, src)| {
-            if let Source::S(sa) = src {
-                let v = ps.peer_map.get(sa)?;
-                if v.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS) {
-                    return Some(json!({
-                        "addr": sa.to_string(),
-                        "pub": format!("0x{}", pub_),
-                        "delay_ms": v.delay.as_millis(),
-                    }));
-                }
-            }
-            None
-        })
+    let active_peers: Vec<serde_json::Value> = ps.active_peers_from_pub_map()
+        .into_iter()
+        .map(|(sa, pub_, delay)| json!({
+            "addr": sa.to_string(),
+            "pub": format!("0x{}", pub_),
+            "delay_ms": delay.as_millis(),
+        }))
         .collect();
 
     let mut seen_ips: HashSet<IpAddr> = HashSet::new();
@@ -2950,18 +2961,9 @@ fn status_page(
         }
     }
 
-    let mut active_peers: Vec<(SocketAddr, Ed25519Pub)> = ps
-        .peer_map_by_pub
-        .iter()
-        .filter_map(|(pub_, src)| {
-            if let Source::S(sa) = src {
-                let delay = ps.peer_map.get(sa)?.delay;
-                if delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS) {
-                    return Some((*sa, *pub_));
-                }
-            }
-            None
-        })
+    let mut active_peers: Vec<(SocketAddr, Ed25519Pub)> = ps.active_peers_from_pub_map()
+        .into_iter()
+        .map(|(sa, pub_, _)| (sa, pub_))
         .collect();
 
     let mut found_special = false;
@@ -5065,19 +5067,7 @@ fn maintenance(
     debug!("maintenance");
     ps.next_maintenance = Instant::now()
         + Duration::from_millis(rand::rng().random_range(888..999) * ps.maintenance_period as u64);
-    let n = ps
-        .peer_map_by_pub
-        .values()
-        .filter(|src| {
-            if let Source::S(sa) = src {
-                ps.peer_map.get(sa).map_or(false, |v| {
-                    v.delay < Duration::from_millis(ACTIVE_PEER_DELAY_MS)
-                })
-            } else {
-                false
-            }
-        })
-        .count();
+    let n = ps.active_peers_from_pub_map().len();
     ps.active_peer_count
         .store(n, std::sync::atomic::Ordering::Relaxed);
     if let Some(next) = ps.group_chat_backoff_next {
