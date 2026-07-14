@@ -3305,6 +3305,7 @@ fn handle_web_request(
                 let mut ranged = false;
                 if let Some(range) = req.headers.get("range") {
                     sscanf!(range, "bytes={}-{}", start, end).ok();
+                    if end > 0 { end+=1; }
                     info!("got ranged http req {} range {:?}",req.path,range);
                     ranged = true;
                 } else {
@@ -3415,6 +3416,7 @@ fn handle_web_request(
         if let Some(range) = req.headers.get("range") {
             info!("got ranged http req {} range {:?}",req.path,range);
             sscanf!(range, "bytes={}-{}",start,end).ok();
+            if end > 0 { end+=1; }
             ranged = true;
         } else {
             info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
@@ -3486,6 +3488,7 @@ fn handle_web_request(
     if let Some(range) = req.headers.get("range") {
         info!("got ranged http req {} range {:?}",req.path,range);
         sscanf!(range, "bytes={}-{}",start,end).ok();
+        if end > 0 { end+=1; }
         ranged = true;
     } else {
         info!("got unranged http req {} start/end {} {} {:?} ",req.path,start,end,req.headers);
