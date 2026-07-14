@@ -42,7 +42,7 @@ jobs:
 
       - name: Build
         run: |
-          BUILD_VERSION="linux-x86_64 $(git log --pretty=format:'%ad %h %s' -1)" \
+          BUILD_VERSION="linux-x86_64 $(TZ= git log --pretty=format:'Rust %ad %h %d %s' -1)" \
           GIT_HASH="$(git log --pretty=format:'%h' -1)" \
           cargo build --release --target x86_64-unknown-linux-musl
           cp target/x86_64-unknown-linux-musl/release/cjp2p cjp2p-linux-x86_64
@@ -120,7 +120,7 @@ jobs:
           NDK_TC="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
           export CC_aarch64_linux_android="$NDK_TC/bin/aarch64-linux-android24-clang"
           export AR_aarch64_linux_android="$NDK_TC/bin/llvm-ar"
-          BUILD_VERSION="android-aarch64 $(git log --pretty=format:'%ad %h %s' -1)" \
+          BUILD_VERSION="android-aarch64 $(TZ= git log --pretty=format:'Rust %ad %h %d %s' -1)" \
           GIT_HASH="$(git log --pretty=format:'%h' -1)" \
           cargo build --release --target aarch64-linux-android
           cp target/aarch64-linux-android/release/cjp2p cjp2p-android-aarch64

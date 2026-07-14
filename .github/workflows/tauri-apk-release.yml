@@ -79,7 +79,7 @@ jobs:
 
       - name: Build signed release APK
         run: |
-          BUILD_VERSION="tauri-android $(git log --pretty=format:'%ad %h %s' -1)" \
+          BUILD_VERSION="tauri-android $(TZ= git log --pretty=format:'Rust %ad %h %d %s' -1)" \
           GIT_HASH="$(git log --pretty=format:'%h' -1)" \
           ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" cargo tauri android build --target aarch64
 
