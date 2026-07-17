@@ -284,6 +284,12 @@ struct PeerState {
     active_peer_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     //probe_peer_history: VecDeque<HashSet<SocketAddr>>,
 }
+#[derive(Serialize, Deserialize)]
+struct PeersV10 {
+    peer_map: Vec<(SocketAddr, PeerInfo)>,
+    peer_map_by_pub: Vec<(Ed25519Pub, Source)>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct PersistentState {
     you_should_see_this: Option<YouShouldSeeThis>,
@@ -336,12 +342,13 @@ impl PeerState {
         fs::create_dir("./cjp2p/incoming/blake3").ok();
         fs::create_dir("./cjp2p/incoming/blake3_tree_v2").ok();
         use std::net::Ipv6Addr;
+        let (peer_map, peer_map_by_pub) = PeerState::load_peers();
         let mut ps = Self {
             last_cookie: None,
             last_always_returned: None,
             last_always_returned_signed: false,
-            peer_map: PeerState::load_peers(),
-            peer_map_by_pub: HashMap::new(),
+            peer_map,
+            peer_map_by_pub,
             peer_vec: vec![],
             suggested_peers: HashSet::new(),
             recent_peer_timer: Instant::now(),
@@ -396,6 +403,8 @@ impl PeerState {
             active_peer_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             //probe_peer_history: VecDeque::new(),
         };
+        let n = ps.active_peers_from_pub_map().len();
+        ps.active_peer_count.store(n, std::sync::atomic::Ordering::Relaxed);
         if ps.maintenance_period > 1 {
             info!("slowing maintenance in half because android, checking if its plugged in is harder than it sounds");
         }
@@ -676,35 +685,40 @@ impl PeerState {
         self.peer_vec = peers.into_iter().map(|(addr, _)| *addr).collect();
     }
 
-    fn load_peers() -> HashMap<SocketAddr, PeerInfo> {
+    fn load_peers() -> (HashMap<SocketAddr, PeerInfo>, HashMap<Ed25519Pub, Source>) {
         let file = OpenOptions::new()
             .read(true)
-            .open("./cjp2p/state/peers.v9.json");
-        let mut map = HashMap::<SocketAddr, PeerInfo>::new();
+            .open("./cjp2p/state/peers.v10.json");
+        let mut peer_map = HashMap::<SocketAddr, PeerInfo>::new();
+        let mut peer_map_by_pub = HashMap::<Ed25519Pub, Source>::new();
         if file.as_ref().is_ok() && file.as_ref().unwrap().metadata().unwrap().len() > 0 {
-            let json: Vec<(SocketAddr, PeerInfo)> =
-                serde_json::from_reader(&file.unwrap()).unwrap();
-            map.extend(json);
+            let v10: PeersV10 = serde_json::from_reader(&file.unwrap()).unwrap();
+            peer_map.extend(v10.peer_map);
+            peer_map_by_pub.extend(v10.peer_map_by_pub);
         }
-
-        return map;
+        (peer_map, peer_map_by_pub)
     }
     fn save_peers(&self) -> () {
         debug!("saving peers");
-        // not really sure how many, if any, of these peers or fields should be saved, or just a PleaseListContent of host:ips, but for the few users (1) of this so far, might as well save it all
-        let mut peers_to_save: Vec<(SocketAddr, PeerInfo)> = Vec::new();
-        for ssrc in &self.best_peers(99, 3) {
-            peers_to_save.push((ssrc.clone(), self.peer_map[ssrc].clone()))
+        let mut peer_map: Vec<(SocketAddr, PeerInfo)> = Vec::new();
+        let mut peer_map_by_pub: Vec<(Ed25519Pub, Source)> = Vec::new();
+        for (pub_, src) in &self.peer_map_by_pub {
+            if let Source::S(sa) = src {
+                if let Some(pi) = self.peer_map.get(sa) {
+                    peer_map.push((*sa, pi.clone()));
+                    peer_map_by_pub.push((*pub_, *src));
+                }
+            }
         }
-
+        let v10 = PeersV10 { peer_map, peer_map_by_pub };
         fs::create_dir_all("./cjp2p/state").ok();
         OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
-            .open("./cjp2p/state/peers.v9.json")
+            .open("./cjp2p/state/peers.v10.json")
             .unwrap()
-            .write_all(&serde_json::to_vec_pretty(&peers_to_save).unwrap())
+            .write_all(&serde_json::to_vec_pretty(&v10).unwrap())
             .ok();
     }
 
