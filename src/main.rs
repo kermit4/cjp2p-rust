@@ -3962,7 +3962,7 @@ impl Receive for PleaseSendContent {
         if message_out.len() == 0 {
             message_out.append(&mut Content::new_block(&self, might_be_ip_spoofing, ps));
             if let Source::S(src) = *src {
-                if message_out.len() > 0 && self.offset == 0 {
+                if message_out.len() > 0 && self.offset == 0 && !self.id.starts_with("stream/") {
                     info!("sending {} to {src:?} from {src}", self.id);
                     fs::create_dir_all("./cjp2p/log").ok();
                     if let Ok(mut log_file) = OpenOptions::new()
