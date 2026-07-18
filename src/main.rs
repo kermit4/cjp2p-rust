@@ -4494,7 +4494,7 @@ impl StreamState {
             }
         }
         // skip already-received blocks
-        while ss.next_block * BLOCK_SIZE!() < ss.eof && ss.block_bit(ss.next_block) {
+        while ss.next_block < ss.data_file_len/BLOCK_SIZE!() && ss.block_bit(ss.next_block) {
             ss.next_block += 1;
         }
         ss.last_activity = Instant::now();
