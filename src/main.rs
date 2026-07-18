@@ -10,7 +10,7 @@ use enum_dispatch::enum_dispatch;
 use env_logger::fmt::TimestampPrecision;
 use hex;
 use log::{debug, error, info, log_enabled, trace, warn, Level};
-use memmap2::{Mmap, MmapMut};
+use memmap2::{Mmap, MmapMut, MmapOptions};
 use mmap_bitvec::{BitVector, MmapBitVec};
 use serde_with::hex::Hex;
 use std::net::IpAddr;
@@ -4206,6 +4206,10 @@ impl Receive for Content {
             if new_eof > ss.eof {
                 ss.resize_to(new_eof);
             }
+            if block_end > ss.data_file_len {
+                ss.data_file.set_len(block_end as u64).unwrap();
+                ss.data_file_len = block_end;
+            }
             let block_number = self.offset / BLOCK_SIZE!();
             debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
             if self.base64.len() > 0 {
@@ -4370,6 +4374,8 @@ struct InboundState {
 
 struct StreamState {
     mmap: MmapMut,
+    data_file: File,
+    data_file_len: usize,
     sig_mmap: MmapMut,
     bitmap: MmapBitVec,
     id: String,
@@ -4388,26 +4394,28 @@ impl StreamState {
         let dir = StreamState::stream_dir(&origin_pubkey.to_string());
         fs::create_dir_all(&dir).ok();
         let file_name = id.rsplit('/').next().unwrap_or(id);
-        let existing_eof = fs::metadata(dir.clone() + file_name)
+        let existing_data_len = fs::metadata(dir.clone() + file_name)
             .map(|m| m.len() as usize)
             .unwrap_or(0);
-        let initial_eof = (1usize << 18).max(existing_eof);
-        let (mmap, sig_mmap, bitmap) = Self::open_files(&dir, id, initial_eof);
+        let initial_mmap_size = (1usize << 18).max(existing_data_len);
+        let (mmap, data_file, sig_mmap, bitmap) = Self::open_files(&dir, id, initial_mmap_size, existing_data_len);
         Self {
             mmap,
+            data_file,
+            data_file_len: existing_data_len,
             sig_mmap,
             bitmap,
             id: id.to_string(),
             origin_pubkey,
-            eof: initial_eof,
+            eof: initial_mmap_size,
             next_block: 0,
             peers: HashSet::new(),
             last_activity: Instant::now() - Duration::from_secs(999),
             last_viewed: Instant::now(),
         }
     }
-    fn open_files(dir: &str, id: &str, new_eof: usize) -> (MmapMut, MmapMut, MmapBitVec) {
-        let n_blocks = (new_eof + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
+    fn open_files(dir: &str, id: &str, mmap_size: usize, data_file_size: usize) -> (MmapMut, File, MmapMut, MmapBitVec) {
+        let n_blocks = (mmap_size + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
         let file_name = id.rsplit('/').next().unwrap_or(id);
         let data_file = OpenOptions::new()
             .create(true)
@@ -4415,10 +4423,10 @@ impl StreamState {
             .write(true)
             .open(dir.to_owned() + file_name)
             .unwrap();
-        if data_file.metadata().map_or(0, |m| m.len()) < new_eof as u64 {
-            data_file.set_len(new_eof as u64).unwrap();
+        if data_file.metadata().map_or(0, |m| m.len()) < data_file_size as u64 {
+            data_file.set_len(data_file_size as u64).unwrap();
         }
-        let mmap = unsafe { MmapMut::map_mut(&data_file).unwrap() };
+        let mmap = unsafe { MmapOptions::new().len(mmap_size).map_mut(&data_file).unwrap() };
 
         let sig_file = OpenOptions::new()
             .create(true)
@@ -4436,12 +4444,13 @@ impl StreamState {
             MmapBitVec::create(dir.to_owned() + file_name + ".bitmap", n_blocks, None, &[])
                 .unwrap();
 
-        (mmap, sig_mmap, bitmap)
+        (mmap, data_file, sig_mmap, bitmap)
     }
     fn resize_to(&mut self, new_eof: usize) {
         let dir = StreamState::stream_dir(&self.origin_pubkey.to_string());
-        let (mmap, sig_mmap, bitmap) = Self::open_files(&dir, &self.id, new_eof);
+        let (mmap, data_file, sig_mmap, bitmap) = Self::open_files(&dir, &self.id, new_eof, self.data_file_len);
         self.mmap = mmap;
+        self.data_file = data_file;
         self.sig_mmap = sig_mmap;
         self.bitmap = bitmap;
         self.eof = new_eof;
@@ -4583,14 +4592,17 @@ impl ContentGateway {
     fn serve_content_from_stream_state(&mut self, ss: &mut StreamState) {
         ss.last_viewed = Instant::now();
         let start_block = self.http_start / BLOCK_SIZE!();
-        let available_end = match ss.first_zero_from(start_block) {
+        let mut available_end = match ss.first_zero_from(start_block) {
             Some(zero_block) => zero_block * BLOCK_SIZE!(),
-            None => ss.eof,
+            None => ss.data_file_len,
         };
+        if available_end > ss.data_file_len { available_end = ss.data_file_len; };
+        info!("cgss http_start {} eof {} available_end {available_end} to socket {:?}",self.http_start,ss.eof,self.http_socket.peer_addr().unwrap());
         if available_end <= self.http_start {
             self.waiting_for_browser = false;
             return;
         }
+        info!("cgss serving available_end {available_end} to socket {:?}",self.http_socket.peer_addr().unwrap());
         let mmap = &mut ss.mmap;
         self.serve_mmap(mmap, available_end);
     }
