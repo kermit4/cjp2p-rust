@@ -2524,7 +2524,7 @@ fn handle_line(
             println!("pending download {} {}/{}",i.id,i.bytes_complete,i.eof);
         }
         for (_, i) in stream_states.iter_mut() {
-            println!("streaming {} {}",i.id,i.eof);
+            println!("streaming {} {}",i.id,i.data_file_len);
         }
         for cg in &ps.content_gateways {
             println!("content_gateway {}",cg.id);
@@ -4144,6 +4144,7 @@ impl Receive for Content {
                     let new_ss = StreamState::new(origin_pubkey, &full_id);
                     stream_states.insert(full_id.clone(), new_ss);
                 }
+                debug!("received stream block from web socket id/offset/eof {} {} {:?}",self.id,self.offset,self.eof);
                 if let Some(ss) = stream_states.get_mut(&full_id) {
                     let block_number = self.offset / BLOCK_SIZE!();
                     /*                    let block_end = self.offset + self.base64.len();
@@ -4155,10 +4156,26 @@ impl Receive for Content {
                         .copy_from_slice(&self.base64[..self.base64.len()]);
                     ss.set_block_bit(block_number); */
                     signer = Some(ps.keypair.public);
+                    let block_start = block_number * BLOCK_SIZE!();
+                    let (sign_offset, sign_base64) = if self.offset > block_start {
+                        // Not block-aligned: prefix from already-written mmap data for this block
+                        let prefix_len = self.offset - block_start;
+                        let prefix = if self.offset <= ss.mmap.len() {
+                            ss.mmap[block_start..self.offset].to_vec()
+                        } else {
+                            vec![0u8; prefix_len]
+                        };
+                        let mut combined = prefix;
+                        let max_new = BLOCK_SIZE!() as usize - prefix_len;
+                        combined.extend_from_slice(&self.base64[..self.base64.len().min(max_new)]);
+                        (block_start, combined)
+                    } else {
+                        (self.offset, self.base64.clone())
+                    };
                     let payload = serde_json::to_vec(&[Message::Content(Self {
                         id: self.id.clone(),
-                        offset: self.offset,
-                        base64: self.base64.clone(),
+                        offset: sign_offset,
+                        base64: sign_base64,
                         eof: None,
                     })])
                     .unwrap();
