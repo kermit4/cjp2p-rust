@@ -5248,7 +5248,7 @@ fn maintenance(
             ss.request_blocks(ps, ss.peers.clone());
         }
         let peers = ps.best_peers(50 * 5, 6);
-        info!("searching  {} peers for {}",peers.len(),ss.id);
+        debug!("searching  {} peers for {}",peers.len(),ss.id);
         ss.request_blocks(ps, peers);
         // TODO the longer its been stuck, the more it should be ignored to try others, instead of
         // this pure random
