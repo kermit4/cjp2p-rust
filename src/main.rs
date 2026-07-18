@@ -5179,6 +5179,7 @@ fn maintenance(
             // try harder if user is actively waiting
             if !cg.http_done && cg.id == i.id {
                 try_harder = 5;
+                i.next_block=cg.http_start/BLOCK_SIZE!();
                 break;
             }
         }
@@ -5213,6 +5214,12 @@ fn maintenance(
         log_if_slow(nowi, line!().to_string());
         if ss.last_activity.elapsed() <= Duration::from_secs(1) || !ss.has_viewers(ps) {
             continue;
+        }
+        for cg in &ps.content_gateways {
+            if !cg.http_done && cg.id == ss.id {
+                ss.next_block=cg.http_start/BLOCK_SIZE!();
+                break;
+            }
         }
 
         if let Some(Source::S(origin)) = ps.peer_map_by_pub.get(&ss.origin_pubkey) {

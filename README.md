@@ -117,3 +117,4 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - ..and once thats answered, forums?
 - why arent streams a POST from the browser?  oh well maybe to handle restarts of the backend?  no, it can just repost..i don think there is a good reason really.
 - just use streams for group chats? then cachaeable everywhere including the local node
+- why is it sending GetLatest for streams
