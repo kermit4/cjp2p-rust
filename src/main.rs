@@ -4393,7 +4393,7 @@ impl StreamState {
     fn new(origin_pubkey: Ed25519Pub, id: &str) -> Self {
         let dir = StreamState::stream_dir(&origin_pubkey.to_string());
         fs::create_dir_all(&dir).ok();
-        let file_name = id.rsplit('/').next().unwrap_or(id);
+        let file_name = id.splitn(3, '/').nth(2).unwrap_or(id);
         let existing_data_len = fs::metadata(dir.clone() + file_name)
             .map(|m| m.len() as usize)
             .unwrap_or(0);
@@ -4416,12 +4416,16 @@ impl StreamState {
     }
     fn open_files(dir: &str, id: &str, mmap_size: usize, data_file_size: usize) -> (MmapMut, File, MmapMut, MmapBitVec) {
         let n_blocks = (mmap_size + BLOCK_SIZE!() - 1) / BLOCK_SIZE!();
-        let file_name = id.rsplit('/').next().unwrap_or(id);
+        let file_name = id.splitn(3, '/').nth(2).unwrap_or(id);
+        let full_path = dir.to_owned() + file_name;
+        if let Some(parent) = std::path::Path::new(&full_path).parent() {
+            fs::create_dir_all(parent).ok();
+        }
         let data_file = OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
-            .open(dir.to_owned() + file_name)
+            .open(&full_path)
             .unwrap();
         if data_file.metadata().map_or(0, |m| m.len()) < data_file_size as u64 {
             data_file.set_len(data_file_size as u64).unwrap();
@@ -4432,7 +4436,7 @@ impl StreamState {
             .create(true)
             .read(true)
             .write(true)
-            .open(dir.to_owned() + file_name + ".signatures")
+            .open(full_path.clone() + ".signatures")
             .unwrap();
         let sig_target = (n_blocks * 64) as u64;
         if sig_file.metadata().map_or(0, |m| m.len()) < sig_target {
@@ -4441,7 +4445,7 @@ impl StreamState {
         let sig_mmap = unsafe { MmapMut::map_mut(&sig_file).unwrap() };
 
         let bitmap =
-            MmapBitVec::create(dir.to_owned() + file_name + ".bitmap", n_blocks, None, &[])
+            MmapBitVec::create(full_path + ".bitmap", n_blocks, None, &[])
                 .unwrap();
 
         (mmap, data_file, sig_mmap, bitmap)
