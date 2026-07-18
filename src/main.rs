@@ -4618,7 +4618,7 @@ impl ContentGateway {
             None => ss.data_file_len,
         };
         if available_end > ss.data_file_len { available_end = ss.data_file_len; };
-        info!("cgss http_start {} eof {} available_end {available_end} to socket {:?}",self.http_start,ss.eof,self.http_socket.peer_addr().unwrap());
+        debug!("cgss http_start {} eof {} available_end {available_end}",self.http_start,ss.eof);
         if available_end <= self.http_start {
             self.waiting_for_browser = false;
             return;
@@ -5147,7 +5147,7 @@ fn maintenance(
     }
     log_if_slow(nowi, line!().to_string());
     for tr in to_remove.iter().rev() {
-        warn!("CG garbage collection..this should be handled elsewhere already i think? oh not if it errors i think like if the browser hangs up");
+        debug!("CG garbage collection..this should be handled elsewhere already i think? oh not if it errors i think like if the browser hangs up");
         ps.content_gateways.remove(*tr);
     }
     log_if_slow(nowi, line!().to_string());
