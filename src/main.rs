@@ -4219,11 +4219,11 @@ impl Receive for Content {
                 ss.next_block += 1;
             }
             if self.base64.len() == 0 {
-                return message_out;
+                return vec![];
             }
             let block_end = self.offset + self.base64.len();
             if block_end < ss.data_file_len && self.base64.len() != BLOCK_SIZE!() {
-                return message_out;
+                return vec![];
             }
             if block_end > ss.data_file_len {
                 let new_eof = (block_end + (1 << 20)).max(ss.eof);
