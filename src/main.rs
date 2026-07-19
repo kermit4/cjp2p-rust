@@ -4229,7 +4229,7 @@ impl Receive for Content {
             }
             let block_number = self.offset / BLOCK_SIZE!();
             debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
-            if self.base64.len() > 0 {
+            if self.base64.len() > 0 && block_end > ss.data_file_len {
                 ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
                 ss.set_block_bit(block_number);
             }
@@ -6321,7 +6321,9 @@ impl Receive for SignedMessage {
                 if new_eof > ss.eof {
                     ss.resize_to(new_eof);
                 }
-                ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sig_bytes);
+                if block_end > ss.data_file_len {
+                    ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sig_bytes);
+                }
             }
         }
         if let Source::S(src) = src { *might_be_ip_spoofing &= ps.check_key(&messages, *src); }
