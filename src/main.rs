@@ -4218,19 +4218,25 @@ impl Receive for Content {
                 message_out = StreamState::PleaseSendContent__new_messages(ss, ps);
                 ss.next_block += 1;
             }
+            if self.base64.len() == 0 {
+                return message_out;
+            }
             let block_end = self.offset + self.base64.len();
-            let new_eof = (block_end + (1 << 20)).max(ss.eof);
-            if new_eof > ss.eof {
-                ss.resize_to(new_eof);
+            if block_end < ss.data_file_len && self.base64.len() != BLOCK_SIZE!() {
+                return message_out;
             }
             if block_end > ss.data_file_len {
-                ss.data_file.set_len(block_end as u64).unwrap();
+                let new_eof = (block_end + (1 << 20)).max(ss.eof);
+                if new_eof > ss.eof {
+                    ss.resize_to(new_eof);
+                }
                 ss.data_file_len = block_end;
+                ss.data_file.set_len(block_end as u64).unwrap();
             }
             let block_number = self.offset / BLOCK_SIZE!();
             debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
-            if self.base64.len() > 0 && block_end > ss.data_file_len {
-                ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
+            ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
+            if self.base64.len() == BLOCK_SIZE!() || block_end == ss.data_file_len {
                 ss.set_block_bit(block_number);
             }
             ss.last_activity = Instant::now();
