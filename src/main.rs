@@ -4198,16 +4198,23 @@ impl Receive for Content {
             });
         }
         if let Some(ss) = stream_states.get_mut(&self.id) {
+            let mut message_out = vec![];
             if let Some(pk) = signer {
                 if pk != ss.origin_pubkey {
                     warn!("stream content from wrong signer: expected {} got {}", ss.origin_pubkey, pk);
-                    return vec![];
+                    return message_out;
                 }
             } else {
                 warn!("unsigned streamstate Content");
-                return vec![];
+                return message_out;
             }
-            let mut message_out = vec![];
+            if self.base64.len() == 0 {
+                return message_out;
+            }
+            let block_end = self.offset + self.base64.len();
+            if block_end < ss.data_file_len && self.base64.len() != BLOCK_SIZE!() {
+                return message_out;
+            }
             if let Source::S(src) = *src {
                 ss.peers.insert(src);
                 if (rand::rng().random::<u32>() % 101) == 0 {
@@ -4217,13 +4224,6 @@ impl Receive for Content {
                 }
                 message_out = StreamState::PleaseSendContent__new_messages(ss, ps);
                 ss.next_block += 1;
-            }
-            if self.base64.len() == 0 {
-                return vec![];
-            }
-            let block_end = self.offset + self.base64.len();
-            if block_end < ss.data_file_len && self.base64.len() != BLOCK_SIZE!() {
-                return vec![];
             }
             if block_end > ss.data_file_len {
                 let new_eof = (block_end + (1 << 20)).max(ss.eof);
