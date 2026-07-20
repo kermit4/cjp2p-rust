@@ -94,7 +94,6 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - just default stream url for people not dated
 - it is time to make various mini stand-alone apps instead of this one big thing, separate repos, real users of the protocol .. except that peer discover is evolving, maybe thats the lib part?..make a standalone pong apk? 
 - focus on enabling devs, i've done enough demoing.. general dev UX .. for devs though ..DX..more walkthroughs, speedruns, how to build something, native, html, some overlap, no overlap, different languages ..start from total noob, dev exp
-- less latency on the broadcast.html .. rewriting blocks should work fine, i think the problem was that they werent aligned before ..they need to modify in place node side
 - at some point, /latest should use blake3 not sha, for pre-finished relaying
 - all the "metadata" dirs/files created by caching what others are searching for rather inefficiently and by ContentList::receive is sort of a DOS-ish situation potentially
 - verify blake3 tree should be a thread probably, for massive files to not pause the app
@@ -113,7 +112,6 @@ Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its u
 - backend message retransmit timer as a service to the web apps, instead of web side because they time out, for chirp, group chat, i think thats all, it could even be to the set/group not just the hosts known to the web side at the time?  though i like the app being fully UI side, this could be a mess later
 - PleaseAlwaysReturnThisMessage should be shorter since this is sent unverified
 - add VSTs to DAW?
-- if files viewed are cached to share to others ,why not chirp or group chat text too?  just a stream, of JSON?
-- ..and once thats answered, forums?
+- make chirp like group_chat_stream ?
+- forums? using /stream/ too like the group_chat_stream?
 - why arent streams a POST from the browser?  oh well maybe to handle restarts of the backend?  no, it can just repost..i don think there is a good reason really.
-- group chat stream works except doesnt even check missing hosts so defeats the point
