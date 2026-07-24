@@ -2628,6 +2628,7 @@ fn handle_line(
                     return;
                 }
                 eprintln!("/update: updated, restarting");
+                restore_terminal();
                 let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
             } else {
                 let status = std::process::Command::new("wget")
@@ -2653,6 +2654,7 @@ fn handle_line(
                     eprintln!("make failed: {}", status);
                     return;
                 }
+                restore_terminal();
                 let _ = std::process::Command::new(&exe).args(&args[1..]).exec();
             }
         });
