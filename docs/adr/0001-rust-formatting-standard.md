@@ -3,7 +3,7 @@
 - **Status:** Proposed (tooling in this change; node-side items await kermit)
 - **Author:** Zach Norman <zach@nor.mn>
 - **Deciders:** Zach Norman, Christopher Pearson (kermit4)
-- **Affects:** `src/` (node), `cjp2p-ctl/` (control tool crate), `Makefile`, CI
+- **Affects:** `src/` (node), `ctl/` (control tool crate), `Makefile`, CI
 
 ## Context
 
@@ -47,7 +47,7 @@ node was never the problem; the tooling was.
 **Per-crate `rustfmt.toml` on a shared nightly base, differing only in one knob;
 the Makefile is the single source of truth for the format command.**
 
-1. **`cjp2p-ctl/` (Zach's)** — crate-local `rustfmt.toml`:
+1. **`ctl/` (Zach's)** — crate-local `rustfmt.toml`:
    ```
    unstable_features = true
    max_width = 100
@@ -87,7 +87,7 @@ the Makefile is the single source of truth for the format command.**
 ## Open questions for kermit
 
 1. OK to add a repo-root `rustfmt.toml` encoding your Makefile config?
-2. OK with a crate-local `rustfmt.toml` in `cjp2p-ctl/` differing only by
+2. OK with a crate-local `rustfmt.toml` in `ctl/` differing only by
    `use_small_heuristics = "Off"` (your code untouched)?
 3. Pin nightly via `rust-toolchain.toml`, or keep formatting a Makefile/CI step
    so day-to-day builds stay on stable?
