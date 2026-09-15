@@ -361,6 +361,7 @@ impl PeerState {
             },
             socket: (|| -> std::io::Result<UdpSocket> {
                 let sock = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+                #[cfg(any(target_os = "linux", target_os = "android"))]
                 unsafe {
                     let val: libc::c_int = 0x0002; // IPV6_PREFER_SRC_PUBLIC
                     libc::setsockopt(
@@ -1110,16 +1111,7 @@ impl PeerState {
             };
             debug!("UPnP IPv6: control URL {control_url}");
 
-            let local_ipv6 = match pcp_find_ipv6_gateway().and_then(|(gw, oif)| {
-                let scope_id = if gw.is_unicast_link_local() { oif } else { 0 };
-                let gw_sock = SocketAddr::V6(std::net::SocketAddrV6::new(gw, 5351, 0, scope_id));
-                let s = UdpSocket::bind("[::]:0").ok()?;
-                s.connect(gw_sock).ok()?;
-                match s.local_addr().ok()?.ip() {
-                    IpAddr::V6(v6) => Some(v6),
-                    _ => None,
-                }
-            }) {
+            let local_ipv6 = match local_ipv6_source() {
                 Some(ip) => ip,
                 None => {
                     warn!("UPnP IPv6: could not determine local IPv6 address");
@@ -1278,9 +1270,14 @@ fn parse_header(stream: &mut TcpStream) -> Option<HttpRequest> {
 }
 
 fn free_disk_bytes() -> u64 {
+    // macOS has no statvfs64; its statvfs already has 64-bit fields.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    use libc::statvfs64 as statvfs;
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    use libc::statvfs;
     unsafe {
-        let mut stat: libc::statvfs64 = std::mem::zeroed();
-        if libc::statvfs64(b".\0".as_ptr() as *const libc::c_char, &mut stat) == 0 {
+        let mut stat: statvfs = std::mem::zeroed();
+        if statvfs(b".\0".as_ptr() as *const libc::c_char, &mut stat) == 0 {
             (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64)
         } else {
             0
@@ -1844,6 +1841,7 @@ fn get_local_ip_for_gateway(gateway_ip: Ipv4Addr) -> Ipv4Addr {
 
 // Find the IPv6 default gateway and its interface index via netlink RTM_GETROUTE.
 // This uses the kernel's routing socket API, which works on Linux and Android alike.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn pcp_find_ipv6_gateway() -> Option<(Ipv6Addr, u32)> {
     use nix::sys::socket::{
         bind, recvfrom, sendto, socket, AddressFamily, MsgFlags, NetlinkAddr, SockFlag, SockType,
@@ -1945,6 +1943,24 @@ fn pcp_find_ipv6_gateway() -> Option<(Ipv6Addr, u32)> {
     }
 
     best_gw.map(|gw| (gw, best_oif))
+}
+
+// No netlink off Linux, so PCP skips IPv6 gateway discovery.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn pcp_find_ipv6_gateway() -> Option<(Ipv6Addr, u32)> {
+    None
+}
+
+// The local IPv6 address the kernel would use to reach the wider network. Connecting a UDP
+// socket picks the source address for that route without sending anything, which needs no
+// netlink, so this works the same off Linux.
+fn local_ipv6_source() -> Option<Ipv6Addr> {
+    let s = UdpSocket::bind("[::]:0").ok()?;
+    s.connect("[2001:4860:4860::8888]:53").ok()?;
+    match s.local_addr().ok()?.ip() {
+        IpAddr::V6(v6) => Some(v6),
+        _ => None,
+    }
 }
 
 // SSDP M-SEARCH for WANIPv6FirewallControl, then parse the device description to get the
