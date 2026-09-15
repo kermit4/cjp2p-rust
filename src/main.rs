@@ -3174,6 +3174,7 @@ fn handle_web_request(
     };
     let mut start: usize = 0;
     let mut end: usize = 0;
+    let is_head = req.method == "HEAD";
     if req.path == "/" {
         debug!("got http request for {:?}",req);
         status_page(inbound_states, ps, stream);
@@ -3379,6 +3380,7 @@ fn handle_web_request(
                     sent_header: false,
                     eof: None,
                     pending_latest,
+                    is_head,
                     initiator: Initiator::Latest,
                 });
                 if ps.content_gateways[index].pending_latest.is_none() {
@@ -3436,6 +3438,7 @@ fn handle_web_request(
             sent_header: false,
             eof: None,
             pending_latest: None,
+            is_head,
             initiator: Initiator::Stream,
         });
         ps.serve_http_content(stream_states, inbound_states, index);
@@ -3534,6 +3537,7 @@ fn handle_web_request(
         sent_header: false,
         eof: None,
         pending_latest: None,
+        is_head,
         initiator: Initiator::ByHash,
     });
     ps.serve_http_content(stream_states, inbound_states, index);
@@ -4565,6 +4569,7 @@ struct ContentGateway {
     sent_header: bool,
     eof: Option<usize>,
     pending_latest: Option<LatestData>,
+    is_head: bool,
     initiator: Initiator,
 }
 enum Initiator {
@@ -4573,12 +4578,34 @@ enum Initiator {
     ByHash,
 }
 impl ContentGateway {
+    fn finish_response(&mut self) {
+        self.http_done = true;
+        self.waiting_for_browser = false;
+    }
+
+    // Clamps http_end to eof, after which a satisfiable range has http_start < http_end.
+    // Anything else (a start at or past eof, or start > end) would underflow
+    // http_end - http_start, so it gets 416 (RFC 9110 15.5.17) and false.
+    fn clamp_range_or_answer_416(&mut self) -> bool {
+        let eof = self.eof.unwrap();
+        if self.http_end == 0 || eof < self.http_end {
+            self.http_end = eof;
+        }
+        if !self.ranged || self.http_start < self.http_end {
+            return true;
+        }
+        let response = format!("HTTP/1.0 416 Range Not Satisfiable\r\nContent-Range: bytes */{eof}\r\nContent-Length: 0\r\n\r\n");
+        self.http_socket.write_all(response.as_bytes()).ok();
+        self.finish_response();
+        false
+    }
+
     fn serve_content_from_disk(&mut self, file: &File) {
         if self.eof.is_none() {
             self.eof = Some(file.metadata().unwrap().len() as usize);
         }
-        if self.http_end == 0 || self.eof.unwrap() < self.http_end {
-            self.http_end = self.eof.unwrap();
+        if !self.clamp_range_or_answer_416() {
+            return;
         }
         // i couldnt figure out how to get serve_mmap to take both Mmap or MmapMut.
         let mmap = unsafe { MmapMut::map_mut(file).unwrap() };
@@ -4591,8 +4618,8 @@ impl ContentGateway {
             return;
         }
         self.eof = Some(i.eof);
-        if self.http_end == 0 || self.eof.unwrap() < self.http_end {
-            self.http_end = self.eof.unwrap();
+        if !self.clamp_range_or_answer_416() {
+            return;
         }
 
         let mut available_end = self.http_end;
@@ -4677,11 +4704,14 @@ impl ContentGateway {
                 Ok(_) => (),
                 Err(e) => {
                     warn!("cg {} http failed to write header {}",self.http_socket.as_raw_fd(),e);
-                    self.http_done = true; // give up, that shouldnt happen
-                    self.waiting_for_browser = false;
+                    self.finish_response(); // give up, that shouldnt happen
                 }
             }
             self.sent_header = true;
+            if self.is_head {
+                self.finish_response();
+                return;
+            }
         }
 
         debug!("cg {} serve_mmap {}-{} [available {} ] of {}",self.http_socket.as_raw_fd(),self.http_start,self.http_end,available_end,self.eof.unwrap_or(0x7fffffffff));
@@ -4696,8 +4726,7 @@ impl ContentGateway {
                     // failed to send (your wifi/mobile connection is probably backing up) {0} {e}", msg_out.len());
                 } else {
                     warn!("cg {} http client error {e}",self.http_socket.as_raw_fd());
-                    self.http_done = true;
-                    self.waiting_for_browser = false;
+                    self.finish_response();
                     return;
                 }
             }
