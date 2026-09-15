@@ -271,6 +271,8 @@ struct PeerState {
     next_maintenance: Instant,
     next_save: Instant,
     last_upnp: std::time::SystemTime,
+    port_mapping_disabled: bool,
+    bootstrap_disabled: bool,
     recorded_chats: HashMap<String, Vec<String>>,
     all_chats: Vec<(String, String)>,
     displayed_group_chat_ids: HashSet<(String, i64)>,
@@ -391,6 +393,8 @@ impl PeerState {
             next_maintenance: Instant::now() - Duration::from_secs(99999),
             next_save: Instant::now() + Duration::from_secs(150),
             last_upnp: std::time::SystemTime::now(),
+            port_mapping_disabled: Path::new(".no_port_mapping").exists(),
+            bootstrap_disabled: Path::new(".no_bootstrap").exists(),
             recorded_chats: HashMap::new(),
             all_chats: Vec::new(),
             displayed_group_chat_ids: HashSet::new(),
@@ -434,23 +438,48 @@ impl PeerState {
         debug!("{} is loopback? {} ", ipv6, ipv6.is_loopback());
         debug!("{} is loopback? {} ", v4_in_v6, v4_in_v6.is_loopback()); //false, strange
         debug!("{} is loopback? {} ", v4_in_v6, v4_in_v6.to_ipv4().unwrap().is_loopback());
-        for bootstrap in [
-            "148.71.89.128:24254",
-            "159.69.54.127:24254",
-            "[2a01:4f8:c013:5bc5::1]:24254",
-            "[2001:818:e876:f700:e008:c723:26f1:561f]:24254",
-        ] {
-            let mut pi = PeerInfo::new();
-            pi.delay = Duration::from_millis(20);
-            let sa: SocketAddr = bootstrap.parse().unwrap();
-            if !ps.peer_map.contains_key(&sa) {
-                ps.peer_map.insert(bootstrap.parse().unwrap(), pi);
+        if !ps.bootstrap_disabled {
+            for bootstrap in [
+                "148.71.89.128:24254",
+                "159.69.54.127:24254",
+                "[2a01:4f8:c013:5bc5::1]:24254",
+                "[2001:818:e876:f700:e008:c723:26f1:561f]:24254",
+            ] {
+                ps.add_known_peer(bootstrap.parse().unwrap());
+            }
+        } else {
+            // Private mode: discard persisted peers from previous public runs
+            // before loading static peers from .static_peers
+            ps.peer_map.clear();
+            ps.peer_map_by_pub.clear();
+        }
+        // .static_peers: one "ip:port" per line, for private deployments (e.g. a fixed
+        // set of peers on a tailnet) that don't want the public bootstrap list above.
+        if let Ok(contents) = std::fs::read_to_string(".static_peers") {
+            for line in contents.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                match line.parse::<SocketAddr>() {
+                    Ok(sa) => ps.add_known_peer(sa),
+                    Err(e) => warn!(".static_peers: could not parse {line:?}: {e}"),
+                }
             }
         }
-        ps.upnp();
-        ps.pcp_ipv6();
-        ps.upnp_ipv6();
+        if !ps.port_mapping_disabled {
+            ps.upnp();
+            ps.pcp_ipv6();
+            ps.upnp_ipv6();
+        }
         return ps;
+    }
+    fn add_known_peer(&mut self, sa: SocketAddr) {
+        if !self.peer_map.contains_key(&sa) {
+            let mut pi = PeerInfo::new();
+            pi.delay = Duration::from_millis(20);
+            self.peer_map.insert(sa, pi);
+        }
     }
     fn active_peers_from_pub_map(&self) -> Vec<(SocketAddr, Ed25519Pub, Duration)> {
         self.peer_map_by_pub
@@ -5144,12 +5173,14 @@ fn maintenance(
         ps.recent_peer_timer = Instant::now();
     }
     log_if_slow(nowi, line!().to_string());
-    if let Ok(dur) = ps.last_upnp.elapsed() {
-        if dur > Duration::from_secs(1200) {
-            ps.last_upnp = std::time::SystemTime::now();
-            ps.upnp();
-            ps.pcp_ipv6();
-            ps.upnp_ipv6();
+    if !ps.port_mapping_disabled {
+        if let Ok(dur) = ps.last_upnp.elapsed() {
+            if dur > Duration::from_secs(1200) {
+                ps.last_upnp = std::time::SystemTime::now();
+                ps.upnp();
+                ps.pcp_ipv6();
+                ps.upnp_ipv6();
+            }
         }
     }
     let mut to_remove = vec![];
@@ -5173,7 +5204,11 @@ fn maintenance(
         ps.p.save();
     }
     log_if_slow(nowi, line!().to_string());
-    ps.probe_interfaces();
+    // .no_bootstrap also means no local discovery: probe_interfaces shouts to the subnet
+    // broadcast address, 224.0.0.1 and ff02::1, which a private node has no business doing.
+    if !ps.bootstrap_disabled {
+        ps.probe_interfaces();
+    }
     log_if_slow(nowi, line!().to_string());
     ps.probe();
     log_if_slow(nowi, line!().to_string());
