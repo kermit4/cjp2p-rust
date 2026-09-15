@@ -25,10 +25,40 @@ target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png
 	rm -f target/*/libcjp
 
 release: target/release/cjp2p bundle
-target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png 
+target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png
 	cargo build --release
 	rm -f target/*/libcjp
 	strip $@
+
+# -- deploy the built release binary to the live systemd node -----------------
+# This box (ck) is the live node: Linux aarch64, service runs as User=cjp2p,
+# binary is root-owned. /update can't reach it (no stdin on the daemon -- full
+# writeup in ~/cjp2p-backup/UPDATING.md), so this is the manual build+swap+
+# restart path. Run it yourself, interactively -- every sudo line here prompts
+# (or reuses your ticket). Restarting is a real, brief mesh outage: the node
+# drops and peers re-bind, which is why this is never part of `default`/`all`.
+NODE_BIN     = /usr/local/bin/cjp2p
+NODE_STATE   = /var/lib/cjp2p/cjp2p/state
+NODE_SERVICE = cjp2p
+
+.PHONY: deploy deploy-rollback
+
+# Snapshot state + the current binary, swap in the fresh release build, restart,
+# then show status so you can confirm the version stamp and peer count.
+deploy: release
+	sudo cp -a $(NODE_STATE) $(NODE_STATE).bak-$(shell date +%F)
+	sudo cp $(NODE_BIN) $(NODE_BIN).bak
+	sudo install -m 0755 target/release/cjp2p $(NODE_BIN)
+	sudo systemctl restart $(NODE_SERVICE)
+	systemctl status $(NODE_SERVICE) --no-pager
+	cjp2pctl status
+
+# Revert to the binary `deploy` just replaced (kept at $(NODE_BIN).bak).
+deploy-rollback:
+	sudo cp $(NODE_BIN).bak $(NODE_BIN)
+	sudo systemctl restart $(NODE_SERVICE)
+	systemctl status $(NODE_SERVICE) --no-pager
+	cjp2pctl status
 
 
 
