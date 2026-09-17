@@ -25,10 +25,67 @@ target/debug/cjp2p: Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png
 	rm -f target/*/libcjp
 
 release: target/release/cjp2p bundle
-target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png 
+target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.png
 	cargo build --release
 	rm -f target/*/libcjp
 	strip $@
+
+# -- deploy the built release binary to the live systemd node -----------------
+# This box (ck) is the live node: Linux aarch64, service runs as User=cjp2p,
+# binary is root-owned. /update can't reach it (no stdin on the daemon -- full
+# writeup in ~/cjp2p-backup/UPDATING.md), so this is the manual build+swap+
+# restart path. Run it yourself, interactively -- every sudo line here prompts
+# (or reuses your ticket). Restarting is a real, brief mesh outage: the node
+# drops and peers re-bind, which is why this is never part of `default`/`all`.
+NODE_BIN     = /usr/local/bin/cjp2p
+NODE_HOME    = /var/lib/cjp2p
+NODE_STATE   = $(NODE_HOME)/cjp2p/state
+NODE_SERVICE = cjp2p
+NODE_USER    = cjp2p
+
+.PHONY: deploy deploy-rollback
+
+# Snapshot state + the current binary, swap in the fresh release build, restart,
+# then show status so you can confirm the version stamp and peer count.
+deploy: release
+	sudo cp -a $(NODE_STATE) $(NODE_STATE).bak-$(shell date +%F)
+	sudo cp $(NODE_BIN) $(NODE_BIN).bak
+	sudo install -m 0755 target/release/cjp2p $(NODE_BIN)
+	sudo systemctl restart $(NODE_SERVICE)
+	systemctl status $(NODE_SERVICE) --no-pager
+	cjp2pctl status
+
+# Revert to the binary `deploy` just replaced (kept at $(NODE_BIN).bak).
+deploy-rollback:
+	sudo cp $(NODE_BIN).bak $(NODE_BIN)
+	sudo systemctl restart $(NODE_SERVICE)
+	systemctl status $(NODE_SERVICE) --no-pager
+	cjp2pctl status
+
+# -- get a usable crash dump out of the live node next time it dies -----------
+# Right now nothing captures a crash: apport (this box's core_pattern handler)
+# silently ignores unpackaged binaries by default, and systemd-coredump isn't
+# installed, so `journalctl -u cjp2p` only ever shows "Main process exited,
+# code=dumped, status=N/SIG" with no backtrace. Two independent, idempotent
+# fixes, safe to re-run:
+#   1. install systemd-coredump -- spawned by systemd itself, just works;
+#      `coredumpctl gdb cjp2p` gets a backtrace after the next crash. Needs
+#      plucky-updates enabled in apt sources first (one-off box fix, not run
+#      from here -- see the sed command from the 2026-09-17 session).
+#   2. tell apport to also report unpackaged binaries, but only for the cjp2p
+#      service user (its own ~/.config/apport/settings, under NODE_HOME) --
+#      a fallback in case (1) can't install yet. `apport-unpack` the resulting
+#      /var/crash/*cjp2p*.crash to get a plain core file out of it.
+.PHONY: enable-coredumps
+enable-coredumps:
+	sudo apt update
+	sudo apt-get install -y systemd-coredump || true
+	sudo mkdir -p $(NODE_HOME)/.config/apport
+	printf '[main]\nunpackaged = true\n' | sudo tee $(NODE_HOME)/.config/apport/settings >/dev/null
+	sudo chown -R $(NODE_USER):$(NODE_USER) $(NODE_HOME)/.config
+	sudo chmod 700 $(NODE_HOME)/.config $(NODE_HOME)/.config/apport
+	sudo chmod 600 $(NODE_HOME)/.config/apport/settings
+	@echo "coredump capture enabled -- next crash: coredumpctl gdb cjp2p (or apport-unpack a /var/crash/*cjp2p*.crash)"
 
 
 

@@ -1288,6 +1288,10 @@ fn free_disk_bytes() -> u64 {
     }
 }
 
+fn eof_within_disk_budget(eof: usize) -> bool {
+    (eof as u64) <= free_disk_bytes()
+}
+
 // Compute the blake3 chaining value for a block at the given byte offset.
 // BLOCK_SIZE must be a power-of-2 multiple of blake3::CHUNK_LEN (1024), which 4096 is.
 fn block_chaining_value(data: &[u8], byte_offset: u64) -> [u8; 32] {
@@ -4225,19 +4229,23 @@ impl Receive for Content {
                 message_out = StreamState::PleaseSendContent__new_messages(ss, ps);
                 ss.next_block += 1;
             }
+            let mut can_write = true;
             if block_end > ss.data_file_len {
-                let new_eof = (block_end + (1 << 20)).max(ss.eof);
-                if new_eof > ss.eof {
-                    ss.resize_to(new_eof);
+                let grown = ss.grow_for_block_end(block_end);
+                if grown {
+                    ss.data_file_len = block_end;
+                    ss.data_file.set_len(block_end as u64).unwrap();
+                } else {
+                    can_write = false;
                 }
-                ss.data_file_len = block_end;
-                ss.data_file.set_len(block_end as u64).unwrap();
             }
             let block_number = self.offset / BLOCK_SIZE!();
-            debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
-            ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
-            if self.base64.len() == BLOCK_SIZE!() || block_end == ss.data_file_len {
-                ss.set_block_bit(block_number);
+            if can_write {
+                debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
+                ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
+                if self.base64.len() == BLOCK_SIZE!() || block_end == ss.data_file_len {
+                    ss.set_block_bit(block_number);
+                }
             }
             ss.last_activity = Instant::now();
             for idx in 0..ps.content_gateways.len() {
@@ -4473,7 +4481,11 @@ impl StreamState {
 
         (mmap, data_file, sig_mmap, bitmap)
     }
-    fn resize_to(&mut self, new_eof: usize) {
+    fn resize_to(&mut self, new_eof: usize) -> bool {
+        if !eof_within_disk_budget(new_eof) {
+            warn!("{} refusing to grow stream to {} past disk budget", self.id, new_eof);
+            return false;
+        }
         let dir = StreamState::stream_dir(&self.origin_pubkey.to_string());
         let (mmap, data_file, sig_mmap, bitmap) = Self::open_files(&dir, &self.id, new_eof, self.data_file_len);
         self.mmap = mmap;
@@ -4481,6 +4493,14 @@ impl StreamState {
         self.sig_mmap = sig_mmap;
         self.bitmap = bitmap;
         self.eof = new_eof;
+        true
+    }
+    // Grows the mmap/backing file so `block_end` is covered, if it isn't already.
+    // Returns false (refusing) only when resize_to refused for disk-budget reasons;
+    // callers must not write into self.mmap past self.data_file_len when this is false.
+    fn grow_for_block_end(&mut self, block_end: usize) -> bool {
+        let new_eof = (block_end + (1 << 20)).max(self.eof);
+        new_eof <= self.eof || self.resize_to(new_eof)
     }
     fn block_bit(&self, n: usize) -> bool {
         n < self.bitmap.size() && self.bitmap.get(n)
@@ -4788,6 +4808,10 @@ impl InboundState {
         if this_eof != self.eof || self.mmap.is_none() || self.bitmap.is_none() {
             if self.mmap.is_some() && this_eof != self.eof {
                 warn!("{} conflicting EOF {} vs established {}, ignoring", self.id, this_eof, self.eof);
+                return vec![];
+            }
+            if !eof_within_disk_budget(this_eof) {
+                warn!("{} refusing EOF {} past disk budget", self.id, this_eof);
                 return vec![];
             }
             self.eof = this_eof;
@@ -6331,11 +6355,8 @@ impl Receive for SignedMessage {
                 let block_number = c.offset / BLOCK_SIZE!();
                 let sig_offset = block_number * 64;
                 let block_end = c.offset + c.base64.len();
-                let new_eof = (block_end + (1 << 20)).max(ss.eof);
-                if new_eof > ss.eof {
-                    ss.resize_to(new_eof);
-                }
-                if block_end > ss.data_file_len {
+                let grown = ss.grow_for_block_end(block_end);
+                if grown && block_end > ss.data_file_len {
                     ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sig_bytes);
                 }
             }
