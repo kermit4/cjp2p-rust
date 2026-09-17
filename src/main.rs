@@ -4229,19 +4229,23 @@ impl Receive for Content {
                 message_out = StreamState::PleaseSendContent__new_messages(ss, ps);
                 ss.next_block += 1;
             }
+            let mut can_write = true;
             if block_end > ss.data_file_len {
-                let new_eof = (block_end + (1 << 20)).max(ss.eof);
-                let grown = new_eof <= ss.eof || ss.resize_to(new_eof);
+                let grown = ss.grow_for_block_end(block_end);
                 if grown {
                     ss.data_file_len = block_end;
                     ss.data_file.set_len(block_end as u64).unwrap();
+                } else {
+                    can_write = false;
                 }
             }
             let block_number = self.offset / BLOCK_SIZE!();
-            debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
-            ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
-            if self.base64.len() == BLOCK_SIZE!() || block_end == ss.data_file_len {
-                ss.set_block_bit(block_number);
+            if can_write {
+                debug!( "\x1b[34mreceived block {:?} {:?} {:?} from {:?} window \x1b[7m{:}\x1b[m", self.id, block_number, block_number * BLOCK_SIZE!(), src, ss.next_block as i64 - block_number as i64);
+                ss.mmap[self.offset..block_end].copy_from_slice(&self.base64);
+                if self.base64.len() == BLOCK_SIZE!() || block_end == ss.data_file_len {
+                    ss.set_block_bit(block_number);
+                }
             }
             ss.last_activity = Instant::now();
             for idx in 0..ps.content_gateways.len() {
@@ -4490,6 +4494,13 @@ impl StreamState {
         self.bitmap = bitmap;
         self.eof = new_eof;
         true
+    }
+    // Grows the mmap/backing file so `block_end` is covered, if it isn't already.
+    // Returns false (refusing) only when resize_to refused for disk-budget reasons;
+    // callers must not write into self.mmap past self.data_file_len when this is false.
+    fn grow_for_block_end(&mut self, block_end: usize) -> bool {
+        let new_eof = (block_end + (1 << 20)).max(self.eof);
+        new_eof <= self.eof || self.resize_to(new_eof)
     }
     fn block_bit(&self, n: usize) -> bool {
         n < self.bitmap.size() && self.bitmap.get(n)
@@ -6344,8 +6355,7 @@ impl Receive for SignedMessage {
                 let block_number = c.offset / BLOCK_SIZE!();
                 let sig_offset = block_number * 64;
                 let block_end = c.offset + c.base64.len();
-                let new_eof = (block_end + (1 << 20)).max(ss.eof);
-                let grown = new_eof <= ss.eof || ss.resize_to(new_eof);
+                let grown = ss.grow_for_block_end(block_end);
                 if grown && block_end > ss.data_file_len {
                     ss.sig_mmap[sig_offset..sig_offset + 64].copy_from_slice(&sig_bytes);
                 }

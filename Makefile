@@ -38,8 +38,10 @@ target/release/cjp2p:	Makefile Cargo.toml src/*.rs  src/bin/*.rs   src/favicon.p
 # (or reuses your ticket). Restarting is a real, brief mesh outage: the node
 # drops and peers re-bind, which is why this is never part of `default`/`all`.
 NODE_BIN     = /usr/local/bin/cjp2p
-NODE_STATE   = /var/lib/cjp2p/cjp2p/state
+NODE_HOME    = /var/lib/cjp2p
+NODE_STATE   = $(NODE_HOME)/cjp2p/state
 NODE_SERVICE = cjp2p
+NODE_USER    = cjp2p
 
 .PHONY: deploy deploy-rollback
 
@@ -59,6 +61,31 @@ deploy-rollback:
 	sudo systemctl restart $(NODE_SERVICE)
 	systemctl status $(NODE_SERVICE) --no-pager
 	cjp2pctl status
+
+# -- get a usable crash dump out of the live node next time it dies -----------
+# Right now nothing captures a crash: apport (this box's core_pattern handler)
+# silently ignores unpackaged binaries by default, and systemd-coredump isn't
+# installed, so `journalctl -u cjp2p` only ever shows "Main process exited,
+# code=dumped, status=N/SIG" with no backtrace. Two independent, idempotent
+# fixes, safe to re-run:
+#   1. install systemd-coredump -- spawned by systemd itself, just works;
+#      `coredumpctl gdb cjp2p` gets a backtrace after the next crash. Needs
+#      plucky-updates enabled in apt sources first (one-off box fix, not run
+#      from here -- see the sed command from the 2026-09-17 session).
+#   2. tell apport to also report unpackaged binaries, but only for the cjp2p
+#      service user (its own ~/.config/apport/settings, under NODE_HOME) --
+#      a fallback in case (1) can't install yet. `apport-unpack` the resulting
+#      /var/crash/*cjp2p*.crash to get a plain core file out of it.
+.PHONY: enable-coredumps
+enable-coredumps:
+	sudo apt update
+	sudo apt-get install -y systemd-coredump || true
+	sudo mkdir -p $(NODE_HOME)/.config/apport
+	printf '[main]\nunpackaged = true\n' | sudo tee $(NODE_HOME)/.config/apport/settings >/dev/null
+	sudo chown -R $(NODE_USER):$(NODE_USER) $(NODE_HOME)/.config
+	sudo chmod 700 $(NODE_HOME)/.config $(NODE_HOME)/.config/apport
+	sudo chmod 600 $(NODE_HOME)/.config/apport/settings
+	@echo "coredump capture enabled -- next crash: coredumpctl gdb cjp2p (or apport-unpack a /var/crash/*cjp2p*.crash)"
 
 
 
