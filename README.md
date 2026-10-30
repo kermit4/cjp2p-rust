@@ -61,6 +61,17 @@ If it's not running, `git pull` then `make`
 
 Try /get c3514bf0056180d09376462a7a1b4f213c1d6e8ea67fae5c25099c6fd3d8274b (its ubuntu-24.04.3-live-server-amd64.iso ) and watch it come from two places with iftop
 
+# donate
+
+Donations to these address will further this project. Remove the spaces.
+
+- bitcoin 14JJTnUtxg8NU WdNkNNkCg3JSKeAZQThx4
+- ethereum 0x9aE035dEE83 18A9b9fD080Dda31D7524098f65EF
+- monero 46UDqzwnaeM2 5keXp8uj5n81ZNphtsP4BFmekfZE5C22BxtiQ4ua9zDNu8ZE5xkPiA5bB1XkpoC9NGrd4ZQW3jEm5BKxZAn 
+
+# 7. I'm looking for work
+
+here is my CV https://azai.net/resume/
 
 # TODO
 ## general 
