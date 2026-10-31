@@ -67,7 +67,6 @@ Donations to these address will further this project. Remove the spaces.
 
 - bitcoin 14JJTnUtxg8NU WdNkNNkCg3JSKeAZQThx4
 - ethereum 0x9aE035dEE83 18A9b9fD080Dda31D7524098f65EF
-- monero 46UDqzwnaeM2 5keXp8uj5n81ZNphtsP4BFmekfZE5C22BxtiQ4ua9zDNu8ZE5xkPiA5bB1XkpoC9NGrd4ZQW3jEm5BKxZAn 
 
 # 7. I'm looking for work
 
